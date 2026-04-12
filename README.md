@@ -6,6 +6,8 @@ Built with Python, Streamlit, and Plotly.
 
 ![App Screenshot](screenshot.png)
 
+![Mock Portfolio Backtest](backtest.png)
+
 ## Features
 
 **Match Prediction** — Select any two PL teams and get win/draw/loss probabilities, most likely scorelines, score matrix heatmap, goal distributions, recent form, and head-to-head history.
