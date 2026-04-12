@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Environment
+.env
+.venv/
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data - cached/generated files (CSVs are re-downloaded on first run)
+data/portfolio.json
+data/live_odds_cache.json
+data/odds_api_usage.json
+data/remaining_fixtures.json
+data/gameweek_history.json
+data/understat_*.json
+data/results.csv
+
+# Claude
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
