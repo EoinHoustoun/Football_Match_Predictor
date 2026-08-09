@@ -2443,19 +2443,33 @@ def auto_place_value_bets_v2(
     # Pass 1 — enrich each candidate with calibrated prob, EV, variance, and
     # an *un-corrected* Kelly fraction-of-bankroll.
     enriched: list[dict] = []
+    # Detect-at-sharp / place-at-best only counts as that workflow when the two
+    # sources actually differ; detecting and placing at the same book is
+    # single-source mode, where there is no sharp price to be missing.
+    _detect_src = p["settings"].get("detect_source")
+    _place_src  = p["settings"].get("odds_source", "Max")
+    requires_sharp = bool(_detect_src) and _detect_src != _place_src
+
     for c in candidates:
         raw_prob = float(c.get("model_prob", 0.0))
         eff_prob = (calibrate_prob(raw_prob, c.get("market", ""), calibrators)
                     if use_cal else raw_prob)
         _odds_raw = c.get("odds")
         odds = float(_odds_raw) if _odds_raw is not None else 0.0
-        # Detect_odds = sharp benchmark for EV gate (e.g. Pinnacle). Falls back
-        # to placement odds when not available — preserves prior behaviour.
+        # Detect_odds = sharp benchmark for the EV gate (e.g. Pinnacle).
         _detect_raw = c.get("detect_odds")
         try:
-            detect_odds = float(_detect_raw) if _detect_raw is not None and float(_detect_raw) > 1 else odds
+            sharp = (float(_detect_raw)
+                     if _detect_raw is not None and float(_detect_raw) > 1
+                     else None)
         except (ValueError, TypeError):
-            detect_odds = odds
+            sharp = None
+        # When the portfolio declares a separate detect source, an absent sharp
+        # price is a reason to pass, not a reason to reprice. Best-of-panel is
+        # the longest price on offer, so measuring EV against it inflates the
+        # edge and reproduces F_Max_Max rather than the validated F_PS_Max.
+        detect_odds = sharp if sharp is not None else odds
+        missing_sharp = requires_sharp and sharp is None
         # EV against the sharp price; Kelly stake against the placement price
         eff_ev = compute_ev(eff_prob, detect_odds) if detect_odds > 1 else -1.0
 
@@ -2485,7 +2499,8 @@ def auto_place_value_bets_v2(
                          "_shrink":     shrink,
                          "_kelly_pct":  kelly_pct,
                          "_detect_odds": detect_odds,
-                         "_used_sharp_detect": detect_odds != odds})
+                         "_missing_sharp": missing_sharp,
+                         "_used_sharp_detect": sharp is not None})
 
     # Pass 2 — apply gates and pick the qualifying set, ranked by EV
     skip_late = bool(p["settings"].get("skip_late_season", False))
@@ -2503,6 +2518,12 @@ def auto_place_value_bets_v2(
         # NaN guard (parity with ev_backtest_simulate_v2): NaN<threshold is
         # False, so a NaN EV/prob would sail through the gates below.
         if pd.isna(c["_eff_ev"]) or pd.isna(c["_eff_prob"]):
+            continue
+        # Detect-at-sharp: no Pinnacle price means no measurable edge
+        if c.get("_missing_sharp"):
+            _log_skip(skip_log, "no_sharp_price", c["home"], c["away"],
+                      f"no {_detect_src} price; refusing to measure EV against "
+                      f"the placement price")
             continue
         # No-history gate: promoted sides the model has never rated
         if should_skip_unrated(c["home"], c["away"], match_counts, min_team_matches):
@@ -2599,6 +2620,8 @@ def auto_place_value_bets_v2(
         bet["v2_sim_factor"]      = round(float(c.get("_sim_factor", 1.0)), 4)
         bet["v2_dd_factor"]       = round(float(dd_factor), 4)
         bet["model_variant"]      = p["settings"].get("model_variant", "dixon-coles-kn")
+        if c.get("_detect_odds") and c["_detect_odds"] != c["odds"]:
+            bet["detect_odds"] = c["_detect_odds"]
         placed.append(bet)
         pending_stake += stake
 
