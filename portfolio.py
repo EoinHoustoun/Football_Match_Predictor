@@ -106,6 +106,7 @@ _DEFAULT: dict = {
         "main_banned_dows": ["Mon"],
         "main_min_team_elo": 1500,    # worst-season crash protection
         "min_team_matches": 6,        # promoted sides aren't rated yet
+        "max_bets_per_club": 5,       # no club carries a third+ of the season
     },
 }
 
@@ -526,6 +527,9 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
     main_elo_filter_on = any(v is not None for v in
                              (main_min_te, main_max_te, main_gap_min, main_gap_max))
     min_team_matches = p["settings"].get("min_team_matches")
+    max_bets_per_club = p["settings"].get("max_bets_per_club")
+    club_counts = (club_bet_counts(p["bets"], since=_season_start(p))
+                   if max_bets_per_club else None)
 
     pending_singles = [b for b in p["bets"] if b["status"] == "pending" and b.get("type") != "acca"]
     pending_stake = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
@@ -611,6 +615,18 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
             continue
         if c["_kelly_pct"] <= 0:
             continue
+        # Club-exposure cap: don't let one club carry the season. Counted live
+        # so bets queued earlier in this same scan use up the allowance too.
+        if should_skip_club_exposure(c["home"], c["away"], club_counts,
+                                     max_bets_per_club):
+            _log_skip(skip_log, "club_exposure", c["home"], c["away"],
+                      f"already {club_counts.get(c['home'], 0)}/"
+                      f"{club_counts.get(c['away'], 0)} bets this season "
+                      f"(cap {max_bets_per_club})")
+            continue
+        if club_counts is not None:
+            for club in (c["home"], c["away"]):
+                club_counts[club] = club_counts.get(club, 0) + 1
         qualifying.append(c)
 
     # Pass 3 — apply simultaneous-bet correction across the qualifying set.
@@ -722,6 +738,8 @@ def ev_backtest_simulate(
     elo_gap_max: float | None = None,
     # No-history gate: both sides must have this many prior top-flight matches
     min_team_matches: int | None = None,
+    # Club-exposure cap: most bets one club may carry across the window
+    max_bets_per_club: int | None = None,
     df_features: pd.DataFrame | None = None,
     # xG-regression filter: skip when team is luck-driven (actual vs xG diverge)
     xg_overperform_threshold: float | None = None,
@@ -837,6 +855,8 @@ def ev_backtest_simulate(
     skipped_elo      = 0
     skipped_xg       = 0
     skipped_no_history = 0
+    skipped_club_exposure = 0
+    club_counts: dict[str, int] | None = {} if max_bets_per_club else None
     sim_factors_observed = []
 
     # Point-in-time history table, built from the FULL dataset so a team's
@@ -980,9 +1000,19 @@ def ev_backtest_simulate(
 
         # Place bets
         for c in candidates:
+            # Club-exposure cap, counted on bets actually placed rather than on
+            # candidates, so a club that never clears the gates keeps its
+            # allowance intact.
+            if should_skip_club_exposure(c["Home"], c["Away"], club_counts,
+                                         max_bets_per_club):
+                skipped_club_exposure += 1
+                continue
             stake = round(bankroll * c["kelly_pct_final"], 2)
             if stake <= 0 or stake > bankroll:
                 continue
+            if club_counts is not None:
+                for club in (c["Home"], c["Away"]):
+                    club_counts[club] = club_counts.get(club, 0) + 1
             bankroll -= stake
             if c["won"]:
                 ret = round(stake * c["place_odds"], 2)
@@ -1040,6 +1070,7 @@ def ev_backtest_simulate(
         "skipped_elo":      skipped_elo,
         "skipped_xg":       skipped_xg,
         "skipped_no_history": skipped_no_history,
+        "skipped_club_exposure": skipped_club_exposure,
         "odds_source": odds_source,
         "detect_source": detect_source,
         "mean_sim_factor": (round(float(np.mean(sim_factors_observed)), 3)
@@ -1081,6 +1112,8 @@ def ev_backtest_simulate_v2(
     elo_gap_max: float | None = None,
     # No-history gate: both sides must have this many prior top-flight matches
     min_team_matches: int | None = None,
+    # Club-exposure cap: most bets one club may carry across the window
+    max_bets_per_club: int | None = None,
     df_features: pd.DataFrame | None = None,
     # Optional isotonic calibration — matches live auto_place_value_bets_v2.
     calibrators: dict | None = None,
@@ -1183,6 +1216,8 @@ def ev_backtest_simulate_v2(
     skipped_max_ev      = 0
     skipped_elo         = 0
     skipped_no_history  = 0
+    skipped_club_exposure = 0
+    club_counts: dict[str, int] | None = {} if max_bets_per_club else None
     rated_from = _rated_from_table(df, min_team_matches)
     shrinkages = []
     sim_factors = []
@@ -1310,6 +1345,8 @@ def ev_backtest_simulate_v2(
 
                 candidates.append({
                     "Date":      r["Date"],
+                    "Home":      r["Home"],
+                    "Away":      r["Away"],
                     "Match":     f"{r['Home']} vs {r['Away']}",
                     "Market":    {"H": "Home Win", "D": "Draw", "A": "Away Win",
                                   "over25": "Over 2.5", "under25": "Under 2.5"}.get(mkt, mkt),
@@ -1349,9 +1386,17 @@ def ev_backtest_simulate_v2(
             dd_factor = 1.0
 
         for c in candidates:
+            # Club-exposure cap, same rule as Main so the A/B stays honest.
+            if should_skip_club_exposure(c["Home"], c["Away"], club_counts,
+                                         max_bets_per_club):
+                skipped_club_exposure += 1
+                continue
             stake = round(bankroll * c["_kelly_final"] * dd_factor, 2)
             if stake <= 0 or stake > bankroll:
                 continue
+            if club_counts is not None:
+                for club in (c["Home"], c["Away"]):
+                    club_counts[club] = club_counts.get(club, 0) + 1
             bankroll -= stake
             if c["_won"]:
                 ret = round(stake * c["Odds"], 2)
@@ -1422,6 +1467,7 @@ def ev_backtest_simulate_v2(
         "skipped_max_ev":     skipped_max_ev,
         "skipped_elo":        skipped_elo,
         "skipped_no_history": skipped_no_history,
+        "skipped_club_exposure": skipped_club_exposure,
         "mean_shrinkage":   round(float(np.mean(shrinkages)), 3) if shrinkages else 0.0,
         "mean_sim_factor":  round(float(np.mean(sim_factors)), 3) if sim_factors else 1.0,
         "mean_dd_factor":   round(float(np.mean(dd_factors_applied)), 3)
@@ -2199,6 +2245,56 @@ def should_skip_unrated(
             or match_counts.get(away, 0) < min_matches)
 
 
+def _season_start(p: dict) -> str | None:
+    """First day of the portfolio's season, as an ISO date.
+
+    Used to scope the club-exposure cap to the current season. July is the
+    boundary the rest of the app uses for season rollover. Returns None when the
+    portfolio predates the season field, which leaves the count unscoped.
+    """
+    season = str(p.get("season", "") or "")
+    head = season.split("-")[0]
+    return f"{head}-07-01" if head.isdigit() and len(head) == 4 else None
+
+
+def club_bet_counts(bets: list[dict], since: str | None = None) -> dict[str, int]:
+    """How many bets each club already carries, home plus away.
+
+    Voided bets never carried risk, so they don't use up a club's allowance.
+    `since` limits the count to one season: pass the season's start date and
+    last year's run on the same club stops suppressing this year's.
+    """
+    counts: dict[str, int] = {}
+    for b in bets:
+        if b.get("status") == "void":
+            continue
+        if since and str(b.get("date", ""))[:10] < since:
+            continue
+        for club in (b.get("home"), b.get("away")):
+            if club:
+                counts[club] = counts.get(club, 0) + 1
+    return counts
+
+
+def should_skip_club_exposure(home: str, away: str,
+                              club_counts: dict[str, int] | None,
+                              max_per_club: int | None) -> bool:
+    """True when either side already carries the season's full allowance.
+
+    A risk control, not a profit filter. The 2026-27 re-validation found 11 of
+    14 bets in 2025-26 landed on Sunderland, whose +£66,577 was the entire
+    season's profit and then some: every other club combined lost £15k. A season
+    that rides on one club is one club's variance, however good the model looks.
+
+    Both clubs are checked because a bet exposes both. Passing no cap disables
+    the control, so existing portfolios are unaffected.
+    """
+    if not max_per_club or club_counts is None:
+        return False
+    return (club_counts.get(home, 0) >= max_per_club
+            or club_counts.get(away, 0) >= max_per_club)
+
+
 def _rated_from_table(df, min_matches: int | None) -> dict | None:
     """Lazy wrapper so the simulators can build the table without importing
     `data` at module scope (data imports nothing from portfolio, but keeping
@@ -2395,6 +2491,9 @@ def auto_place_value_bets_v2(
     skip_late = bool(p["settings"].get("skip_late_season", False))
     market_gates = p["settings"].get("market_gates")
     min_team_matches = p["settings"].get("min_team_matches")
+    max_bets_per_club = p["settings"].get("max_bets_per_club")
+    club_counts = (club_bet_counts(p["bets"], since=_season_start(p))
+                   if max_bets_per_club else None)
     qualifying: list[dict] = []
     for c in sorted(enriched, key=lambda x: x["_eff_ev"], reverse=True):
         if len(qualifying) >= max_auto_bets:
@@ -2411,6 +2510,17 @@ def auto_place_value_bets_v2(
                       _unrated_detail(c["home"], c["away"], match_counts,
                                       int(min_team_matches)))
             continue
+        # Club-exposure cap: don't let one club carry the season
+        if should_skip_club_exposure(c["home"], c["away"], club_counts,
+                                     max_bets_per_club):
+            _log_skip(skip_log, "club_exposure", c["home"], c["away"],
+                      f"already {club_counts.get(c['home'], 0)}/"
+                      f"{club_counts.get(c['away'], 0)} bets this season "
+                      f"(cap {max_bets_per_club})")
+            continue
+        if club_counts is not None:
+            for club in (c["home"], c["away"]):
+                club_counts[club] = club_counts.get(club, 0) + 1
         # Late-season cutoff (Mar-May): empirically 0/7 across 2024-25 + 2025-26
         if skip_late and c.get("date") and _is_late_season(c["date"]):
             continue
