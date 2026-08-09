@@ -25,6 +25,8 @@ from data import (
     get_current_elo,
     get_current_stats,
     get_current_table,
+    preseason_table,
+    table_is_stale_for,
     get_current_teams,
     get_head_to_head,
     get_team_form,
@@ -3555,6 +3557,13 @@ def cached_season_sim(dc_hash: str, n_sims: int = 10_000, param_noise: float = 0
     df, _ = cached_data()
     table_df  = get_current_table(df)
     remaining = fetch_remaining_season_fixtures()
+    # Pre-season the loaded data still ends in May, so `get_current_table` hands
+    # back LAST season's finished standings: every club on Played 38, the
+    # relegated three still present, and the promoted sides missing entirely.
+    # Simulating 380 fixtures on top of that projects a second season onto
+    # completed points for the wrong twenty clubs.
+    if table_is_stale_for(table_df, remaining):
+        table_df = preseason_table(remaining)
     summary, sim_pts, fixtures_used, sim_positions = simulate_season(
         remaining, table_df, st.session_state["_dc_r_"],
         n_sims=n_sims, param_noise=param_noise, return_samples=True,

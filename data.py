@@ -168,6 +168,43 @@ def _compute_elo_series(
     return pd.DataFrame(records), elo
 
 
+
+def preseason_table(fixtures: list[dict]) -> pd.DataFrame:
+    """A zeroed league table for the clubs in `fixtures`.
+
+    Pre-season the loaded match data still ends in May, so the "current table"
+    is last season's final standings — wrong clubs, wrong points, and missing
+    whoever came up. The right starting point for a new season is its own
+    twenty on zero.
+    """
+    teams = sorted({t for f in fixtures for t in (f.get("home"), f.get("away"))
+                    if t})
+    columns = ["Team", "Played", "W", "D", "L", "GF", "GA", "GD", "Pts"]
+    if not teams:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame([{"Team": t, "Played": 0, "W": 0, "D": 0, "L": 0,
+                          "GF": 0, "GA": 0, "GD": 0, "Pts": 0} for t in teams],
+                        columns=columns)
+
+
+def table_is_stale_for(table: pd.DataFrame, fixtures: list[dict]) -> bool:
+    """True when `table` describes a different season from `fixtures`.
+
+    Two independent tells, either of which is enough:
+      - the table is empty, or
+      - it contains clubs that appear nowhere in the upcoming fixtures, which
+        means relegated sides are still in it.
+
+    A table already in progress for the right season is left alone; once real
+    results exist they are a far better starting point than zeros.
+    """
+    if fixtures is None or len(fixtures) == 0:
+        return False
+    if table is None or table.empty or "Team" not in table.columns:
+        return True
+    playing = {t for f in fixtures for t in (f.get("home"), f.get("away")) if t}
+    return bool(set(table["Team"]) - playing)
+
 def get_current_elo(df: pd.DataFrame,
                     entry_ratings: dict[str, float] | None = None,
                     entry_offsets: dict[str, float] | None = None,
