@@ -216,6 +216,72 @@ def test_reset_backs_up_both_live_files_first(live_portfolios, tmp_path):
     assert len(restored["bets"]) == 3
 
 
+# ── Rolling the bankroll forward ──────────────────────────────────────────────
+
+def _reset_to_fresh_season(bankroll: float = 10000.0) -> None:
+    sa.archive_season("2025-26")
+    sa.reset_for_new_season("2026-27", closing_season="2025-26",
+                            initial_bankroll=bankroll)
+
+
+def test_set_opening_bankroll_moves_both_initial_and_current(live_portfolios):
+    _reset_to_fresh_season()
+    sa.set_opening_bankroll(main=18251.75, mock_two=16972.20)
+
+    m = pf.load_portfolio()
+    assert m["initial_bankroll"] == 18251.75
+    assert m["bankroll"] == 18251.75
+    t = pf.load_portfolio_two()
+    assert t["initial_bankroll"] == 16972.20
+    assert t["bankroll"] == 16972.20
+
+
+def test_set_opening_bankroll_records_where_it_rolled_from(live_portfolios):
+    _reset_to_fresh_season()
+    sa.set_opening_bankroll(main=18251.75, rolled_from="2025-26")
+    assert pf.load_portfolio()["rolled_from"] == "2025-26"
+
+
+def test_set_opening_bankroll_leaves_the_other_line_alone(live_portfolios):
+    _reset_to_fresh_season()
+    sa.set_opening_bankroll(main=18251.75)
+    assert pf.load_portfolio_two()["initial_bankroll"] == 10000.0
+
+
+def test_set_opening_bankroll_refuses_once_a_bet_has_settled(live_portfolios):
+    _reset_to_fresh_season()
+    p = pf.load_portfolio()
+    p["bets"] = [_bet("x1", "won", 100.0, 300.0)]
+    pf.save_portfolio(p)
+
+    with pytest.raises(sa.ArchiveError):
+        sa.set_opening_bankroll(main=18251.75)
+    assert pf.load_portfolio()["initial_bankroll"] == 10000.0
+
+
+def test_set_opening_bankroll_refuses_while_a_bet_is_pending(live_portfolios):
+    _reset_to_fresh_season()
+    p = pf.load_portfolio()
+    p["bets"] = [_bet("x2", "pending", 100.0, 0.0)]
+    pf.save_portfolio(p)
+
+    with pytest.raises(sa.ArchiveError):
+        sa.set_opening_bankroll(main=18251.75)
+
+
+def test_set_opening_bankroll_backs_up_first(live_portfolios):
+    _reset_to_fresh_season()
+    result = sa.set_opening_bankroll(main=18251.75)
+    assert result["backups"]["main"].exists()
+    assert json.loads(result["backups"]["main"].read_text())["bankroll"] == 10000.0
+
+
+def test_set_opening_bankroll_rejects_a_non_positive_amount(live_portfolios):
+    _reset_to_fresh_season()
+    with pytest.raises(ValueError):
+        sa.set_opening_bankroll(main=0.0)
+
+
 # ── Season picker ─────────────────────────────────────────────────────────────
 
 def test_live_season_reads_the_live_portfolio(live_portfolios):

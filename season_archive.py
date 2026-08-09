@@ -235,6 +235,60 @@ def _fresh(existing: dict, season: str, initial_bankroll: float,
     }
 
 
+def set_opening_bankroll(
+    main: float | None = None,
+    mock_two: float | None = None,
+    *,
+    rolled_from: str | None = None,
+) -> dict:
+    """Set a line's opening bankroll while its book is still empty.
+
+    Compounding a season means carrying the closing bankroll forward rather
+    than restarting at a fixed stake, so the opening figure has to be settable
+    after `reset_for_new_season` has run. Refuses once any bet exists, settled
+    or pending, because moving the opening figure under a live book would
+    silently rewrite every P&L and ROI number derived from it.
+    """
+    targets = [(name, amount) for name, amount in
+               (("main", main), ("mock_two", mock_two)) if amount is not None]
+    if not targets:
+        raise ValueError("Give an opening bankroll for at least one line")
+    for name, amount in targets:
+        if amount <= 0:
+            raise ValueError(f"{name} opening bankroll must be positive, got {amount}")
+
+    loaders = {"main": (pf.load_portfolio, pf.save_portfolio, pf.PORTFOLIO_FILE),
+               "mock_two": (pf.load_portfolio_two, pf.save_portfolio_two,
+                            pf.MOCK2_PORTFOLIO_FILE)}
+
+    # Check every target before writing any of them.
+    state = {}
+    for name, amount in targets:
+        load, _, _ = loaders[name]
+        p = load()
+        if p.get("bets"):
+            raise ArchiveError(
+                f"Refusing to change the {name} opening bankroll: "
+                f"{len(p['bets'])} bet(s) already on the book. "
+                f"Every P&L figure is measured from the opening figure."
+            )
+        state[name] = p
+
+    backups, updated = {}, {}
+    for name, amount in targets:
+        _, save, path = loaders[name]
+        backups[name] = _backup(path, "preOpeningBankroll")
+        p = state[name]
+        p["initial_bankroll"] = float(amount)
+        p["bankroll"] = float(amount)
+        if rolled_from:
+            p["rolled_from"] = rolled_from
+        save(p)
+        updated[name] = p
+
+    return {"backups": backups, "portfolios": updated}
+
+
 def reset_for_new_season(
     season: str,
     *,
