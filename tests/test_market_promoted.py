@@ -145,3 +145,30 @@ def test_seeded_elo_stays_inside_what_promoted_teams_have_recorded():
 def test_an_already_rated_team_keeps_its_elo():
     elo = seed_promoted_elo({"Arsenal": 1773.0}, ["Arsenal", "Hull"])
     assert elo["Arsenal"] == 1773.0
+
+
+# ── Staleness ─────────────────────────────────────────────────────────────────
+# Nothing refreshes the relegation table. When it ages out, next season's
+# promoted clubs are simply absent from it, every one reverts to the flat prior,
+# and the app quietly loses the ability to tell them apart with no error raised.
+
+from datetime import date
+
+from models import (MARKET_ODDS_CAPTURED, market_odds_age_days,
+                    market_odds_are_stale)
+
+
+def test_a_fresh_table_is_not_stale():
+    captured = date.fromisoformat(MARKET_ODDS_CAPTURED)
+    assert not market_odds_are_stale(today=captured)
+
+
+def test_a_table_from_last_season_is_stale():
+    captured = date.fromisoformat(MARKET_ODDS_CAPTURED)
+    next_august = captured.replace(year=captured.year + 1)
+    assert market_odds_are_stale(today=next_august)
+
+
+def test_age_is_reported_in_days():
+    captured = date.fromisoformat(MARKET_ODDS_CAPTURED)
+    assert market_odds_age_days(today=captured) == 0

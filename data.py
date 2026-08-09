@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from statistics import median
 import requests
 
 DATA_DIR = Path("data")
@@ -58,22 +59,94 @@ _US_TO_FD = {
 }
 
 
+# Fallback entry level for a promoted side, used only when the series is too
+# young to measure one. Normally the entry level is computed from the ratings
+# that actually exist at that moment: see `_entry_base`.
+#
+# A fixed constant cannot work here. Elo is zero-sum, so lowering where promoted
+# teams enter drags the whole league down with it — correcting 1500 to 1351
+# moved every club by 30 to 65 points, which then makes 1351 itself too high.
+# Chasing that fixed point by hand every season is exactly the kind of silent
+# staleness worth designing out.
+PROMOTED_ENTRY_ELO: float = 1351.0
+
+# How many of the weakest current clubs define the level a promoted side
+# inherits. Three, because three go down and three come up.
+_ENTRY_BASE_TEAMS = 3
+
+# A club counts as being in the league if it has played inside this window.
+# Without it the weakest "rated" clubs are sides relegated seasons ago whose
+# ratings kept sliding, and a promoted team inherits a level no current club is
+# anywhere near.
+_ACTIVE_WINDOW_DAYS = 400
+
+# A club whose first match is inside this window of the dataset's opening date
+# was there at the start, so it starts level like everyone else. Anything
+# arriving later got there by promotion.
+_FOUNDING_WINDOW_DAYS = 60
+
+
 def _compute_elo_series(
-    df: pd.DataFrame, k: float = 32.0, home_adv: float = 100.0
+    df: pd.DataFrame, k: float = 32.0, home_adv: float = 100.0,
+    entry_ratings: dict[str, float] | None = None,
+    entry_offsets: dict[str, float] | None = None,
 ):
     """
     Compute running Elo ratings chronologically.
     Returns (records_df, current_elo_dict).
     records_df columns: Date, HomeTeam, AwayTeam, home_elo, away_elo
     current_elo_dict: {team: final_rating after all matches}
+
+    `entry_ratings` sets the rating a club starts on the first time it appears.
+    Clubs present when the data opens always start at 1500; a club arriving
+    later is by definition promoted and enters at `PROMOTED_ENTRY_ELO` unless
+    the caller supplies something better, such as this season's market-implied
+    rating.
     """
     elo: dict[str, float] = {}
+    last_seen: dict = {}
     records = []
 
-    for _, row in df.sort_values("Date").iterrows():
+    df = df.sort_values("Date")
+    if df.empty:
+        return pd.DataFrame(records), elo
+
+    opening = df["Date"].iloc[0]
+    cutoff = opening + pd.Timedelta(days=_FOUNDING_WINDOW_DAYS)
+    early = df[df["Date"] <= cutoff]
+    founders = set(early["HomeTeam"]) | set(early["AwayTeam"])
+
+    def _entry_base(when) -> float:
+        """The level a promoted club inherits: the median of the weakest sides
+        ACTUALLY IN THE LEAGUE at that moment.
+
+        "Currently rated" is not the same as "currently playing". The ratings
+        dict keeps every club that has ever appeared, including sides relegated
+        seasons ago whose ratings decayed on the way down. Taking the three
+        weakest from that put a promoted team on 1202, below every club in the
+        division, because it was measuring ghosts.
+        """
+        cutoff = when - pd.Timedelta(days=_ACTIVE_WINDOW_DAYS)
+        active = [r for team, r in elo.items()
+                  if last_seen.get(team) is not None and last_seen[team] >= cutoff]
+        if len(active) < _ENTRY_BASE_TEAMS:
+            return PROMOTED_ENTRY_ELO
+        return float(median(sorted(active)[:_ENTRY_BASE_TEAMS]))
+
+    def _entry(team: str, when) -> float:
+        if team in founders:
+            return 1500.0
+        if entry_ratings and team in entry_ratings:
+            return float(entry_ratings[team])
+        base = _entry_base(when)
+        # A per-team offset lets the relegation market say which of this
+        # season's promoted sides is the weaker, without pinning the level.
+        return base + float((entry_offsets or {}).get(team, 0.0))
+
+    for _, row in df.iterrows():
         h, a = row["HomeTeam"], row["AwayTeam"]
-        r_h = elo.get(h, 1500.0)
-        r_a = elo.get(a, 1500.0)
+        r_h = elo.get(h, _entry(h, row["Date"]))
+        r_a = elo.get(a, _entry(a, row["Date"]))
 
         # Expected score for home team (with home advantage bump)
         e_h = 1.0 / (1.0 + 10.0 ** ((r_a - r_h - home_adv) / 400.0))
@@ -90,13 +163,23 @@ def _compute_elo_series(
 
         elo[h] = r_h + k * (s_h - e_h)
         elo[a] = r_a + k * (s_a - e_a)
+        last_seen[h] = last_seen[a] = row["Date"]
 
     return pd.DataFrame(records), elo
 
 
-def get_current_elo(df: pd.DataFrame) -> dict[str, float]:
-    """Return the current (post-last-match) Elo rating for each team."""
-    _, elo_dict = _compute_elo_series(df)
+def get_current_elo(df: pd.DataFrame,
+                    entry_ratings: dict[str, float] | None = None,
+                    entry_offsets: dict[str, float] | None = None,
+                    ) -> dict[str, float]:
+    """Return the current (post-last-match) Elo rating for each team.
+
+    `entry_ratings` is passed through so a caller that knows what this season's
+    promoted sides are worth can say so, rather than letting them enter at the
+    level the clubs they replaced were relegated from.
+    """
+    _, elo_dict = _compute_elo_series(df, entry_ratings=entry_ratings,
+                                      entry_offsets=entry_offsets)
     return elo_dict
 
 # ESPN full names → football-data.co.uk short names

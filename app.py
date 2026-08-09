@@ -32,9 +32,13 @@ from data import (
     team_match_counts,
 )
 from models import (
+    MARKET_ODDS_CAPTURED,
     PROMOTED_PRIOR,
+    market_odds_age_days,
+    market_odds_are_stale,
     promoted_prior_for,
     seed_promoted_elo,
+    promoted_elo_offsets,
     backtest_models,
     backtest_models_v2,
     blend,
@@ -10382,6 +10386,20 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                 f'</span></div>'
                 for team in sorted(seeded,
                                    key=lambda t: elo_dict.get(t, 0), reverse=True))
+            # Nothing refreshes the relegation table, and when it ages out it
+            # fails silently: next season's promoted clubs are absent from it,
+            # all of them revert to the flat prior, and nothing errors.
+            stale_note = ""
+            if market_odds_are_stale():
+                stale_note = (
+                    f'<div style="margin-top:0.6rem;padding:0.5rem 0.7rem;'
+                    f'border-radius:8px;background:rgba(255,64,129,0.12);'
+                    f'border:1px solid rgba(255,64,129,0.45);font-size:0.82rem;'
+                    f'color:#ff8fb1;font-weight:700">Relegation odds are '
+                    f'{market_odds_age_days()} days old (captured '
+                    f'{MARKET_ODDS_CAPTURED}). Refresh MARKET_RELEGATION_ODDS in '
+                    f'models.py — until then promoted sides fall back to the flat '
+                    f'prior and cannot be told apart.</div>')
             rated = sorted(((t, v) for t, v in elo_dict.items()
                             if t not in seeded and t in teams),
                            key=lambda kv: kv[1])[:2]
@@ -10422,8 +10440,10 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                 f'promoted sides went straight back down, so 60% is average, and '
                 f'each team is moved off the pooled value by half the observed '
                 f'spread. Elo is anchored on where promoted teams actually finish '
-                f'their first season (mean 1394, sd 91), not the 1500 default. '
-                f'Lowest rated sides with real history: {scale}.</div></div>',
+                f'their first season, not the 1500 default — measured live from the '
+                f'weakest clubs currently in the league, so it cannot go stale. '
+                f'Lowest rated sides with real history: {scale}.</div>'
+                f'{stale_note}</div>',
                 unsafe_allow_html=True)
 
     # ── Runner ───────────────────────────────────────────────────────────
@@ -10729,11 +10749,18 @@ def main():
             _fx_key = "|".join(f"{f['home']}~{f['away']}" for f in _fx)
             dc_r, dc_draw_r = cached_promoted_seeding(
                 cache_key, _fx_key, dc_r, dc_draw_r)
-            # Elo too. An unseen team defaults to 1500, which would rank a
-            # promoted side above Ipswich on 1351 — so seed from where promoted
-            # teams actually land, ordered by the relegation market.
+            # Elo too. Seeding on top of the finished dict only lasts until
+            # the team plays: the series is recomputed from scratch each time
+            # and would restart them at 1500, so a promoted side could LOSE its
+            # opener and come out rated higher. Feed the market rating in as the
+            # ENTRY rating instead, so it survives contact with results.
+            _names = [t for f in _fx for t in (f["home"], f["away"])]
+            elo_dict = get_current_elo(
+                df, entry_offsets=promoted_elo_offsets(_names))
+            # Before a promoted side has played it is absent from the series
+            # entirely, so fill it in for display and for candidate metadata.
             elo_dict = seed_promoted_elo(
-                elo_dict, [t for f in _fx for t in (f["home"], f["away"])])
+                elo_dict, _names, active=get_current_teams(df))
         except Exception:
             pass
 

@@ -4,6 +4,7 @@ Prediction models: Poisson goal model + Dixon-Coles + XGBoost form classifier.
 from __future__ import annotations
 
 import math
+from statistics import median
 
 import numpy as np
 import pandas as pd
@@ -223,10 +224,31 @@ PROMOTED_PRIOR: dict = {
 # prices Hull at 1/4 to go down and Coventry at 4/6, and calling them the same
 # team ignores the sharpest read available.
 #
-# Pre-season 2026-27 relegation prices, captured 2026-08-09.
+# Pre-season 2026-27 relegation prices, captured on MARKET_ODDS_CAPTURED.
 # Source: thelines.com Premier League relegation odds, 2026-08-08.
 # Fractional as published. Update each August; a team absent here simply falls
 # back to the flat prior.
+MARKET_ODDS_CAPTURED: str = "2026-08-08"
+
+# Past this, the table is assumed to belong to a previous season. Nothing
+# refreshes it automatically, and a stale table fails quietly rather than
+# loudly: next season's promoted clubs simply will not be in it, every one of
+# them silently reverts to the flat prior, and the app goes back to being unable
+# to tell Hull from Coventry with no error anywhere. Hence a visible warning.
+MARKET_ODDS_STALE_AFTER_DAYS: int = 120
+
+
+def market_odds_age_days(today=None) -> int:
+    """How old the relegation table is, in days."""
+    from datetime import date as _date
+    captured = _date.fromisoformat(MARKET_ODDS_CAPTURED)
+    return (( today or _date.today()) - captured).days
+
+
+def market_odds_are_stale(today=None) -> bool:
+    return market_odds_age_days(today) > MARKET_ODDS_STALE_AFTER_DAYS
+
+
 MARKET_RELEGATION_ODDS: dict = {
     "Hull": "1/4",          "Ipswich": "4/6",      "Coventry": "4/6",
     "Sunderland": "3/1",    "Fulham": "11/2",      "Leeds": "6/1",
@@ -260,6 +282,8 @@ MARKET_LOGIT_SCALE: float = 0.9
 # teams at the end of their first Premier League season. The unseen-team default
 # of 1500 is more than a standard deviation too generous — it would rank a
 # promoted club above Ipswich on 1351 and Burnley on 1340.
+_ENTRY_BASE_TEAMS = 3   # three go down, three come up
+
 PROMOTED_ELO: dict = {"mean": 1394.0, "sd": 91.0, "min": 1254.0, "max": 1559.0}
 
 
@@ -334,9 +358,41 @@ def promoted_prior_for(teams, odds: dict | None = None,
     return out
 
 
+def promoted_elo_offsets(teams, odds: dict | None = None,
+                         shrinkage: float = MARKET_SHRINKAGE) -> dict:
+    """How far each promoted side sits from the level promoted sides inherit.
+
+    Points, not ratings. The level itself is computed inside the Elo series from
+    the weakest clubs actually rated at that moment, because Elo is zero-sum and
+    any fixed level goes stale the moment the scale shifts. This only says which
+    of the intake is the weaker, and by how much.
+    """
+    out: dict[str, float] = {}
+    probs = market_relegation_probs(odds)
+    for team in teams:
+        p = probs.get(team)
+        if p is None or not 0.0 < p < 1.0:
+            continue
+        z = max(-1.5, min(1.5, (_logit(p) - _logit(PROMOTED_BASE_RELEGATION))
+                          / MARKET_LOGIT_SCALE))
+        out[team] = float(-z * shrinkage * PROMOTED_ELO["sd"])
+    return out
+
+
 def seed_promoted_elo(elo: dict, teams, odds: dict | None = None,
-                      shrinkage: float = MARKET_SHRINKAGE) -> dict:
-    """Give unrated sides a starting Elo instead of the 1500 default.
+                      shrinkage: float = MARKET_SHRINKAGE,
+                      active: set | list | None = None) -> dict:
+    """Fill in a rating for sides that have not played yet, for display.
+
+    Uses the same rule the Elo series uses when a promoted club first appears:
+    the median of the three weakest clubs currently rated, plus the market
+    offset. Same rule in both places, so the number shown before a promoted side
+    plays matches the one the series gives it the moment it does.
+
+    This does NOT survive the team playing, and is not meant to. The live path
+    injects the market view through `entry_offsets` on the series itself; a
+    patch applied to a finished dict is discarded on the next recompute, which
+    is how a promoted side could once lose its opener and come out rated higher.
 
     Returns a new dict; teams already carrying an Elo keep it untouched.
     """
@@ -344,20 +400,21 @@ def seed_promoted_elo(elo: dict, teams, odds: dict | None = None,
     missing = [t for t in teams if t not in out]
     if not missing:
         return out
-    probs = market_relegation_probs(odds)
 
+    # Only clubs actually in the league. The ratings dict keeps every side that
+    # has ever played, and the weakest of those are teams relegated seasons ago
+    # whose ratings kept sliding — measuring them put a promoted side on 1202.
+    pool = [out[t] for t in (active if active is not None else out) if t in out]
+    rated = sorted(pool)
+    if len(rated) >= _ENTRY_BASE_TEAMS:
+        base = float(median(rated[:_ENTRY_BASE_TEAMS]))
+    else:
+        base = PROMOTED_ELO["mean"]
+
+    offsets = promoted_elo_offsets(missing, odds, shrinkage)
     for team in missing:
-        p = probs.get(team)
-        if p is not None and 0.0 < p < 1.0:
-            z = max(-1.5, min(1.5, (_logit(p) - _logit(PROMOTED_BASE_RELEGATION))
-                              / MARKET_LOGIT_SCALE))
-        else:
-            z = 0.0
-        rating = PROMOTED_ELO["mean"] - z * shrinkage * PROMOTED_ELO["sd"]
-        out[team] = float(max(PROMOTED_ELO["min"],
-                              min(PROMOTED_ELO["max"], rating)))
+        out[team] = float(base + offsets.get(team, 0.0))
     return out
-
 
 def seed_promoted_teams(dc_ratings: dict, teams, prior: dict | None = None) -> dict:
     """Give unrated teams the promoted-side prior rather than league average.
