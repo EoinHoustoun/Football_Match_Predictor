@@ -3,7 +3,9 @@ Data loading, feature engineering, and helper functions for PL Predictor.
 """
 from __future__ import annotations
 
+import difflib
 import json
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -13,19 +15,39 @@ import requests
 
 DATA_DIR = Path("data")
 
-SEASONS = {
-    "2021-22": "https://www.football-data.co.uk/mmz4281/2122/E0.csv",
-    "2022-23": "https://www.football-data.co.uk/mmz4281/2223/E0.csv",
-    "2023-24": "https://www.football-data.co.uk/mmz4281/2324/E0.csv",
-    "2024-25": "https://www.football-data.co.uk/mmz4281/2425/E0.csv",
-    "2025-26": "https://www.football-data.co.uk/mmz4281/2526/E0.csv",
-}
+_FIRST_SEASON_START = 2021   # earliest season in the dataset (2021-22)
 
-# Seasons still in progress — always re-download for freshness
-_LIVE_SEASONS = {"2025-26", "2024-25"}
 
-# Understat year key → football season  (2021 → 2021-22, …, 2025 → 2025-26)
-_UNDERSTAT_YEARS = [2021, 2022, 2023, 2024, 2025]
+def _season_start_year(today: date | None = None) -> int:
+    """Start year of the current football season. PL seasons run Aug-May;
+    July onwards counts as the new season so the pipeline rolls over
+    automatically before the first fixtures."""
+    today = today or date.today()
+    return today.year if today.month >= 7 else today.year - 1
+
+
+def _season_label(start_year: int) -> str:
+    return f"{start_year}-{str(start_year + 1)[-2:]}"
+
+
+def _build_seasons(today: date | None = None) -> dict[str, str]:
+    """SEASONS dict from 2021-22 through the current season — auto-extends
+    every July so no manual edit is needed at season rollover."""
+    out: dict[str, str] = {}
+    for y in range(_FIRST_SEASON_START, _season_start_year(today) + 1):
+        code = f"{str(y)[-2:]}{str(y + 1)[-2:]}"
+        out[_season_label(y)] = f"https://www.football-data.co.uk/mmz4281/{code}/E0.csv"
+    return out
+
+
+SEASONS = _build_seasons()
+
+# Current + previous season — always re-download for freshness
+_CUR_SEASON_START = _season_start_year()
+_LIVE_SEASONS = {_season_label(_CUR_SEASON_START), _season_label(_CUR_SEASON_START - 1)}
+
+# Understat year key → football season  (2021 → 2021-22, …)
+_UNDERSTAT_YEARS = list(range(_FIRST_SEASON_START, _CUR_SEASON_START + 1))
 
 _US_TO_FD = {
     "Manchester City":         "Man City",
@@ -94,6 +116,51 @@ _ESPN_TO_FD = {
     "Ipswich Town":              "Ipswich",
     "Leicester City":            "Leicester",
 }
+
+# Team names present in the loaded football-data CSVs — populated by
+# load_data() and used to auto-resolve names the hardcoded maps don't cover
+# (newly promoted sides each season).
+KNOWN_FD_TEAMS: set[str] = set()
+
+# Per-season real-xG coverage, populated by load_data():
+# {"2025-26": {"matched": 380, "total": 380}, ...}. Lets the app warn when
+# Understat has silently failed and the model is running on the
+# shots-conversion proxy instead of real xG.
+XG_COVERAGE: dict[str, dict[str, int]] = {}
+
+
+def _resolve_team_name(raw: str) -> str:
+    """API display name → football-data short name.
+
+    Hardcoded map first; for names it doesn't cover, falls back to matching
+    against the team names actually present in the loaded CSVs — substring
+    containment, then difflib — so promoted teams resolve without a manual
+    mapping update every August.
+    """
+    if raw in _ESPN_TO_FD:
+        return _ESPN_TO_FD[raw]
+    if not KNOWN_FD_TEAMS or raw in KNOWN_FD_TEAMS:
+        return raw
+    # "Leeds United" → "Leeds", "Burnley FC" → "Burnley"
+    contained = [t for t in KNOWN_FD_TEAMS if t.lower() in raw.lower()]
+    if contained:
+        return max(contained, key=len)
+    close = difflib.get_close_matches(raw, list(KNOWN_FD_TEAMS), n=1, cutoff=0.75)
+    return close[0] if close else raw
+
+
+def _fetch_json_with_backoff(url: str, timeout: int = 10, retries: int = 3):
+    """GET → JSON with exponential backoff so a single timeout or 429 doesn't
+    silently drop a day of fixtures. Returns None when all attempts fail."""
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+    return None
 
 
 def _fetch_understat_xg() -> pd.DataFrame:
@@ -188,9 +255,17 @@ def load_data() -> pd.DataFrame:
 
     raw = pd.concat(dfs, ignore_index=True)
 
-    keep = ["Date", "Season", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"]
-    for col in ["HS", "AS", "HST", "AST", "B365H", "B365D", "B365A",
-                "MaxH", "MaxD", "MaxA", "B365>2.5", "B365<2.5"]:
+    keep = ["Date", "Season", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR",
+            "HTHG", "HTAG", "HTR"]   # half-time goals/result for equaliser study
+    for col in ["HS", "AS", "HST", "AST",
+                "B365H", "B365D", "B365A",
+                "MaxH", "MaxD", "MaxA",
+                "B365>2.5", "B365<2.5",
+                # Closing-line columns for CLV (Pinnacle = sharp benchmark)
+                "PSH", "PSD", "PSA",
+                "AvgH", "AvgD", "AvgA",
+                "P>2.5", "P<2.5",
+                "Avg>2.5", "Avg<2.5"]:
         if col in raw.columns:
             keep.append(col)
 
@@ -215,6 +290,15 @@ def load_data() -> pd.DataFrame:
     else:
         df["xg_h_us"] = np.nan
         df["xg_a_us"] = np.nan
+
+    # Record per-season real-xG coverage so the app can surface a degraded
+    # state (Understat down → model silently on shots-conversion proxy).
+    XG_COVERAGE.clear()
+    for season, grp in df.groupby("Season"):
+        XG_COVERAGE[str(season)] = {
+            "matched": int(grp["xg_h_us"].notna().sum()),
+            "total":   int(len(grp)),
+        }
 
     if "HST" in df.columns and "AST" in df.columns:
         df["HST"] = pd.to_numeric(df["HST"], errors="coerce")
@@ -259,6 +343,10 @@ def load_data() -> pd.DataFrame:
     # ── Elo ratings (pre-match) ───────────────────────────────────────────
     elo_records, _ = _compute_elo_series(df)
     df = df.merge(elo_records, on=["Date", "HomeTeam", "AwayTeam"], how="left")
+
+    # Feed the fuzzy team-name resolver with every name the CSVs use
+    KNOWN_FD_TEAMS.update(df["HomeTeam"].unique())
+    KNOWN_FD_TEAMS.update(df["AwayTeam"].unique())
 
     return df
 
@@ -521,11 +609,8 @@ def fetch_upcoming_fixtures(lookahead_days: int = 30) -> list[dict]:
         "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
         f"?dates={today.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
     )
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    data = _fetch_json_with_backoff(url, timeout=15)
+    if data is None:
         return []
 
     for event in data.get("events", []):
@@ -544,7 +629,7 @@ def fetch_upcoming_fixtures(lookahead_days: int = 30) -> list[dict]:
             ).date()
             for comp in comps["competitors"]:
                 raw = comp["team"]["displayName"]
-                name = _ESPN_TO_FD.get(raw, raw)
+                name = _resolve_team_name(raw)
                 if comp["homeAway"] == "home":
                     home_name = name
                 else:
@@ -574,6 +659,44 @@ def fetch_upcoming_fixtures(lookahead_days: int = 30) -> list[dict]:
     # Sort by date then kick-off time
     gameweek.sort(key=lambda x: (x["date"], x["time_utc"]))
     return gameweek
+
+
+def team_match_counts(df: pd.DataFrame) -> dict[str, int]:
+    """How many matches each team has in the loaded dataset, home plus away.
+
+    Drives the no-history gate: a newly promoted side has no Dixon-Coles rating
+    and no Elo until it has played enough top-flight matches for the model to
+    learn anything, and a team absent from the data is simply missing from this
+    dict rather than present with a zero.
+    """
+    if df.empty or "HomeTeam" not in df.columns:
+        return {}
+    counts = df["HomeTeam"].value_counts().add(
+        df["AwayTeam"].value_counts(), fill_value=0)
+    return {team: int(n) for team, n in counts.items()}
+
+
+def team_rated_from(df: pd.DataFrame, min_matches: int) -> dict[str, pd.Timestamp]:
+    """The date each team reached `min_matches` top-flight matches.
+
+    The live gate can use final counts, because every match in the dataset has
+    already happened. A backtest cannot: gating on final counts would treat a
+    promoted side as rated during its own first matches, which is look-ahead of
+    exactly the kind that produced the £100k calibration artifact. Teams that
+    never reach the threshold are absent from the result.
+    """
+    if df.empty or "HomeTeam" not in df.columns or min_matches < 1:
+        return {}
+    appearances = pd.concat([
+        df[["Date", "HomeTeam"]].rename(columns={"HomeTeam": "Team"}),
+        df[["Date", "AwayTeam"]].rename(columns={"AwayTeam": "Team"}),
+    ]).sort_values("Date")
+
+    out: dict[str, pd.Timestamp] = {}
+    for team, group in appearances.groupby("Team", sort=False):
+        if len(group) >= min_matches:
+            out[team] = group["Date"].iloc[min_matches - 1]
+    return out
 
 
 def get_current_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -606,12 +729,18 @@ def get_current_table(df: pd.DataFrame) -> pd.DataFrame:
     return tbl
 
 
-def fetch_remaining_season_fixtures(season_end_date: str = "2026-05-25") -> list[dict]:
+def fetch_remaining_season_fixtures(season_end_date: str | None = None) -> list[dict]:
     """
     Fetch all remaining unplayed PL fixtures through the end of the season.
     Results are cached locally for 12 hours (daily schedule rarely changes).
     Returns list of {"home": str, "away": str, "date": date, "time_utc": str}
+
+    `season_end_date` defaults to June 1 of the current season's end year —
+    computed dynamically so it rolls over each July with no manual edit
+    (the buffer past late May also catches rescheduled final fixtures).
     """
+    if season_end_date is None:
+        season_end_date = date(_season_start_year() + 1, 6, 1).isoformat()
     cache_path = DATA_DIR / "remaining_fixtures.json"
 
     # Return cache if fresh enough
@@ -639,11 +768,8 @@ def fetch_remaining_season_fixtures(season_end_date: str = "2026-05-25") -> list
             "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
             f"?dates={d.strftime('%Y%m%d')}"
         )
-        try:
-            r = requests.get(url, timeout=8)
-            r.raise_for_status()
-            data = r.json()
-        except Exception:
+        data = _fetch_json_with_backoff(url, timeout=10, retries=2)
+        if data is None:
             d += timedelta(days=1)
             continue
 
@@ -659,7 +785,7 @@ def fetch_remaining_season_fixtures(season_end_date: str = "2026-05-25") -> list
                 home_name = away_name = None
                 for comp in comps["competitors"]:
                     raw_name = comp["team"]["displayName"]
-                    name = _ESPN_TO_FD.get(raw_name, raw_name)
+                    name = _resolve_team_name(raw_name)
                     if comp["homeAway"] == "home":
                         home_name = name
                     else:
@@ -688,3 +814,130 @@ def fetch_remaining_season_fixtures(season_end_date: str = "2026-05-25") -> list
         {**f, "date": date.fromisoformat(f["date"])}
         for f in all_fixtures
     ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Team motivation state — captures what each team has to play for at a point
+# in the season. The empirical Mar-Apr collapse (0/7 across 2024-25 + 2025-26)
+# suggests fixed-form models miss the regime change in late season — top teams
+# push for wins, dead-rubber mid-tablers play loose, relegation-threatened sides
+# play with desperation. This feature lets the model see those states.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MOTIVATION_STATES = ["title_race", "europe_race", "survival",
+                      "dead_rubber", "mid_active", "unknown"]
+
+
+def _classify_motivation(team: str, table: dict, season_progress: float) -> str:
+    """Categorise a team's motivation given the league snapshot at match time.
+
+    table: {team: {pos, pts, gd, played}}; season_progress in [0,1].
+    """
+    if team not in table or season_progress < 0.10:
+        return "unknown"
+    t   = table[team]
+    pos = t["pos"]; pts = t["pts"]
+    n_teams = len(table)
+
+    pts_sorted = sorted([v["pts"] for v in table.values()], reverse=True)
+    leader_pts = pts_sorted[0]
+    pts_at_7   = pts_sorted[6]  if n_teams >= 7  else 0
+    pts_at_17  = pts_sorted[16] if n_teams >= 17 else 0
+
+    if pos <= 2 and (leader_pts - pts) <= 6 and season_progress > 0.50:
+        return "title_race"
+    if 3 <= pos <= 7 and abs(pts - pts_at_7) <= 6 and season_progress > 0.30:
+        return "europe_race"
+    if pos >= 14 and (pts - pts_at_17) <= 6 and season_progress > 0.30:
+        return "survival"
+    if (8 <= pos <= 13
+        and (pts_at_7  - pts) > 10
+        and (pts - pts_at_17) > 10
+        and season_progress > 0.60):
+        return "dead_rubber"
+    return "mid_active"
+
+
+def add_motivation_features(df_features: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
+    """Add team-motivation features to df_features.
+
+    For each match, computes both teams' league position, games remaining, and
+    motivation category given the table snapshot at kickoff (no look-ahead —
+    only matches strictly *before* the current date in the same season are used).
+
+    New columns:
+      h_pos_at_match, a_pos_at_match
+      h_games_remaining, a_games_remaining
+      h_mot_<state>, a_mot_<state>       one-hot 0/1 for each motivation category
+    """
+    out = df_features.copy()
+    out["h_pos_at_match"]    = -1
+    out["a_pos_at_match"]    = -1
+    out["h_games_remaining"] = -1
+    out["a_games_remaining"] = -1
+    out["h_motivation"]      = "unknown"
+    out["a_motivation"]      = "unknown"
+
+    df_sorted = df.sort_values(["Season", "Date"]).reset_index(drop=True)
+    # df_features and df share Date+HomeTeam by construction — index by (Date, HomeTeam)
+    out_idx_by_dh = {(r["Date"], r["HomeTeam"]): i for i, r in out.iterrows()}
+
+    for season, season_df in df_sorted.groupby("Season"):
+        running: dict[str, dict] = {}
+        for _, match in season_df.sort_values("Date").iterrows():
+            home, away, dt = match["HomeTeam"], match["AwayTeam"], match["Date"]
+
+            # Snapshot table BEFORE this match
+            table = {}
+            if running:
+                rows = [{"team": tm, "pts": s["pts"], "gd": s["gf"]-s["ga"],
+                         "gf": s["gf"], "played": s["played"]}
+                        for tm, s in running.items()]
+                tbl_df = pd.DataFrame(rows).sort_values(
+                    ["pts","gd","gf"], ascending=False).reset_index(drop=True)
+                for pos, row in tbl_df.iterrows():
+                    table[row["team"]] = {"pos": pos+1, "pts": row["pts"],
+                                          "gd": row["gd"], "played": row["played"]}
+
+            n_teams = len(table) if table else 20
+            total_games = (n_teams - 1) * 2  # 38 for full PL
+            home_played = table.get(home, {}).get("played", 0)
+            away_played = table.get(away, {}).get("played", 0)
+            season_progress = (sum(s["played"] for s in table.values()) /
+                               max(1, len(table) * total_games)) if table else 0
+
+            home_state = _classify_motivation(home, table, season_progress)
+            away_state = _classify_motivation(away, table, season_progress)
+
+            idx = out_idx_by_dh.get((dt, home))
+            if idx is not None:
+                out.at[idx, "h_pos_at_match"]    = table.get(home, {}).get("pos", -1)
+                out.at[idx, "a_pos_at_match"]    = table.get(away, {}).get("pos", -1)
+                out.at[idx, "h_games_remaining"] = total_games - home_played
+                out.at[idx, "a_games_remaining"] = total_games - away_played
+                out.at[idx, "h_motivation"]      = home_state
+                out.at[idx, "a_motivation"]      = away_state
+
+            # Update running totals with the result (post-snapshot, no leak)
+            try:
+                hg, ag = int(match["FTHG"]), int(match["FTAG"])
+            except (ValueError, TypeError):
+                continue
+            ftr = match["FTR"]
+            for tm, gf, ga, pts_won in [
+                (home, hg, ag, 3 if ftr=="H" else (1 if ftr=="D" else 0)),
+                (away, ag, hg, 3 if ftr=="A" else (1 if ftr=="D" else 0)),
+            ]:
+                if tm not in running:
+                    running[tm] = {"played": 0, "pts": 0, "gf": 0, "ga": 0}
+                running[tm]["played"] += 1
+                running[tm]["pts"]    += pts_won
+                running[tm]["gf"]     += gf
+                running[tm]["ga"]     += ga
+
+    # One-hot for XGB
+    for state in _MOTIVATION_STATES:
+        out[f"h_mot_{state}"] = (out["h_motivation"] == state).astype(int)
+        out[f"a_mot_{state}"] = (out["a_motivation"] == state).astype(int)
+
+    return out

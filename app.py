@@ -28,6 +28,7 @@ from data import (
     get_head_to_head,
     get_team_form,
     load_data,
+    team_match_counts,
 )
 from models import (
     backtest_models,
@@ -7517,6 +7518,9 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     max_team_elo=float(hbt_max_te) if hbt_max_te is not None else None,
                     elo_gap_min=float(hbt_gap_min) if hbt_gap_min is not None else None,
                     elo_gap_max=float(hbt_gap_max) if hbt_gap_max is not None else None,
+                    # No-history gate, mirroring live so the backtest measures
+                    # the gate as it actually runs
+                    min_team_matches=settings.get("min_team_matches"),
                     df_features=df_features,
                 )
                 st.session_state["_hbt_log"]     = log_df
@@ -9161,6 +9165,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     max_team_elo=float(hbt2_max_te) if hbt2_max_te is not None else None,
                     elo_gap_min=float(hbt2_gap_min) if hbt2_gap_min is not None else None,
                     elo_gap_max=float(hbt2_gap_max) if hbt2_gap_max is not None else None,
+                    # No-history gate, mirroring live (see the Main backtest)
+                    min_team_matches=settings.get("min_team_matches"),
                     df_features=df_features,
                 )
                 st.session_state["_hbt2_log"]     = log2_df
@@ -10255,6 +10261,12 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     for fix in fixtures:
         h, a = fix["home"], fix["away"]
         if h not in teams or a not in teams:
+            # Was a bare continue, which made promoted sides invisible: in
+            # 2026-27 that silently hid 2 of the 10 opening fixtures.
+            unknown = [t for t in (h, a) if t not in teams]
+            _log_activity_event("fixture_skipped", reason="unknown_team",
+                                match=f"{h} vs {a}",
+                                detail=f"{', '.join(unknown)} not in the model's team list")
             continue
         api_o = live_odds_map.get((h, a), {})
         if not api_o or "H" not in api_o:
@@ -10300,10 +10312,16 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                              "ev": pf.compute_ev(mt_prob, ev_ref) if ev_ref else -1})
 
     placed_total = 0
+    # No-history gate: promoted sides with too little top-flight history to be
+    # rated. Counted once and shared by both lines.
+    match_counts = team_match_counts(df)
+    skip_log: list[dict] = []
     if main_enabled:
         thr = float(main_port["settings"].get("auto_bet_threshold", 0.40))
         placed = pf.auto_place_value_bets(main_port, main_cands, thr,
-                                          calibrators=calibrators)
+                                          calibrators=calibrators,
+                                          match_counts=match_counts,
+                                          skip_log=skip_log)
         for b in placed:
             _log_activity_event("auto_bet_placed", portfolio="main",
                                 match=f"{b['home']} vs {b['away']}",
@@ -10318,7 +10336,9 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         thr = float(mt_port["settings"].get("auto_bet_threshold", 0.40))
         placed = pf.auto_place_value_bets_v2(mt_port, mt_cands, thr,
                                              calibrators=calibrators,
-                                             bin_variances=bin_vars)
+                                             bin_variances=bin_vars,
+                                             match_counts=match_counts,
+                                             skip_log=skip_log)
         for b in placed:
             _log_activity_event("auto_bet_placed", portfolio="mt",
                                 match=f"{b['home']} vs {b['away']}",
@@ -10328,6 +10348,14 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             placed_total += len(placed)
             st.toast(f"🧪 Mock Two: placed {len(placed)} bet"
                      f"{'s' if len(placed) > 1 else ''}")
+
+    # Flush gate skips, deduped: both lines scan the same fixtures, so an
+    # unrated side would otherwise be logged once per market per portfolio.
+    for key in dict.fromkeys(
+            (e["reason"], e["home"], e["away"], e["detail"]) for e in skip_log):
+        reason, home, away, detail = key
+        _log_activity_event("fixture_skipped", reason=reason,
+                            match=f"{home} vs {away}", detail=detail)
 
     pf.save_portfolio(main_port)
     pf.save_portfolio_two(mt_port)

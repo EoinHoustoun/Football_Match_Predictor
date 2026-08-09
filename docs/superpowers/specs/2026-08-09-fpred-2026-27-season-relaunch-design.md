@@ -111,11 +111,20 @@ Three tightening-only changes.
    `ev_backtest_simulate` and `ev_backtest_simulate_v2`. Validating the gate on
    historical data requires it to run in the simulators too.
 
-2. **ELO floor excludes the unrated default.** Today `min_team_elo` rejects on
-   `elo < 1500` while an unseen team defaults to exactly 1500, so unknown teams
-   pass the filter that exists to exclude weak sides. The floor will require a
-   team that is actually rated. This closes the same failure mode that produced
-   last season's promoted-side calibrator artifact.
+2. **ELO floor stops waving missing ratings through.**
+
+   *Corrected 2026-08-09 during implementation.* This section originally claimed
+   an unseen team defaults to Elo 1500 and therefore passes an `elo < 1500`
+   floor. That diagnosis was wrong. The 1500 default applies only inside the Elo
+   computation loop; the final ratings dict has **no key at all** for Coventry
+   or Hull, so their Elo arrives as `None`. The real hole is that
+   `should_skip_elo_profile` returns "don't skip" on missing data, which waves
+   an unrated side straight past the floor built to exclude it.
+
+   The fix is `require_known_elo=True`: when a band is active, a missing or NaN
+   rating is grounds to skip rather than to pass. Same failure mode closed,
+   different mechanism. Worth noting Ipswich sits at Elo 1351 and was already
+   correctly blocked by the existing floor.
 
 3. **Silent skips become visible.** `if h not in teams or a not in teams:
    continue` currently drops fixtures with no trace. It will record a structured
