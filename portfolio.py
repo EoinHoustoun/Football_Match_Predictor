@@ -1497,6 +1497,38 @@ _NAME_MAP = {
 }
 
 
+def resolve_odds_map_names(odds_map: dict) -> dict:
+    """Re-key an odds map onto football-data's short team names.
+
+    The Odds API says "Coventry City"; fixtures, ratings and the match CSVs all
+    say "Coventry". The auto-bet loop joins the two with a plain dict lookup, so
+    a long-form key is not a cosmetic difference — the fixture silently vanishes.
+
+    Imported lazily: `data` does not import `portfolio`, and keeping the
+    dependency one-way and local avoids a cycle.
+    """
+    try:
+        from data import _resolve_team_name
+    except Exception:
+        return odds_map
+
+    def _short(raw: str) -> str:
+        # Same two steps as the fresh-fetch path, so a cached map and a freshly
+        # fetched one can never disagree about what a team is called.
+        return _NAME_MAP.get(raw) or _resolve_team_name(raw)
+
+    resolved: dict = {}
+    for key, quote in odds_map.items():
+        try:
+            home, away = key
+            resolved[(_short(home), _short(away))] = quote
+        except Exception:
+            # An unresolvable name still joins better on its raw form than not
+            # being there at all.
+            resolved[key] = quote
+    return resolved
+
+
 def fetch_live_odds(api_key: str) -> dict:
     """
     Fetch EPL H2H + totals odds from The Odds API (https://the-odds-api.com).
@@ -1526,7 +1558,8 @@ def fetch_live_odds(api_key: str) -> dict:
         if age_h < _CACHE_HOURS:
             try:
                 raw = json.loads(_LIVE_ODDS_CACHE.read_text())
-                return {tuple(k.split("|")): v for k, v in raw.items()}
+                return resolve_odds_map_names(
+                    {tuple(k.split("|")): v for k, v in raw.items()})
             except Exception:
                 pass
 
@@ -1534,7 +1567,8 @@ def fetch_live_odds(api_key: str) -> dict:
         if _LIVE_ODDS_CACHE.exists():
             try:
                 raw = json.loads(_LIVE_ODDS_CACHE.read_text())
-                return {tuple(k.split("|")): v for k, v in raw.items()}
+                return resolve_odds_map_names(
+                    {tuple(k.split("|")): v for k, v in raw.items()})
             except Exception:
                 pass
         return {}
