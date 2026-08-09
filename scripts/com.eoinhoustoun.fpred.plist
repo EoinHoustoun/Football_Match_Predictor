@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.eoinhoustoun.fpred.autobet</string>
+
+    <!-- Pinned, not `/usr/bin/env python3`. launchd does not inherit the login
+         shell's PATH, so env resolved to the Command Line Tools python, which
+         has none of this project's dependencies. This is the interpreter the
+         app itself runs under. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Frameworks/Python.framework/Versions/3.9/bin/python3</string>
+        <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED/scripts/run_auto_bet.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED</string>
+
+    <!-- Run hourly (every 60 min) — note macOS will skip intervals while
+         the laptop is asleep. RunAtLoad=true fires once on wake to catch
+         up. For uninterrupted hourly firing during sleep, schedule pmset
+         wake events or run on a cloud VM instead. -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!-- Without this, launchd runs the job at background QoS and throttles it
+         hard: the same run that takes 78s from a shell had not finished
+         importing after eight minutes. Standard restores normal scheduling. -->
+    <key>ProcessType</key>
+    <string>Standard</string>
+
+    <!-- Unbuffered, so the stdout log shows progress during the run instead of
+         staying empty until the process exits. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <!-- Fire immediately on load + on every wake from sleep -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED/data/autobet.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED/data/autobet.stderr.log</string>
+</dict>
+</plist>

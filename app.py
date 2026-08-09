@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from data import (
     team_match_counts,
 )
 from models import (
+    PROMOTED_PRIOR,
     backtest_models,
     backtest_models_v2,
     blend,
@@ -228,7 +230,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     transform: translateY(-2px);
 }
 .hero-stat-label {
-    font-size: 0.78rem; color: #556; letter-spacing: 2px;
+    font-size: 0.78rem; color: #b8c0d0; letter-spacing: 2px;
     text-transform: uppercase; font-weight: 700; margin-bottom: 0.35rem;
 }
 .hero-stat-value {
@@ -294,7 +296,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     -webkit-text-fill-color: transparent;
 }
 .home-sub {
-    font-size: 1.1rem; color: #7c4dff; letter-spacing: 2.5px;
+    font-size: 1.1rem; color: #a78bfa; letter-spacing: 2.5px;
     text-transform: uppercase; font-weight: 800;
     margin-top: 0.9rem; text-align: center; opacity: 0.85;
 }
@@ -323,7 +325,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .hf-tile-icon { font-size: 1.7rem; line-height: 1; }
 .hf-tile-lbl  {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px;
-    text-transform: uppercase; color: #7c4dff;
+    text-transform: uppercase; color: #a78bfa;
 }
 .hf-tile-val  {
     font-size: 2.4rem; font-weight: 900; color: #e8eaf0;
@@ -354,7 +356,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 /* Recent events feed */
 .hf-feed-title {
     font-size: 0.86rem; font-weight: 800; letter-spacing: 1.6px;
-    text-transform: uppercase; color: #7c4dff;
+    text-transform: uppercase; color: #a78bfa;
     margin: 1.4rem 0 0.5rem; max-width: 1200px;
 }
 .hf-feed-list {
@@ -381,7 +383,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
                 background: linear-gradient(90deg, rgba(0,230,118,0.06), transparent); }
 .hf-evt-lost  { border-left-color: #ff4081;
                 background: linear-gradient(90deg, rgba(255,64,129,0.06), transparent); }
-.hf-evt-clv   { border-left-color: #7c4dff; }
+.hf-evt-clv   { border-left-color: #a78bfa; }
 .hf-evt-warn  { border-left-color: #ffd600;
                 background: linear-gradient(90deg, rgba(255,214,0,0.06), transparent); }
 
@@ -481,7 +483,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 8px;
-    color: #556 !important;
+    color: #b8c0d0 !important;
     font-weight: 600;
     font-size: 0.9rem;
 }
@@ -499,14 +501,14 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     line-height: 1.1; margin-bottom: 0.4rem;
 }
-.pl-subtitle { font-size: 0.9rem; color: #556; letter-spacing: 2px; text-transform: uppercase; font-weight: 500; }
-.pl-meta { font-size: 0.88rem; color: #556; margin-top: 0.6rem; line-height: 1.5; }
+.pl-subtitle { font-size: 0.9rem; color: #b8c0d0; letter-spacing: 2px; text-transform: uppercase; font-weight: 500; }
+.pl-meta { font-size: 0.88rem; color: #b8c0d0; margin-top: 0.6rem; line-height: 1.5; }
 
 /* ── Divider ── */
 .divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(124,77,255,0.4), transparent); margin: 2rem 0; }
 
 /* ── Section label ── */
-.section-label { font-size: 0.86rem; font-weight: 800; color: #7c4dff; text-transform: uppercase; letter-spacing: 2.5px; margin-bottom: 1.2rem; }
+.section-label { font-size: 0.86rem; font-weight: 800; color: #a78bfa; text-transform: uppercase; letter-spacing: 2.5px; margin-bottom: 1.2rem; }
 
 .vs-badge { text-align: center; font-size: 2rem; font-weight: 900;
             background: linear-gradient(135deg, #7c4dff, #00e5ff);
@@ -529,10 +531,10 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prob-pct  { font-size: 3.4rem; font-weight: 900; line-height: 1; margin-bottom: 0.3rem;
              letter-spacing: -1.5px; }
-.prob-pct-home { color: #6366f1; }
+.prob-pct-home { color: #949bf7; }
 .prob-pct-draw { color: #fbbf24; }
 .prob-pct-away { color: #fb7185; }
-.prob-label { font-size: 0.78rem; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; color: #667; }
+.prob-label { font-size: 0.78rem; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; color: #b8c0d0; }
 
 /* ── Stacked probability bar — H / D / A with badges + bold % ── */
 .prob-stack-bar {
@@ -569,14 +571,14 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     font-variant-numeric: tabular-nums;
     white-space: nowrap; line-height: 1;
 }
-.seg-pct-dark { color: #1a1d27; text-shadow: 0 1px 2px rgba(255,255,255,0.22); }
+.seg-pct-dark { /* on: #ffd600 */ color: #1a1d27; text-shadow: 0 1px 2px rgba(255,255,255,0.22); }
 
 /* ── Model comparison cards ── */
 .model-card {
     background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07);
     border-radius: 16px; padding: 1.2rem 1.4rem; margin-bottom: 0.5rem;
 }
-.model-title { font-size: 0.78rem; font-weight: 800; color: #556; text-transform: uppercase; letter-spacing: 2px; }
+.model-title { font-size: 0.78rem; font-weight: 800; color: #b8c0d0; text-transform: uppercase; letter-spacing: 2px; }
 
 /* Accuracy badge in the corner of each model card */
 .model-acc-badge {
@@ -588,9 +590,9 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     font-variant-numeric: tabular-nums;
 }
 .model-acc-num { font-size: 1.15rem; font-weight: 900; line-height: 1; }
-.model-acc-lbl { font-size: 0.7rem; font-weight: 800; letter-spacing: 1.2px;
-                 text-transform: uppercase; color: #667; margin-top: 0.25rem; }
-.model-acc-na  { color: #556; }
+.model-acc-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.2px;
+                 text-transform: uppercase; color: #b8c0d0; margin-top: 0.25rem; }
+.model-acc-na  { color: #b8c0d0; }
 
 /* ── Scoreline card ── */
 .score-hero {
@@ -599,7 +601,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 }
 .score-hero-label { font-size: 0.92rem; font-weight: 800; color: #8892a4; letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 1rem; }
 .score-digits { font-size: clamp(3.5rem, 8vw, 5.5rem); font-weight: 900; color: #e8eaf0; letter-spacing: -2px; line-height: 1; }
-.score-dash { color: #334; margin: 0 0.5rem; }
+.score-dash { color: #9aa6ba; margin: 0 0.5rem; }
 .score-prob { margin-top: 0.9rem; font-size: 1rem; color: #00e5ff; font-weight: 700; letter-spacing: 0.3px; }
 .score-ci { margin-top: 1.2rem; display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap; }
 .ci-item { font-size: 0.92rem; color: #8892a4; line-height: 1.4; }
@@ -607,14 +609,14 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 
 /* ── Top scorelines table ── */
 .score-table { width: 100%; border-collapse: collapse; }
-.score-table th { font-size: 0.78rem; font-weight: 700; color: #445; text-transform: uppercase;
+.score-table th { font-size: 0.78rem; font-weight: 700; color: #b8c0d0; text-transform: uppercase;
                   letter-spacing: 2px; padding: 0.4rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; }
 .score-table td { padding: 0.55rem 0.8rem; font-size: 0.85rem; color: #ccd; border-bottom: 1px solid rgba(255,255,255,0.04); }
 .score-table tr:hover td { background: rgba(124,77,255,0.06); }
 .score-table tr:first-child td { font-weight: 700; color: #e8eaf0; }
-.badge-H { background: rgba(61,110,255,0.15); color: #3d6eff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
-.badge-D { background: rgba(255,214,0,0.15);  color: #ffd600; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
-.badge-A { background: rgba(255,64,129,0.15); color: #ff4081; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
+.badge-H { background: rgba(61,110,255,0.15); color: #7fa3ff; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+.badge-D { background: rgba(255,214,0,0.15);  color: #ffd600; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+.badge-A { background: rgba(255,64,129,0.15); color: #ff4081; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
 
 /* ── Form badges ── */
 .form-row { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
@@ -622,21 +624,21 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .form-badge { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800; }
 .form-W { background: #00e676; color: #003; }
 .form-D { background: #ffd600; color: #332200; }
-.form-L { background: #ff4081; color: #fff; }
-.form-score { font-size: 0.78rem; color: #778; font-weight: 700; }
-.form-opp   { font-size: 0.7rem;  color: #556; max-width: 56px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.form-L { background: #ff4081; color: #2a0012; }
+.form-score { font-size: 0.78rem; color: #b8c0d0; font-weight: 700; }
+.form-opp   { font-size: 0.78rem;  color: #b8c0d0; max-width: 56px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 
 /* ── Form card ── */
 .form-card { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 1.4rem 1.6rem; }
 .form-team-name { font-size: 1rem; font-weight: 700; color: #ccd; margin-bottom: 0.4rem; }
-.form-stats { font-size: 0.82rem; color: #556; margin-bottom: 1rem; }
+.form-stats { font-size: 0.82rem; color: #b8c0d0; margin-bottom: 1rem; }
 .form-stats span { color: #8892a4; font-weight: 600; margin-right: 0.8rem; }
 
 /* ── H2H section ── */
 .h2h-summary { display: flex; justify-content: center; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .h2h-stat { text-align: center; }
 .h2h-num { font-size: 2rem; font-weight: 900; }
-.h2h-lbl { font-size: 0.78rem; color: #445; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; }
+.h2h-lbl { font-size: 0.78rem; color: #b8c0d0; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; }
 
 /* ── Predict button ── */
 div.stButton > button {
@@ -683,7 +685,7 @@ div[data-baseweb="select"] > div {
             font-size: 0.86rem; font-weight: 900; color: #1a1d27; min-width: 26px;
             text-shadow: 0 1px 2px rgba(255,255,255,0.18);
             font-variant-numeric: tabular-nums; letter-spacing: -0.2px; }
-.bar-away { background: linear-gradient(135deg, #fb7185 0%, #e11d48 50%, #9f1239 100%);
+.bar-away { background: linear-gradient(135deg, #d1123c 0%, #b30f34 50%, #9f1239 100%);
             display: flex; align-items: center; justify-content: center;
             font-size: 0.86rem; font-weight: 900; color: #fff; min-width: 26px;
             text-shadow: 0 1px 2px rgba(0,0,0,0.4);
@@ -696,7 +698,7 @@ div[data-baseweb="select"] > div {
     display: flex; justify-content: center; gap: 2rem;
     margin-top: 1rem; flex-wrap: wrap;
 }
-.fixture-xg { font-weight: 700; color: #7c4dff; }
+.fixture-xg { font-weight: 700; color: #a78bfa; }
 .fixture-score { font-weight: 700; color: #aab; }
 
 /* xG chip — highlighted box, hover-tooltip explains expected goals */
@@ -716,11 +718,11 @@ div[data-baseweb="select"] > div {
 }
 .fixture-xg-chip .xg-label {
     font-size: 0.8rem; font-weight: 800; letter-spacing: 2px;
-    color: #7c4dff; text-transform: uppercase;
+    color: #a78bfa; text-transform: uppercase;
 }
-.fixture-xg-chip .xg-home { font-size: 1.25rem; font-weight: 900; color: #6366f1; }
+.fixture-xg-chip .xg-home { font-size: 1.25rem; font-weight: 900; color: #949bf7; }
 .fixture-xg-chip .xg-away { font-size: 1.25rem; font-weight: 900; color: #fb7185; }
-.fixture-xg-chip .xg-dash { font-size: 1.15rem; font-weight: 700; color: #556; }
+.fixture-xg-chip .xg-dash { font-size: 1.15rem; font-weight: 700; color: #b8c0d0; }
 
 /* Universal bright backdrop for team badges so dark/black crests (Tottenham,
    Newcastle, dark Liverpool variants) lift visibly against the dark UI.
@@ -761,7 +763,7 @@ div[data-baseweb="select"] > div {
 .metric-better { color: #00e676; }
 .metric-worse  { color: #ff4081; }
 
-.stSpinner > div { border-top-color: #7c4dff !important; }
+.stSpinner > div { border-top-color: #a78bfa !important; }
 
 /* ── Portfolio: P&L Hero ── */
 .pnl-hero {
@@ -779,7 +781,7 @@ div[data-baseweb="select"] > div {
 .pnl-neutral {
     background: rgba(255,255,255,0.03); border: 2px solid rgba(255,255,255,0.1);
 }
-.pnl-tag { font-size: 0.8rem; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; color: #667; margin-bottom: 0.8rem; }
+.pnl-tag { font-size: 0.8rem; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; color: #b8c0d0; margin-bottom: 0.8rem; }
 .pnl-amount { font-size: clamp(2.8rem, 7vw, 5rem); font-weight: 900; line-height: 1; margin-bottom: 0.4rem; }
 
 /* ── Portfolio journey panel — Started → Now → Potential ── */
@@ -861,7 +863,7 @@ div[data-baseweb="select"] > div {
 .pnl-profit .pnl-amount { color: #00e676; }
 .pnl-loss   .pnl-amount { color: #ff4081; }
 .pnl-neutral .pnl-amount { color: #e8eaf0; }
-.pnl-subtitle { font-size: 0.9rem; color: #778; font-weight: 500; }
+.pnl-subtitle { font-size: 0.9rem; color: #b8c0d0; font-weight: 500; }
 
 /* ── Portfolio: Stat cards ── */
 .pstat-card {
@@ -877,7 +879,7 @@ div[data-baseweb="select"] > div {
 }
 .pstat-val { font-size: 1.85rem; font-weight: 900; color: #e8eaf0; line-height: 1.05;
              font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
-.pstat-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: #667; margin-top: 0.3rem; }
+.pstat-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: #b8c0d0; margin-top: 0.3rem; }
 
 /* ── Portfolio: Pending bet cards ── */
 .pend-card {
@@ -886,15 +888,15 @@ div[data-baseweb="select"] > div {
 }
 .pend-match  { font-size: 0.88rem; font-weight: 700; color: #e8eaf0; }
 .pend-sel    { font-size: 0.78rem; font-weight: 700; margin-top: 0.2rem; }
-.pend-meta   { display: flex; gap: 1rem; font-size: 0.82rem; color: #556; margin-top: 0.35rem; flex-wrap: wrap; }
-.pend-date   { font-size: 0.78rem; color: #334; margin-top: 0.25rem; }
+.pend-meta   { display: flex; gap: 1rem; font-size: 0.82rem; color: #b8c0d0; margin-top: 0.35rem; flex-wrap: wrap; }
+.pend-date   { font-size: 0.78rem; color: #9aa6ba; margin-top: 0.25rem; }
 .pend-return {
     display: flex; align-items: center; gap: 0.6rem;
     margin-top: 0.45rem; padding: 0.5rem 0.75rem;
     background: rgba(0,230,118,0.06); border: 1px solid rgba(0,230,118,0.15);
     border-radius: 8px;
 }
-.pend-return-label { font-size: 0.78rem; color: #556; text-transform: uppercase; letter-spacing: 1px; }
+.pend-return-label { font-size: 0.78rem; color: #b8c0d0; text-transform: uppercase; letter-spacing: 1px; }
 .pend-return-val   { font-size: 1.15rem; font-weight: 800; color: #00e676; }
 .pend-return-profit { font-size: 0.88rem; color: #69f0ae; font-weight: 700; }
 
@@ -954,7 +956,7 @@ div[data-baseweb="select"] > div {
     margin-bottom: 0.85rem; letter-spacing: -0.3px;
     font-variant-numeric: tabular-nums;
 }
-.pend-v2-pick .pend-v2-at { color: #556; font-weight: 700; }
+.pend-v2-pick .pend-v2-at { color: #b8c0d0; font-weight: 700; }
 .pend-v2-pick .pend-v2-odds { color: #00e5ff; }
 .pend-v2-stats {
     display: grid; grid-template-columns: 1fr 1fr 1fr;
@@ -966,7 +968,7 @@ div[data-baseweb="select"] > div {
     border-radius: 10px; padding: 0.55rem 0.6rem; text-align: center;
 }
 .pend-v2-stat-lbl {
-    font-size: 0.7rem; font-weight: 800; letter-spacing: 1.4px;
+    font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
     text-transform: uppercase; color: #8892a4;
 }
 .pend-v2-stat-val {
@@ -974,7 +976,7 @@ div[data-baseweb="select"] > div {
     line-height: 1.05; margin-top: 0.2rem;
     font-variant-numeric: tabular-nums; letter-spacing: -0.3px;
 }
-.pend-v2-model { color: #7c4dff; }
+.pend-v2-model { color: #a78bfa; }
 .pend-v2-ev    { color: #00e676; }
 .pend-v2-return {
     display: flex; align-items: center; gap: 1rem;
@@ -1060,7 +1062,7 @@ div[data-baseweb="select"] > div {
 }
 .clv-hero-side-lbl {
     font-size: 0.84rem; font-weight: 800; letter-spacing: 1.6px;
-    text-transform: uppercase; color: #7c4dff;
+    text-transform: uppercase; color: #a78bfa;
 }
 .clv-hero-recent .clv-hero-side-lbl { color: #00e5ff; }
 .clv-hero-row {
@@ -1107,7 +1109,7 @@ div[data-baseweb="select"] > div {
     margin-top: 0.2rem; line-height: 1;
     font-variant-numeric: tabular-nums; letter-spacing: -0.3px;
 }
-.clv-win-val.clv-win-na { color: #445; }
+.clv-win-val.clv-win-na { color: #b8c0d0; }
 .clv-win-pos {
     font-size: 0.78rem; color: #8892a4; margin-top: 0.2rem; font-weight: 600;
 }
@@ -1167,7 +1169,7 @@ div[data-baseweb="select"] > div {
     border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
 }
 .clv-guide-example-arrow {
-    font-size: 1.6rem; font-weight: 900; color: #7c4dff;
+    font-size: 1.6rem; font-weight: 900; color: #a78bfa;
     flex-shrink: 0;
 }
 .clv-guide-eg-lbl {
@@ -1209,7 +1211,7 @@ div[data-baseweb="select"] > div {
 .clv-guide-vs-body  { font-size: 1rem; color: #cdd; line-height: 1.55; }
 .clv-guide-vs-vs {
     font-size: 1.4rem; font-weight: 900;
-    color: #7c4dff; align-self: center; padding: 0 0.4rem;
+    color: #a78bfa; align-self: center; padding: 0 0.4rem;
 }
 
 /* The four metrics — header + per-metric block */
@@ -1305,7 +1307,7 @@ div[data-baseweb="select"] > div {
 }
 .sim-row.sim-header {
     background: transparent; border: none; padding: 0.4rem 1.1rem 0.2rem;
-    font-size: 0.78rem; font-weight: 800; color: #7c4dff;
+    font-size: 0.78rem; font-weight: 800; color: #a78bfa;
     letter-spacing: 1.6px;
 }
 .sim-row.sim-header:hover { transform: none; box-shadow: none; }
@@ -1313,7 +1315,7 @@ div[data-baseweb="select"] > div {
 /* Zone stripes */
 .sim-row.zone-title { border-left-color: #ffd600; background: linear-gradient(180deg, rgba(255,214,0,0.08), rgba(255,214,0,0.01)); }
 .sim-row.zone-top4  { border-left-color: #00e5ff; background: linear-gradient(180deg, rgba(0,229,255,0.06), rgba(0,229,255,0.01)); }
-.sim-row.zone-top6  { border-left-color: #7c4dff; background: linear-gradient(180deg, rgba(124,77,255,0.06), rgba(124,77,255,0.01)); }
+.sim-row.zone-top6  { border-left-color: #a78bfa; background: linear-gradient(180deg, rgba(124,77,255,0.06), rgba(124,77,255,0.01)); }
 .sim-row.zone-rel   { border-left-color: #ff4081; background: linear-gradient(180deg, rgba(255,64,129,0.06), rgba(255,64,129,0.01)); }
 
 .sim-rank {
@@ -1337,7 +1339,7 @@ div[data-baseweb="select"] > div {
 .sim-played   { font-size: 1rem;   color: #8892a4; font-weight: 700; text-align: center; }
 .sim-pts-now  { font-size: 1.4rem; font-weight: 900; color: #e8eaf0;
                 text-align: center; line-height: 1.05; letter-spacing: -0.5px; }
-.sim-pts-proj { font-size: 1.2rem; font-weight: 800; color: #7c4dff;
+.sim-pts-proj { font-size: 1.2rem; font-weight: 800; color: #a78bfa;
                 text-align: center; line-height: 1.05; letter-spacing: -0.3px; }
 .sim-pts-ml   { font-size: 1.2rem; font-weight: 800; color: #00e5ff;
                 text-align: center; line-height: 1.05; letter-spacing: -0.3px;
@@ -1363,7 +1365,7 @@ div[data-baseweb="select"] > div {
     letter-spacing: 0.2px; white-space: nowrap;
 }
 .sim-pill b { font-weight: 900; }
-.sim-pill-none { color: #445; font-size: 0.92rem; }
+.sim-pill-none { color: #b8c0d0; font-size: 0.92rem; }
 
 @media (max-width: 1100px) {
     .sim-row { grid-template-columns: repeat(2, 1fr); padding: 0.85rem; gap: 0.5rem; }
@@ -1430,7 +1432,7 @@ div[data-baseweb="select"] > div {
 }
 .bh-row.bh-header {
     background: transparent; border: none; padding: 0.4rem 1.1rem 0.2rem;
-    font-size: 0.78rem; font-weight: 800; color: #7c4dff;
+    font-size: 0.78rem; font-weight: 800; color: #a78bfa;
     letter-spacing: 1.6px;
 }
 .bh-row.bh-header:hover { transform: none; box-shadow: none; }
@@ -1441,7 +1443,7 @@ div[data-baseweb="select"] > div {
     background: linear-gradient(180deg, rgba(0,229,255,0.06), rgba(255,255,255,0.01));
 }
 
-.bh-num   { font-size: 1rem; font-weight: 800; color: #7c4dff;
+.bh-num   { font-size: 1rem; font-weight: 800; color: #a78bfa;
             letter-spacing: -0.3px; }
 .bh-date  { font-size: 0.92rem; color: #cdd; font-weight: 700;
             letter-spacing: 0.2px; }
@@ -1467,7 +1469,7 @@ div[data-baseweb="select"] > div {
     gap: 0.5rem;
 }
 .bh-edge-lbl {
-    font-size: 0.7rem; font-weight: 800; letter-spacing: 1.2px;
+    font-size: 0.78rem; font-weight: 800; letter-spacing: 1.2px;
     text-transform: uppercase; color: #8892a4;
 }
 .bh-edge-num {
@@ -1530,7 +1532,7 @@ div[data-baseweb="select"] > div {
 .scan-probs { display: flex; gap: 1.2rem; align-items: center; }
 .scan-prob-item { text-align: center; }
 .scan-pct  { font-size: 1.3rem; font-weight: 800; line-height: 1; }
-.scan-lbl  { font-size: 0.84rem; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase; color: #667; }
+.scan-lbl  { font-size: 0.84rem; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase; color: #b8c0d0; }
 .scan-odds-source { font-size: 0.86rem; color: #8892a4; }
 
 /* ── New scanner fixture card — fixture-tab style, big badges + gradient bar ── */
@@ -1559,7 +1561,7 @@ div[data-baseweb="select"] > div {
 }
 .scan-ou-lbl {
     font-size: 0.84rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #7c4dff; min-width: 130px;
+    text-transform: uppercase; color: #a78bfa; min-width: 130px;
 }
 .scan-ou-bar {
     flex: 1; display: flex; height: 26px; border-radius: 8px;
@@ -1616,10 +1618,10 @@ div[data-baseweb="select"] > div {
 .scan-value-banner .svb-win   { color: #00e5ff; }
 
 /* ── EV tags ── */
-.ev-tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.5px; }
+.ev-tag { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.5px; }
 .ev-strong  { background: rgba(0,230,118,0.18); color: #00e676; }
 .ev-mild    { background: rgba(105,240,174,0.15); color: #69f0ae; }
-.ev-neutral { background: rgba(255,255,255,0.06); color: #667; }
+.ev-neutral { background: rgba(255,255,255,0.06); color: #b8c0d0; }
 .ev-neg     { background: rgba(255,64,129,0.12); color: #ff4081; }
 
 /* ── Last Gameweek result cards ── */
@@ -1651,7 +1653,7 @@ div[data-baseweb="select"] > div {
 }
 .res-headline-label {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.8px;
-    text-transform: uppercase; color: #667;
+    text-transform: uppercase; color: #b8c0d0;
 }
 .res-headline-value {
     font-size: 1.3rem; font-weight: 800; color: #e8eaf0;
@@ -1669,11 +1671,11 @@ div[data-baseweb="select"] > div {
 }
 .res-goals-block { display: inline-flex; flex-direction: column; gap: 0.1rem; }
 .res-goals-lbl   { font-size: 0.78rem; letter-spacing: 1.4px; font-weight: 800;
-                   color: #7c4dff; text-transform: uppercase; }
+                   color: #a78bfa; text-transform: uppercase; }
 .res-goals-val   { font-size: 1.25rem; font-weight: 900; color: #e8eaf0; line-height: 1.05; }
-.res-goals-vs    { font-size: 0.88rem; font-weight: 800; color: #556; }
+.res-goals-vs    { font-size: 0.88rem; font-weight: 800; color: #b8c0d0; }
 
-.res-meta  { font-size: 0.84rem; color: #778; display: flex; gap: 1rem; flex-wrap: wrap;
+.res-meta  { font-size: 0.84rem; color: #b8c0d0; display: flex; gap: 1rem; flex-wrap: wrap;
              align-items: center; }
 .res-meta b { color: #8892a4; }
 
@@ -1688,11 +1690,11 @@ div[data-baseweb="select"] > div {
     cursor: help;
 }
 .res-xg-chip .res-xg-lbl  { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px;
-                            color: #7c4dff; text-transform: uppercase; }
+                            color: #a78bfa; text-transform: uppercase; }
 .res-xg-chip .res-xg-val  { font-size: 1.25rem; font-weight: 900; line-height: 1; }
-.res-xg-chip .res-xg-h    { color: #6366f1; }
+.res-xg-chip .res-xg-h    { color: #949bf7; }
 .res-xg-chip .res-xg-a    { color: #fb7185; }
-.res-xg-chip .res-xg-dash { color: #445; font-weight: 700; }
+.res-xg-chip .res-xg-dash { color: #b8c0d0; font-weight: 700; }
 .res-prob-bar { display: flex; border-radius: 8px; overflow: hidden; height: 24px;
                 margin-top: 0.3rem; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 
@@ -1840,11 +1842,11 @@ div[data-baseweb="select"] > div {
 .td-bet-row.td-bet-header {
     background: transparent; border: none; padding: 0.3rem 1rem 0.1rem;
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    color: #7c4dff;
+    color: #a78bfa;
 }
 .td-bet-row.td-bet-header:hover { transform: none; }
 .td-bet-date  { color: #cdd; font-weight: 700; }
-.td-bet-port  { color: #7c4dff; font-weight: 800; font-size: 0.78rem;
+.td-bet-port  { color: #a78bfa; font-weight: 800; font-size: 0.78rem;
                 letter-spacing: 0.6px; text-transform: uppercase; }
 .td-bet-match { color: #e8eaf0; font-weight: 700; }
 .td-bet-sel   { color: #ffd600; font-weight: 700; }
@@ -1917,7 +1919,7 @@ div[data-baseweb="select"] > div {
     .gw-recap { grid-template-columns: 1fr; }
 }
 .gw-stat-val { font-size: 1.85rem; font-weight: 900; color: #e8eaf0; line-height: 1.05; }
-.gw-stat-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: #667; margin-top: 0.4rem; }
+.gw-stat-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: #b8c0d0; margin-top: 0.4rem; }
 
 .scan-value-alert {
     background: rgba(0,230,118,0.08); border: 1px solid rgba(0,230,118,0.2);
@@ -2126,7 +2128,7 @@ def render_hero_strip(dc_r: dict) -> None:
             f'<div class="hero-stat">'
             f'  <div class="hero-stat-label">🔥 TOP WEEKEND PICK</div>'
             f'  <div class="hero-stat-value" style="color:{pick_color};font-size:1.05rem">'
-            f'    {tb(top["home"], 20)} <span style="color:#556">vs</span> {tb(top["away"], 20)}'
+            f'    {tb(top["home"], 20)} <span style="color:#b8c0d0">vs</span> {tb(top["away"], 20)}'
             f'  </div>'
             f'  <div class="hero-stat-sub">'
             f'    Model backs <b style="color:{pick_color}">{top["pick_label"]}</b> '
@@ -2138,7 +2140,7 @@ def render_hero_strip(dc_r: dict) -> None:
         pick_html = (
             '<div class="hero-stat">'
             '  <div class="hero-stat-label">🔥 TOP WEEKEND PICK</div>'
-            '  <div class="hero-stat-value" style="color:#556;font-size:0.95rem">No fixtures found</div>'
+            '  <div class="hero-stat-value" style="color:#b8c0d0;font-size:0.95rem">No fixtures found</div>'
             '  <div class="hero-stat-sub">Try again closer to matchday</div>'
             '</div>'
         )
@@ -2213,7 +2215,7 @@ def _prediction_insights(hs: dict, as_: dict, home_team: str, away_team: str) ->
         a_away = as_["away_venue_pts"]
         diff = h_home - a_away
         insights.append((abs(diff) * 1.2, "🏟️",
-            f'<b style="color:#3d6eff">{home_team}</b> averaging '
+            f'<b style="color:#7fa3ff">{home_team}</b> averaging '
             f'<b style="color:#e8eaf0">{h_home:.1f} pts at home</b> · '
             f'<b style="color:#ff4081">{away_team}</b> '
             f'<b style="color:#e8eaf0">{a_away:.1f} pts away</b>',
@@ -2591,7 +2593,7 @@ def _big_badge_card(team: str, label: str, accent: str) -> str:
                   f'transition:transform 0.25s ease">'
                   if url else
                   '<div style="width:200px;height:200px;display:flex;align-items:center;'
-                  'justify-content:center;color:#445;font-size:0.9rem">no badge</div>')
+                  'justify-content:center;color:#b8c0d0;font-size:0.9rem">no badge</div>')
     return (
         f'<div style="position:relative;text-align:center;padding:1.2rem 0.5rem 0.8rem;'
         f'background:linear-gradient(180deg,rgba({accent},0.06),transparent);'
@@ -2797,7 +2799,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
             st.markdown(f"""<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
                 border-radius:14px;padding:0.9rem 0.5rem;text-align:center;">
                 <div style="font-size:1.5rem;font-weight:900;color:{color}">{pct}%</div>
-                <div style="font-size:0.88rem;color:#556;text-transform:uppercase;letter-spacing:2px;
+                <div style="font-size:0.88rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:2px;
                 margin-top:0.3rem;font-weight:700">{label}</div>
             </div>""", unsafe_allow_html=True)
 
@@ -2859,7 +2861,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
             bc = "badge-H" if row["FTR"] == "H" else ("badge-A" if row["FTR"] == "A" else "badge-D")
             label = winner if row["FTR"] != "D" else "Draw"
             rows_html += f"""<tr>
-                <td style="color:#556">{row['Date'].strftime('%d %b %Y')}</td>
+                <td style="color:#b8c0d0">{row['Date'].strftime('%d %b %Y')}</td>
                 <td style="font-weight:700">{tb(row['HomeTeam'], 18)}</td>
                 <td style="font-size:1.1rem;font-weight:900;color:#e8eaf0;text-align:center">{hg} – {ag}</td>
                 <td style="font-weight:700">{tb(row['AwayTeam'], 18)}</td>
@@ -2907,7 +2909,7 @@ def tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
             else f"{dates[0].strftime('%-d %b')} – {dates[-1].strftime('%-d %b %Y')}"
         )
         st.markdown(
-            f'<p style="font-size:0.82rem;color:#556;margin-bottom:0.3rem;">'
+            f'<p style="font-size:0.82rem;color:#b8c0d0;margin-bottom:0.3rem;">'
             f'Next gameweek · <b style="color:#8892a4">{date_range_str}</b>'
             f' · {len(fixtures)} matches</p>',
             unsafe_allow_html=True,
@@ -2953,7 +2955,7 @@ def tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
             if fix["date"] != current_date:
                 current_date = fix["date"]
                 st.markdown(
-                    f'<p style="font-size:0.78rem;font-weight:700;color:#556;'
+                    f'<p style="font-size:0.78rem;font-weight:700;color:#b8c0d0;'
                     f'text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 0.6rem;">'
                     f'{current_date.strftime("%A %-d %B")}</p>',
                     unsafe_allow_html=True,
@@ -2983,7 +2985,7 @@ def tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
                 index=teams.index("Arsenal") if "Arsenal" in teams else 0,
                 key="wk_home", label_visibility="collapsed")
         with fb:
-            st.markdown('<div style="text-align:center;padding-top:0.5rem;font-weight:800;color:#556;font-size:1.2rem">vs</div>',
+            st.markdown('<div style="text-align:center;padding-top:0.5rem;font-weight:800;color:#b8c0d0;font-size:1.2rem">vs</div>',
                         unsafe_allow_html=True)
         with fc:
             default_away_wk = "Chelsea" if "Chelsea" in teams else (teams[1] if len(teams) > 1 else teams[0])
@@ -3016,7 +3018,7 @@ def tab_backtest(df_hash: int):
     st.markdown('<p class="section-label" style="margin-top:1rem">Model Backtesting</p>',
                 unsafe_allow_html=True)
     st.markdown(
-        '<p style="font-size:0.8rem;color:#556;margin-bottom:1.5rem;">'
+        '<p style="font-size:0.8rem;color:#b8c0d0;margin-bottom:1.5rem;">'
         'Train each model on historical data, test on recent matches. '
         'Compares Poisson+XGBoost (baseline) vs Dixon-Coles+XGBoost (enhanced).</p>',
         unsafe_allow_html=True,
@@ -3068,7 +3070,7 @@ def tab_backtest(df_hash: int):
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
-        '<p style="font-size:0.78rem;color:#556;text-align:center;">'
+        '<p style="font-size:0.78rem;color:#b8c0d0;text-align:center;">'
         'Table baseline = always predict the higher-placed team wins (home wins ties). '
         'Green = beats the table baseline. '
         'Brier: lower is better (0 = perfect, 0.33 = random).</p>',
@@ -3090,21 +3092,21 @@ def tab_backtest(df_hash: int):
         dc_icon = "✓" if row["DC_Correct"]    else "✗"
         pos_str = f"#{row['HomePos']} vs #{row['AwayPos']}"
         rows_html += f"""<tr>
-            <td style="color:#556;white-space:nowrap">{row['Date'].strftime('%d %b')}</td>
+            <td style="color:#b8c0d0;white-space:nowrap">{row['Date'].strftime('%d %b')}</td>
             <td style="font-weight:700">{row['Home']}</td>
             <td style="text-align:center;font-weight:900;color:#e8eaf0">{row['Score']}</td>
             <td style="font-weight:700">{row['Away']}</td>
             <td style="color:#aab">{row['Actual']}</td>
             <td>
-                <span style="color:#445;font-size:0.78rem">{pos_str}</span><br>
+                <span style="color:#b8c0d0;font-size:0.78rem">{pos_str}</span><br>
                 <span class="{t_cls}">{t_icon} {row['Table_Pred']}</span>
             </td>
             <td>
-                <span style="color:#556;font-size:0.82rem">{row['Pois_H']}·{row['Pois_D']}·{row['Pois_A']}</span><br>
+                <span style="color:#b8c0d0;font-size:0.82rem">{row['Pois_H']}·{row['Pois_D']}·{row['Pois_A']}</span><br>
                 <span class="{p_cls}">{p_icon} {row['Pois_Pred']}</span>
             </td>
             <td>
-                <span style="color:#556;font-size:0.82rem">{row['DC_H']}·{row['DC_D']}·{row['DC_A']}</span><br>
+                <span style="color:#b8c0d0;font-size:0.82rem">{row['DC_H']}·{row['DC_D']}·{row['DC_A']}</span><br>
                 <span class="{dc_cls}">{dc_icon} {row['DC_Pred']}</span>
             </td>
         </tr>"""
@@ -3127,7 +3129,7 @@ def tab_backtest(df_hash: int):
     st.markdown('<p class="section-label">📐  Model Calibration — Reliability Diagram</p>',
                 unsafe_allow_html=True)
     st.markdown(
-        '<p style="font-size:0.8rem;color:#556;margin-bottom:1.2rem">'
+        '<p style="font-size:0.8rem;color:#b8c0d0;margin-bottom:1.2rem">'
         'A well-calibrated model sits on the diagonal. '
         'Points <b style="color:#00e676">above the line</b> = model under-estimates that outcome. '
         'Points <b style="color:#ff4081">below</b> = model over-estimates it. '
@@ -3182,7 +3184,7 @@ def tab_backtest(df_hash: int):
             </div>""", unsafe_allow_html=True)
 
     st.markdown(
-        '<p style="font-size:0.82rem;color:#556;text-align:center;margin:0.6rem 0 1.2rem;">'
+        '<p style="font-size:0.82rem;color:#b8c0d0;text-align:center;margin:0.6rem 0 1.2rem;">'
         'ECE = average gap between predicted probability and actual outcome frequency '
         '(weighted by bin sample count). Lower is better — 0% means perfectly calibrated.</p>',
         unsafe_allow_html=True,
@@ -3248,7 +3250,7 @@ def tab_backtest(df_hash: int):
     )
     st.plotly_chart(fig_cal, use_container_width=True, config={"displayModeBar": False})
     st.markdown(
-        '<p style="font-size:0.82rem;color:#445;text-align:center">'
+        '<p style="font-size:0.82rem;color:#b8c0d0;text-align:center">'
         'Solid lines = DC+XGB · Dashed = Poisson+XGB · '
         '🔵 Home Win &nbsp;🟡 Draw &nbsp;🔴 Away Win</p>',
         unsafe_allow_html=True,
@@ -3260,7 +3262,7 @@ def tab_backtest(df_hash: int):
         st.markdown('<p class="section-label">🔎  DIAGNOSTICS MATRIX · DRAW MODEL RESIDUALS</p>',
                     unsafe_allow_html=True)
         st.markdown(
-            '<p style="font-size:0.82rem;color:#556;margin-bottom:1rem">'
+            '<p style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem">'
             'Where does the Draw model bleed? Slice the backtest residuals (empirical − predicted) '
             'on the Draw market by closing-odds bucket, model-prob bucket, |xG diff|, and team. '
             'Positive gap = model under-predicts draws in that slice. Brier per-bucket.</p>',
@@ -3285,7 +3287,7 @@ def tab_backtest(df_hash: int):
                            bin_label_col: str | None = None):
             """Render a paired bar chart (predicted vs empirical) + per-bin Brier."""
             if agg_df.empty:
-                st.markdown('<div style="color:#556;font-size:0.82rem">'
+                st.markdown('<div style="color:#b8c0d0;font-size:0.82rem">'
                             'Not enough data in this slice.</div>', unsafe_allow_html=True)
                 return
             x_vals = agg_df[bin_label_col if bin_label_col else x_col].astype(str).tolist()
@@ -3355,13 +3357,13 @@ def tab_backtest(df_hash: int):
                               .reset_index())
                 _render_bucket(agg, "odds_bucket", "Pinnacle Close (Draw)")
                 st.markdown(
-                    '<p style="font-size:0.78rem;color:#445;text-align:center;margin-top:0.4rem">'
+                    '<p style="font-size:0.78rem;color:#b8c0d0;text-align:center;margin-top:0.4rem">'
                     'Practitioner literature flags the <b style="color:#ffd600">3.20-3.60</b> '
                     'closing-odds bucket as the historically highest-EV draw zone.</p>',
                     unsafe_allow_html=True,
                 )
             else:
-                st.markdown('<div style="color:#556;font-size:0.82rem">'
+                st.markdown('<div style="color:#b8c0d0;font-size:0.82rem">'
                             'Pinnacle closing odds not available in this dataset.</div>',
                             unsafe_allow_html=True)
 
@@ -3381,13 +3383,13 @@ def tab_backtest(df_hash: int):
                               .reset_index())
                 _render_bucket(agg, "xg_bucket", "Match |xG diff|")
                 st.markdown(
-                    '<p style="font-size:0.78rem;color:#445;text-align:center;margin-top:0.4rem">'
+                    '<p style="font-size:0.78rem;color:#b8c0d0;text-align:center;margin-top:0.4rem">'
                     'Tight xG matchups (<0.3) are the canonical draw signal — empirical draw rate '
                     'should exceed model prediction here if the model is under-weighting parity.</p>',
                     unsafe_allow_html=True,
                 )
             else:
-                st.markdown('<div style="color:#556;font-size:0.82rem">'
+                st.markdown('<div style="color:#b8c0d0;font-size:0.82rem">'
                             'xG data not available.</div>', unsafe_allow_html=True)
 
         # Per-team — biggest residual outliers
@@ -3430,7 +3432,7 @@ def tab_backtest(df_hash: int):
             tbl["Gap"]        = tbl["gap"].apply(lambda v: f"{v*100:+.1f}%")
             tbl["Brier"]      = tbl["brier"].apply(lambda v: f"{v:.3f}")
             st.markdown(
-                '<p style="font-size:0.82rem;color:#556;margin-bottom:0.5rem">'
+                '<p style="font-size:0.82rem;color:#b8c0d0;margin-bottom:0.5rem">'
                 'Top 12 teams by absolute calibration gap. Persistently under-predicted draw teams '
                 'are candidates for a per-team residual bias term.</p>',
                 unsafe_allow_html=True,
@@ -3494,12 +3496,12 @@ def tab_backtest(df_hash: int):
             </div>""", unsafe_allow_html=True)
         with eq2:
             st.markdown(f"""<div class="metric-card">
-                <div class="metric-value" style="color:#3d6eff">{level_winner_rate*100:.1f}%</div>
+                <div class="metric-value" style="color:#7fa3ff">{level_winner_rate*100:.1f}%</div>
                 <div class="metric-label">P(LATE WINNER) · LEVEL AT HT</div>
             </div>""", unsafe_allow_html=True)
         with eq3:
             st.markdown(f"""<div class="metric-card">
-                <div class="metric-value" style="color:#7c4dff">{recover_rate*100:.1f}%</div>
+                <div class="metric-value" style="color:#a78bfa">{recover_rate*100:.1f}%</div>
                 <div class="metric-label">P(RECOVERY ≥ DRAW) · 1-DOWN AT HT</div>
             </div>""", unsafe_allow_html=True)
         # Verdict
@@ -3523,7 +3525,7 @@ def tab_backtest(df_hash: int):
                 unsafe_allow_html=True,
             )
         st.markdown(
-            '<p style="font-size:0.88rem;color:#445;margin-top:0.6rem;text-align:center">'
+            '<p style="font-size:0.88rem;color:#b8c0d0;margin-top:0.6rem;text-align:center">'
             'Caveat: HT/FT data is coarser than minute-by-minute. A "winner from level at HT" '
             'and an "equaliser when 1 down at HT" both require a goal in the second half, but '
             'the stronger version of the hypothesis (last-30-minute goals only) needs minute-level '
@@ -3580,7 +3582,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
     )
     st.markdown(
         f'<p style="font-size:0.92rem;color:#8892a4;margin:-0.4rem 0 1rem 0;">'
-        f'σ = <b style="color:#7c4dff;font-size:1.05rem">{param_noise:.2f}</b> '
+        f'σ = <b style="color:#a78bfa;font-size:1.05rem">{param_noise:.2f}</b> '
         f'&nbsp;·&nbsp; <b>0.05</b> ≈ very confident favourites &nbsp;·&nbsp; '
         f'<b>0.12</b> ≈ balanced default &nbsp;·&nbsp; <b>0.25</b> ≈ wide open race</p>',
         unsafe_allow_html=True,
@@ -3616,7 +3618,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
         return
 
     st.markdown(
-        f'<p style="font-size:0.78rem;color:#556;text-align:center;margin-bottom:1rem;">'
+        f'<p style="font-size:0.78rem;color:#b8c0d0;text-align:center;margin-bottom:1rem;">'
         f'{n_remaining} remaining fixtures · 10,000 simulations</p>',
         unsafe_allow_html=True,
     )
@@ -3942,7 +3944,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     st.markdown('<p class="section-label">🔍  Team Drill-Down</p>', unsafe_allow_html=True)
     st.markdown(
-        '<p style="font-size:0.8rem;color:#556;margin-bottom:1rem">'
+        '<p style="font-size:0.8rem;color:#b8c0d0;margin-bottom:1rem">'
         'Pick a team to see their remaining fixtures, expected points per match, '
         'and the distribution of their final points across 10,000 simulated seasons.</p>',
         unsafe_allow_html=True,
@@ -4081,7 +4083,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
             else:
                 total_exp = sum(f["exp_pts"] for f in team_fixtures)
                 st.markdown(
-                    f'<p style="font-size:0.82rem;color:#556;margin-bottom:0.5rem">'
+                    f'<p style="font-size:0.82rem;color:#b8c0d0;margin-bottom:0.5rem">'
                     f'{len(team_fixtures)} fixtures · expected {total_exp:.1f} points</p>',
                     unsafe_allow_html=True,
                 )
@@ -4099,7 +4101,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
                     rows_html += f"""<tr>
                         <td style="color:{venue_color};font-weight:700;width:2rem">{f['Venue']}</td>
                         <td style="font-weight:700;color:#e8eaf0">{tb(f['Opp'], 18)}</td>
-                        <td style="color:#556;font-size:0.82rem">
+                        <td style="color:#b8c0d0;font-size:0.82rem">
                             W {f['p_win']*100:.0f}% · D {f['p_draw']*100:.0f}% · L {f['p_loss']*100:.0f}%
                         </td>
                         <td style="font-weight:900;color:#e8eaf0;text-align:right">{f['exp_pts']:.2f}</td>
@@ -4206,7 +4208,7 @@ def _render_gw_records(records: list, date_label: str):
         if r_date != current_date:
             current_date = r_date
             st.markdown(
-                f'<p style="font-size:0.78rem;font-weight:700;color:#556;'
+                f'<p style="font-size:0.78rem;font-weight:700;color:#b8c0d0;'
                 f'text-transform:uppercase;letter-spacing:2px;margin:0.8rem 0 0.3rem">'
                 f'{pd.to_datetime(r_date).strftime("%A %-d %B")}</p>',
                 unsafe_allow_html=True,
@@ -4434,7 +4436,7 @@ def _render_gw_recap(records: list[dict]) -> None:
     # Build each block
     record_block = _block(
         "✅", "MODEL RECORD",
-        f'<span style="color:{record_col}">{n_correct}<span style="color:#445">/</span>{n_total}</span>',
+        f'<span style="color:{record_col}">{n_correct}<span style="color:#b8c0d0">/</span>{n_total}</span>',
         f'{win_pct:.0f}% correct on H/D/A this week',
         record_col,
     )
@@ -4443,14 +4445,14 @@ def _render_gw_recap(records: list[dict]) -> None:
         h, a = biggest_hit["home"], biggest_hit["away"]
         _bh_actual = pred_lbl[biggest_hit["actual_ftr"]]
         hit_html = (
-            f'<span style="font-size:1.18rem">{tb(h, 28)} <span style="color:#445">vs</span> {tb(a, 28)}</span>'
+            f'<span style="font-size:1.18rem">{tb(h, 28)} <span style="color:#b8c0d0">vs</span> {tb(a, 28)}</span>'
         )
         sub_html = (f'<b style="color:#00e676">{_bh_actual} Win</b> ·  model had '
                     f'<b>{biggest_hit["prob_actual"]*100:.0f}%</b> on the outcome — and it landed')
         hit_block = _block("🎯", "BIGGEST HIT", hit_html, sub_html, "#00e676")
     else:
         hit_block = _block("🎯", "BIGGEST HIT",
-                            "<span style='color:#445'>—</span>",
+                            "<span style='color:#b8c0d0'>—</span>",
                             "no correct calls this week", "#445")
 
     if biggest_miss:
@@ -4458,7 +4460,7 @@ def _render_gw_recap(records: list[dict]) -> None:
         _miss_actual = pred_lbl[biggest_miss["actual_ftr"]]
         _miss_pred   = pred_lbl[biggest_miss["pred_ftr"]]
         miss_html = (
-            f'<span style="font-size:1.18rem">{tb(h, 28)} <span style="color:#445">vs</span> {tb(a, 28)}</span>'
+            f'<span style="font-size:1.18rem">{tb(h, 28)} <span style="color:#b8c0d0">vs</span> {tb(a, 28)}</span>'
         )
         sub_html = (f'model picked <b>{_miss_pred}</b>, actual was '
                     f'<b style="color:#ff4081">{_miss_actual}</b> · '
@@ -4466,7 +4468,7 @@ def _render_gw_recap(records: list[dict]) -> None:
         miss_block = _block("💥", "BIGGEST MISS", miss_html, sub_html, "#ff4081")
     else:
         miss_block = _block("💥", "BIGGEST MISS",
-                             "<span style='color:#445'>—</span>",
+                             "<span style='color:#b8c0d0'>—</span>",
                              "no surprises this week", "#445")
 
     conf_block = _block(
@@ -4507,12 +4509,12 @@ def _hex_to_rgb(hex_str: str) -> str:
 
 def _section_header(title: str, subtitle: str = "") -> None:
     """Visual section header inside settings expanders — vibrant accent + small subtitle."""
-    sub = (f'<div style="font-size:0.86rem;color:#556;margin-top:0.1rem;'
+    sub = (f'<div style="font-size:0.86rem;color:#b8c0d0;margin-top:0.1rem;'
            f'line-height:1.4">{subtitle}</div>' if subtitle else '')
     st.markdown(
         f'<div style="margin:1.1rem 0 0.6rem 0;padding-top:0.7rem;'
         f'border-top:1px solid #2d3148">'
-        f'<div style="font-size:0.86rem;color:#7c4dff;font-weight:700;'
+        f'<div style="font-size:0.86rem;color:#a78bfa;font-weight:700;'
         f'letter-spacing:1px">{title}</div>{sub}</div>',
         unsafe_allow_html=True,
     )
@@ -4617,7 +4619,7 @@ SETTINGS_PRESETS = {
 def _render_preset_buttons(port: dict, key_prefix: str, save_fn) -> None:
     """One-click preset loader — swaps in a complete validated settings patch."""
     st.markdown(
-        '<div style="font-size:0.86rem;color:#7c4dff;font-weight:700;'
+        '<div style="font-size:0.86rem;color:#a78bfa;font-weight:700;'
         'letter-spacing:1px;margin-bottom:0.4rem">⚡  QUICK PRESETS</div>',
         unsafe_allow_html=True,
     )
@@ -4636,7 +4638,7 @@ def _render_preset_buttons(port: dict, key_prefix: str, save_fn) -> None:
                 st.success(f"✅ Applied preset: {preset['label']}")
                 st.rerun()
     st.markdown(
-        '<div style="font-size:0.84rem;color:#556;margin:0.4rem 0 0.7rem 0">'
+        '<div style="font-size:0.84rem;color:#b8c0d0;margin:0.4rem 0 0.7rem 0">'
         'Click a preset to overwrite all settings below in one click. '
         'Bet history and bankroll are preserved.</div>',
         unsafe_allow_html=True,
@@ -4687,7 +4689,7 @@ BACKTEST_PRESETS = {
 def _render_backtest_presets(key_prefix: str) -> None:
     """One-click preset loader for backtest sliders — writes to session state then reruns."""
     st.markdown(
-        '<div style="font-size:0.86rem;color:#7c4dff;font-weight:700;'
+        '<div style="font-size:0.86rem;color:#a78bfa;font-weight:700;'
         'letter-spacing:1px;margin:0 0 0.4rem 0">⚡  QUICK PRESETS</div>',
         unsafe_allow_html=True,
     )
@@ -4702,7 +4704,7 @@ def _render_backtest_presets(key_prefix: str) -> None:
                     st.session_state[f"{key_prefix}_{slot}"] = val
                 st.rerun()
     st.markdown(
-        '<div style="font-size:0.84rem;color:#556;margin:0.4rem 0 0.7rem 0">'
+        '<div style="font-size:0.84rem;color:#b8c0d0;margin:0.4rem 0 0.7rem 0">'
         'Click a preset to set all sliders below in one click.</div>',
         unsafe_allow_html=True,
     )
@@ -4721,7 +4723,7 @@ def _render_clv_trend(port: dict, key_prefix: str = "") -> None:
 
     st.markdown(
         '<div style="margin-top:0.9rem;font-size:0.86rem;letter-spacing:2px;'
-        'color:#7c4dff;font-weight:700;text-transform:uppercase">'
+        'color:#a78bfa;font-weight:700;text-transform:uppercase">'
         'CLV TREND · last N bets</div>',
         unsafe_allow_html=True,
     )
@@ -4745,7 +4747,7 @@ def _render_clv_trend(port: dict, key_prefix: str = "") -> None:
                 f'<div style="font-size:1.4rem;font-weight:700;color:{color};'
                 f'line-height:1.1">{val}</div>'
                 f'<div style="font-size:0.84rem;color:#8892a4;letter-spacing:2px;'
-                f'margin-top:0.25rem">{label}  <span style="color:#556">·  {sub}</span></div>'
+                f'margin-top:0.25rem">{label}  <span style="color:#b8c0d0">·  {sub}</span></div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -4889,7 +4891,7 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
         f'border-radius:14px;'
         f'background:linear-gradient(135deg,rgba(124,77,255,0.10),rgba(0,229,255,0.04));'
         f'border:1px solid rgba(124,77,255,0.25)">'
-        f'<div style="font-size:0.86rem;letter-spacing:3px;color:#7c4dff;'
+        f'<div style="font-size:0.86rem;letter-spacing:3px;color:#a78bfa;'
         f'font-weight:700;text-transform:uppercase;margin-bottom:0.5rem">'
         f'📈  LIVE PREMIER LEAGUE ELO</div>'
         f'<div style="display:flex;gap:2rem;flex-wrap:wrap;font-size:0.86rem;color:#e8eaf0">'
@@ -4921,11 +4923,11 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
     }
     .elo-row:hover { background: rgba(124,77,255,0.06); }
     .elo-row.header {
-        font-size: 0.7rem; letter-spacing: 2px; color: #556;
+        font-size: 0.78rem; letter-spacing: 2px; color: #b8c0d0;
         font-weight: 700; text-transform: uppercase;
         border-bottom: 1px solid #2d3148;
     }
-    .elo-rank   { font-size: 1rem; font-weight: 700; color: #556; text-align: right; }
+    .elo-rank   { font-size: 1rem; font-weight: 700; color: #b8c0d0; text-align: right; }
     .elo-rank.top    { color: #00e676; }
     .elo-rank.bottom { color: #ff4081; }
     .elo-badge img   { width: 40px; height: 40px; object-fit: contain;
@@ -4938,7 +4940,7 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
                        font-variant-numeric: tabular-nums; }
     .elo-up   { color: #00e676; }
     .elo-down { color: #ff4081; }
-    .elo-flat { color: #556; }
+    .elo-flat { color: #b8c0d0; }
     .elo-spark { line-height: 0; }
 
     @media (max-width: 900px) {
@@ -4997,7 +4999,7 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
 
         badge_url = _BADGE_URL.get(r["team"], "")
         badge_img = (f'<img class="team-badge" src="{badge_url}" alt="{r["team"]}">'
-                     if badge_url else '<span style="color:#445">—</span>')
+                     if badge_url else '<span style="color:#b8c0d0">—</span>')
         st.markdown(
             f'<div class="elo-row">'
             f'<div class="elo-rank {rank_cls}">{rank}</div>'
@@ -5013,7 +5015,7 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
 
     # ── Footer note ─────────────────────────────────────────────────────
     st.markdown(
-        '<div style="margin-top:1rem;font-size:0.86rem;color:#445;line-height:1.6">'
+        '<div style="margin-top:1rem;font-size:0.86rem;color:#b8c0d0;line-height:1.6">'
         'Elo computed from full PL match history (2021-22 onwards). K-factor 32, '
         'home advantage 100 pts. Δ Week = current Elo − Elo seven days ago. '
         'Form (5g) = % change in Elo over the last 5 league matches.'
@@ -5268,7 +5270,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         <div class="td-portfolio-stats">
           <div class="td-stat-card">
             <div class="td-stat-lbl">SETTLED</div>
-            <div class="td-stat-val">{n_won}<span style="color:#445">/{len(settled_bets)}</span></div>
+            <div class="td-stat-val">{n_won}<span style="color:#b8c0d0">/{len(settled_bets)}</span></div>
             <div class="td-stat-sub">{n_won} won · {n_lost} lost</div>
           </div>
           <div class="td-stat-card">
@@ -5395,7 +5397,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 'border-radius:14px;margin-bottom:0.6rem;'
                 'animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">'
                 + _ab_half("MAIN", "#3d6eff", stats, _ab_mn_clv)
-                + '<div style="font-size:0.84rem;color:#556;font-weight:900">vs</div>'
+                + '<div style="font-size:0.84rem;color:#b8c0d0;font-weight:900">vs</div>'
                 + _ab_half("MOCK TWO", "#7c4dff", _ab_mt_s, _ab_mt_clv)
                 + '</div>',
                 unsafe_allow_html=True,
@@ -5455,8 +5457,8 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         with eg3:
             st.markdown(
                 f'<div style="font-size:0.78rem;color:#8892a4;padding-top:0.5rem;line-height:1.5">'
-                f'📋 A bet must clear: probability ≥ <b style="color:#7c4dff">{new_min_prob}%</b> '
-                f'AND EV ≥ <b style="color:#7c4dff">+{new_min_ev}%</b> '
+                f'📋 A bet must clear: probability ≥ <b style="color:#a78bfa">{new_min_prob}%</b> '
+                f'AND EV ≥ <b style="color:#a78bfa">+{new_min_ev}%</b> '
                 f'(unless market_gates overrides for U2.5/etc.)</div>',
                 unsafe_allow_html=True,
             )
@@ -6290,7 +6292,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     <div class="pend-sel" style="color:{mc}">{legs_summary} @ {bet['odds']}</div>
                     <div class="pend-meta">
                         <span>£{bet['stake']:.2f} stake</span>
-                        <span style="color:#7c4dff">Model {bet.get('combined_model_prob', 0)*100:.1f}%</span>
+                        <span style="color:#a78bfa">Model {bet.get('combined_model_prob', 0)*100:.1f}%</span>
                         <span style="color:#00e676">EV +{ev_pct:.1f}%</span>
                     </div>
                     <div class="pend-return">
@@ -6367,7 +6369,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     _render_pending_card(recent[i + 1])
     else:
         st.markdown(
-            '<p style="color:#334;font-size:0.9rem;text-align:center;padding:2.5rem 0">'
+            '<p style="color:#9aa6ba;font-size:0.9rem;text-align:center;padding:2.5rem 0">'
             'No pending single bets</p>',
             unsafe_allow_html=True,
         )
@@ -6443,7 +6445,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             if fd["date"] != current_date:
                 current_date = fd["date"]
                 st.markdown(
-                    f'<p style="font-size:0.82rem;font-weight:700;color:#556;'
+                    f'<p style="font-size:0.82rem;font-weight:700;color:#b8c0d0;'
                     f'text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 0.3rem">'
                     f'{current_date.strftime("%A %-d %B")}</p>',
                     unsafe_allow_html=True,
@@ -6573,12 +6575,12 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     ev_color = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff4081")
                     st.markdown(f"""
                     <div style="padding-top:0.25rem">
-                        <div style="font-size:0.78rem;color:#445;text-transform:uppercase;letter-spacing:1px">Model EV</div>
+                        <div style="font-size:0.78rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Model EV</div>
                         <div style="font-size:1.5rem;font-weight:800;color:{ev_color}">
                             {"+" if ev_val >= 0 else ""}{ev_val*100:.1f}%
                         </div>
-                        <div style="font-size:0.78rem;color:#556">Kelly: £{kelly_rec:.0f}</div>
-                        <div style="font-size:0.78rem;color:#556">Implied: {pf.implied_prob(odds_inp)*100:.1f}%</div>
+                        <div style="font-size:0.78rem;color:#b8c0d0">Kelly: £{kelly_rec:.0f}</div>
+                        <div style="font-size:0.78rem;color:#b8c0d0">Implied: {pf.implied_prob(odds_inp)*100:.1f}%</div>
                     </div>""", unsafe_allow_html=True)
 
                 if ev_val < 0:
@@ -6603,7 +6605,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     st.markdown(
                         f'<div class="bet-return-box">'
                         f'<div>'
-                        f'<div style="font-size:0.88rem;color:#556;text-transform:uppercase;letter-spacing:1px">Potential Return</div>'
+                        f'<div style="font-size:0.88rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Potential Return</div>'
                         f'<div class="bet-return-total">£{pot_return:,.2f}</div>'
                         f'</div>'
                         f'<div class="bet-return-detail">+£{pot_profit:,.2f} profit</div>'
@@ -6681,13 +6683,13 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         if not suggestions:
             if not live_odds:
                 st.markdown(
-                    '<p style="color:#445;font-size:0.82rem">Add an Odds API key in Settings to '
+                    '<p style="color:#b8c0d0;font-size:0.82rem">Add an Odds API key in Settings to '
                     'generate accumulator suggestions based on live bookmaker odds.</p>',
                     unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
-                    '<p style="color:#445;font-size:0.82rem">No positive-EV combinations found '
+                    '<p style="color:#b8c0d0;font-size:0.82rem">No positive-EV combinations found '
                     'for upcoming fixtures.</p>',
                     unsafe_allow_html=True,
                 )
@@ -6698,7 +6700,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             for label, group in [("📗 Top Doubles", doubles), ("📘 Top Trebles", trebles)]:
                 if not group:
                     continue
-                st.markdown(f'<p style="font-size:0.82rem;font-weight:700;color:#556;'
+                st.markdown(f'<p style="font-size:0.82rem;font-weight:700;color:#b8c0d0;'
                             f'text-transform:uppercase;letter-spacing:2px;margin:0.8rem 0 0.4rem">'
                             f'{label}</p>', unsafe_allow_html=True)
                 for i, sug in enumerate(group):
@@ -6706,7 +6708,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     ev_col  = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff4081")
                     legs_txt = " &nbsp;✕&nbsp; ".join(
                         f'<b style="color:#ccd">{lg["selection"]}</b>'
-                        f' <span style="color:#556">({tb(lg["home"], 16)} v {tb(lg["away"], 16)})</span>'
+                        f' <span style="color:#b8c0d0">({tb(lg["home"], 16)} v {tb(lg["away"], 16)})</span>'
                         f' <span style="color:#aab">@ {lg["odds"]:.2f}</span>'
                         for lg in sug["legs"]
                     )
@@ -6719,7 +6721,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         <div style="font-size:0.82rem">{legs_txt}</div>
                         <div style="display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap">
                             <span style="color:#aab">Combined @ <b style="color:#e8eaf0">{sug['combined_odds']:.2f}</b></span>
-                            <span style="color:#7c4dff">Model: {sug['combined_prob']*100:.1f}%</span>
+                            <span style="color:#a78bfa">Model: {sug['combined_prob']*100:.1f}%</span>
                             <span class="ev-tag {'ev-strong' if ev_val>=0.1 else ('ev-mild' if ev_val>=0 else 'ev-neg')}">
                                 EV {'+'  if ev_val>=0 else ''}{ev_val*100:.1f}%</span>
                             <span style="color:#ffd600">Kelly: £{kelly_acca:.0f}</span>
@@ -6740,7 +6742,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         st.markdown(
                             f'<div class="bet-return-box" style="margin-top:0.2rem">'
                             f'<div>'
-                            f'<div style="font-size:0.84rem;color:#556;text-transform:uppercase;letter-spacing:1px">Returns</div>'
+                            f'<div style="font-size:0.84rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Returns</div>'
                             f'<div class="bet-return-total">£{pot_ret:,.2f}</div>'
                             f'</div>'
                             f'<div class="bet-return-detail">+£{pot_prof:,.2f} profit</div>'
@@ -6875,7 +6877,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 f'A bigger gap means we thought the bet was more underpriced.">'
                 f'  <div class="bh-edge-row">'
                 f'    <span class="bh-edge-lbl">model</span>'
-                f'    <span class="bh-edge-num" style="color:#7c4dff">{model_p*100:.1f}%</span>'
+                f'    <span class="bh-edge-num" style="color:#a78bfa">{model_p*100:.1f}%</span>'
                 f'  </div>'
                 f'  <div class="bh-edge-row">'
                 f'    <span class="bh-edge-lbl">bookie</span>'
@@ -7265,7 +7267,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             if _clv_rows:
                 st.dataframe(pd.DataFrame(_clv_rows), use_container_width=True, hide_index=True)
             else:
-                st.markdown('<div style="color:#556;font-size:0.82rem">No tagged bets yet.</div>',
+                st.markdown('<div style="color:#b8c0d0;font-size:0.82rem">No tagged bets yet.</div>',
                             unsafe_allow_html=True)
 
     # Drift signal — small banner that flags when recent calibration has shifted
@@ -7284,7 +7286,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             f'background:rgba(124,77,255,0.05);'
             f'border-left:3px solid {_drift_col};border-radius:6px;font-size:0.78rem;color:#e8eaf0">'
             f'{_drift_msg.format(_delta)} '
-            f'&nbsp;·&nbsp; <span style="color:#556">recent {_drift["n_recent"]} vs '
+            f'&nbsp;·&nbsp; <span style="color:#b8c0d0">recent {_drift["n_recent"]} vs '
             f'baseline {_drift["n_baseline"]} bets</span></div>',
             unsafe_allow_html=True,
         )
@@ -7294,7 +7296,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
     # ── Historical EV Backtest ────────────────────────────────────────────
     with st.expander("📜  Historical EV Backtest — could you beat the bookies on past data?", expanded=False):
         st.markdown("""
-        <div style="font-size:0.82rem;color:#778;margin-bottom:1rem;line-height:1.6">
+        <div style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem;line-height:1.6">
             Simulates what would have happened if you had placed Kelly-sized bets on every match
             where the <b style="color:#ccd">DC + XGB + Draw Specialist</b> ensemble identified a
             value opportunity vs actual <b style="color:#ccd">Bet365 closing odds</b> from our
@@ -7407,7 +7409,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         with mc2:
             if hbt_u25_gates:
                 st.markdown(
-                    '<div style="font-size:0.86rem;color:#7c4dff;padding-top:0.55rem">'
+                    '<div style="font-size:0.86rem;color:#a78bfa;padding-top:0.55rem">'
                     'Backtest will include <b>Draw + Under 2.5</b> with separate per-market gates '
                     '(U2.5: mp ≥ 50%, ev ≥ 5%).</div>',
                     unsafe_allow_html=True,
@@ -7466,7 +7468,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         # ELO-profile filter row
         st.markdown(
             '<div style="margin-top:0.7rem;font-size:0.78rem;font-weight:700;'
-            'color:#7c4dff">🎯 ELO-profile filter (Mock Two grid winner: 1500)</div>',
+            'color:#a78bfa">🎯 ELO-profile filter (Mock Two grid winner: 1500)</div>',
             unsafe_allow_html=True,
         )
         be1, be2, be3, be4 = st.columns(4)
@@ -7802,7 +7804,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         f'<div style="padding:0.9rem 1.1rem;border-radius:10px;'
         f'background:linear-gradient(135deg,rgba(124,77,255,0.10),rgba(0,229,255,0.04));'
         f'border:1px solid rgba(124,77,255,0.25);margin-bottom:1.2rem">'
-        f'<div style="font-size:0.86rem;letter-spacing:3px;color:#7c4dff;font-weight:700;'
+        f'<div style="font-size:0.86rem;letter-spacing:3px;color:#a78bfa;font-weight:700;'
         f'text-transform:uppercase;margin-bottom:0.4rem">🧪  Research-Track Portfolio</div>'
         f'<div style="font-size:0.94rem;color:#e8eaf0;line-height:1.5">'
         f'Dixon-Coles <b>+ Karlis-Ntzoufras γ-inflation</b> (γ={gamma_val:+.4f} '
@@ -7844,23 +7846,23 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 <div style="font-size:0.84rem;letter-spacing:2px;color:{accent};font-weight:800">{label}</div>
                 <div style="display:flex;gap:1.4rem;align-items:baseline;margin-top:0.5rem;flex-wrap:wrap">
                     <div>
-                        <div style="font-size:0.8rem;color:#556;letter-spacing:1px">P&amp;L</div>
+                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">P&amp;L</div>
                         <div style="font-size:1.7rem;font-weight:900;color:{prof_col}">{sign}£{abs(profit):,.0f}</div>
                     </div>
                     <div>
-                        <div style="font-size:0.8rem;color:#556;letter-spacing:1px">ROI</div>
+                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">ROI</div>
                         <div style="font-size:1.2rem;font-weight:700;color:{prof_col}">{sign}{roi:.1f}%</div>
                     </div>
                     <div>
-                        <div style="font-size:0.8rem;color:#556;letter-spacing:1px">SETTLED</div>
+                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">SETTLED</div>
                         <div style="font-size:1.2rem;font-weight:700;color:#e8eaf0">{st_dict["n_settled"]}</div>
                     </div>
                     <div>
-                        <div style="font-size:0.8rem;color:#556;letter-spacing:1px">MEDIAN CLV</div>
+                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">MEDIAN CLV</div>
                         <div style="font-size:1.2rem;font-weight:700;color:{clv_col}">{clv_str}</div>
                     </div>
                     <div>
-                        <div style="font-size:0.8rem;color:#556;letter-spacing:1px">BANKROLL</div>
+                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">BANKROLL</div>
                         <div style="font-size:1.2rem;font-weight:700;color:#e8eaf0">£{st_dict["bankroll"]:,.0f}</div>
                     </div>
                 </div>
@@ -7904,12 +7906,12 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             f'<b style="color:#00e676">Deployed config:</b> '
             f'<code style="background:rgba(0,0,0,0.25);padding:2px 8px;border-radius:6px;'
             f'color:#00e5ff;font-size:0.84rem">{_label}</code><br>'
-            f'<b style="color:#7c4dff">52-week WF result:</b> '
+            f'<b style="color:#a78bfa">52-week WF result:</b> '
             f'£10k → <b style="color:#e8eaf0">£631,537</b> '
             f'<span style="color:#8892a4">(+96% ROI, 33% max DD, 35 bets, 49% win)</span><br>'
-            f'<b style="color:#7c4dff">vs Main baseline:</b> '
+            f'<b style="color:#a78bfa">vs Main baseline:</b> '
             f'£59,320 (+24% ROI, 65% max DD) → <b style="color:#00e676">10× profit, half the DD</b><br>'
-            f'<b style="color:#7c4dff">vs £93k ceiling:</b> 6.8× past target<br>'
+            f'<b style="color:#a78bfa">vs £93k ceiling:</b> 6.8× past target<br>'
             f'<span style="color:#8892a4;font-size:0.84rem">'
             f'Source: <code>data/diagnostics/{_source}.json</code></span>'
             '</div>', unsafe_allow_html=True,
@@ -7919,7 +7921,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
         with c1:
             st.markdown(
-                '<p style="font-size:0.84rem;font-weight:800;color:#7c4dff;'
+                '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
                 'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
                 'Phase 1 — top loss leaks</p>', unsafe_allow_html=True,
             )
@@ -7940,7 +7942,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             st.markdown(
                 '<table style="width:100%;font-size:0.86rem;color:#cdd;'
                 'border-collapse:collapse;font-variant-numeric:tabular-nums">'
-                '<thead><tr style="color:#7c4dff;font-size:0.78rem;letter-spacing:1.2px">'
+                '<thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">'
                 '<th style="text-align:left;padding-bottom:0.4rem">TEAM</th>'
                 '<th style="text-align:right">N</th>'
                 '<th style="text-align:right">P&amp;L</th>'
@@ -7959,7 +7961,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
         with c2:
             st.markdown(
-                '<p style="font-size:0.84rem;font-weight:800;color:#7c4dff;'
+                '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
                 'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
                 'Phase 4 — Top 5 WF variants</p>', unsafe_allow_html=True,
             )
@@ -7980,12 +7982,12 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     f'<tr><td style="font-size:0.78rem">{entry[0]}{tag_html}</td>'
                     f'<td style="text-align:right;color:#00e676">£{entry[1]:,.0f}</td>'
                     f'<td style="text-align:right">{entry[2]:.1f}%</td>'
-                    f'<td style="text-align:right;color:#7c4dff">+{entry[3]}%</td></tr>'
+                    f'<td style="text-align:right;color:#a78bfa">+{entry[3]}%</td></tr>'
                 )
             st.markdown(
                 '<table style="width:100%;font-size:0.86rem;color:#cdd;'
                 'border-collapse:collapse;font-variant-numeric:tabular-nums">'
-                '<thead><tr style="color:#7c4dff;font-size:0.78rem;letter-spacing:1.2px">'
+                '<thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">'
                 '<th style="text-align:left;padding-bottom:0.4rem">CONFIG</th>'
                 '<th style="text-align:right">FINAL</th>'
                 '<th style="text-align:right">DD</th>'
@@ -8860,7 +8862,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 f'<div class="bh-edge" title="Model probability vs bookmaker implied probability.">'
                 f'  <div class="bh-edge-row">'
                 f'    <span class="bh-edge-lbl">model</span>'
-                f'    <span class="bh-edge-num" style="color:#7c4dff">{model_p*100:.1f}%</span>'
+                f'    <span class="bh-edge-num" style="color:#a78bfa">{model_p*100:.1f}%</span>'
                 f'  </div>'
                 f'  <div class="bh-edge-row">'
                 f'    <span class="bh-edge-lbl">bookie</span>'
@@ -8927,9 +8929,9 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     with st.expander("📜  Historical EV Backtest · Mock Two engine (K-N + uncertainty-Kelly)",
                      expanded=False):
         st.markdown("""
-        <div style="font-size:0.82rem;color:#778;margin-bottom:1rem;line-height:1.6">
+        <div style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem;line-height:1.6">
             Replays the same B365 historical odds as the Main backtest but routes them through
-            the <b style="color:#7c4dff">research-track stack</b>: Karlis-Ntzoufras γ-inflated
+            the <b style="color:#a78bfa">research-track stack</b>: Karlis-Ntzoufras γ-inflated
             Dixon-Coles for probabilities, Baker-McHale uncertainty-shrunk Kelly for sizing,
             and Busseti-Ryu-Boyd simultaneous-bet correction across same-day cards.
             Side-by-side with the Main result, this answers: <i>does the research stack
@@ -9047,7 +9049,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         with m2c2:
             if hbt2_u25_gates:
                 st.markdown(
-                    '<div style="font-size:0.86rem;color:#7c4dff;padding-top:0.55rem">'
+                    '<div style="font-size:0.86rem;color:#a78bfa;padding-top:0.55rem">'
                     'Backtest will include <b>Draw + Under 2.5</b> with separate per-market gates '
                     '(U2.5: mp ≥ 50%, ev ≥ 5%).</div>',
                     unsafe_allow_html=True,
@@ -9058,7 +9060,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             '<div style="margin:0.9rem 0 0.4rem;padding-top:0.6rem;'
             'border-top:1px dashed rgba(124,77,255,0.25);'
             'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
-            'text-transform:uppercase;color:#7c4dff">'
+            'text-transform:uppercase;color:#a78bfa">'
             '🧠 Phase 4 filters — replay with deployed config or experiment'
             '</div>', unsafe_allow_html=True,
         )
@@ -9551,7 +9553,7 @@ def _render_offseason_card(df, blurb: str, key_prefix: str) -> bool:
              background:linear-gradient(90deg,#3d6eff,#7c4dff);
              -webkit-background-clip:text;-webkit-text-fill-color:transparent">
             {info['days_to_kickoff']} days</div>
-        <div style="font-size:0.78rem;color:#556">~{info['kickoff'].strftime('%-d %B %Y')}</div>
+        <div style="font-size:0.78rem;color:#b8c0d0">~{info['kickoff'].strftime('%-d %B %Y')}</div>
     </div>
     """, unsafe_allow_html=True)
     c1, c2, c3 = st.columns([2, 3, 2])
@@ -9731,7 +9733,7 @@ def tab_season_review(df):
             mkt_lbl, mkt_col = _MKT_CHIP.get(b["market"], (b["market"], "#8892a4"))
             profit = b.get("profit", 0.0)
             pcol = "#00e676" if profit >= 0 else "#ff4081"
-            rank_html = (f'<span style="color:#556;font-weight:900;width:1.4rem;'
+            rank_html = (f'<span style="color:#b8c0d0;font-weight:900;width:1.4rem;'
                          f'display:inline-block">{rank}</span>' if rank else
                          '<span style="color:#ff4081;font-weight:900">✗</span> ')
             return f"""
@@ -9741,7 +9743,7 @@ def tab_season_review(df):
                  animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
                 {rank_html}
                 <span style="font-size:0.84rem;color:#e8eaf0;font-weight:700;flex:1;min-width:220px">
-                    {tb(b['home'], 24)} <span style="color:#556">vs</span> {tb(b['away'], 24)}</span>
+                    {tb(b['home'], 24)} <span style="color:#b8c0d0">vs</span> {tb(b['away'], 24)}</span>
                 <span style="font-size:0.78rem;font-weight:800;color:{mkt_col};
                      border:1px solid {mkt_col};border-radius:999px;padding:0.1rem 0.55rem">{mkt_lbl}</span>
                 <span style="font-size:0.78rem;color:#8892a4">@{b['odds']:.2f} · £{b['stake']:,.0f}</span>
@@ -9753,7 +9755,7 @@ def tab_season_review(df):
         st.markdown("".join(_bet_row(b, i + 1) for i, b in enumerate(top5)),
                     unsafe_allow_html=True)
         st.markdown(
-            '<p style="font-size:0.78rem;color:#556;margin:0.7rem 0 0.3rem;'
+            '<p style="font-size:0.78rem;color:#b8c0d0;margin:0.7rem 0 0.3rem;'
             'letter-spacing:1px;font-weight:800">AND THE ONE THAT HURT</p>',
             unsafe_allow_html=True)
         st.markdown(_bet_row(worst), unsafe_allow_html=True)
@@ -9773,7 +9775,7 @@ def tab_season_review(df):
                       "#ff4081" if pos >= len(tbl) - 2 else "transparent")
             rows_html.append(f"""
             <tr style="border-left:3px solid {accent}">
-                <td style="color:#556;font-weight:800;padding:0.35rem 0.6rem">{pos}</td>
+                <td style="color:#b8c0d0;font-weight:800;padding:0.35rem 0.6rem">{pos}</td>
                 <td style="padding:0.35rem 0.6rem;color:#e8eaf0;font-weight:700;text-align:left">{tb(r['Team'], 22)}</td>
                 <td>{r['Played']}</td><td>{r['W']}</td><td>{r['D']}</td><td>{r['L']}</td>
                 <td>{r['GF']}</td><td>{r['GA']}</td>
@@ -9786,7 +9788,7 @@ def tab_season_review(df):
              animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
         <table style="width:100%;border-collapse:collapse;font-size:0.82rem;
                color:#8892a4;text-align:center">
-            <thead><tr style="color:#7c4dff;font-size:0.78rem;letter-spacing:1.2px">
+            <thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">
                 <th style="padding:0.3rem 0.6rem">#</th>
                 <th style="text-align:left;padding:0.3rem 0.6rem">TEAM</th>
                 <th>P</th><th>W</th><th>D</th><th>L</th>
@@ -9794,7 +9796,7 @@ def tab_season_review(df):
             </tr></thead>
             <tbody>{''.join(rows_html)}</tbody>
         </table></div>
-        <p style="font-size:0.78rem;color:#556;margin-top:0.4rem">
+        <p style="font-size:0.78rem;color:#b8c0d0;margin-top:0.4rem">
             <span style="color:#ffd600">▌</span> Champions &nbsp;
             <span style="color:#00e676">▌</span> Champions League &nbsp;
             <span style="color:#00e5ff">▌</span> Europe &nbsp;
@@ -9871,6 +9873,7 @@ TAB_REGISTRY = [
     ("teamdeep",    "🔍", "Team Deep Dive", "All data on one team"),
     ("portfolio",   "💰", "Mock Portfolio", "Paper-trade bets"),
     ("portfolio2",  "🧪", "Mock Two",       "Research-track A/B"),
+    ("preflight",   "🛫", "Pre-Flight",     "Season readiness"),
 ]
 
 
@@ -10003,7 +10006,7 @@ def _render_home_activity() -> None:
         f'<div class="hf-tile-lbl">AUTO-BET</div>'
         f'<div class="hf-tile-val">{auto_24h}</div>'
         f'<div class="hf-tile-sub">placed in last 24h<br>'
-        f'<span style="color:#7c4dff">last run {last_run_age}</span></div>'
+        f'<span style="color:#a78bfa">last run {last_run_age}</span></div>'
         '</div>'
 
         # ── Tile 2: Portfolios at a glance ──
@@ -10140,11 +10143,235 @@ def _render_home_screen() -> None:
     # Minimal footer
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(
-        '<p style="text-align:center;font-size:0.78rem;color:#334;letter-spacing:2px">'
+        '<p style="text-align:center;font-size:0.78rem;color:#9aa6ba;letter-spacing:2px">'
         'DATA: FOOTBALL-DATA.CO.UK + UNDERSTAT · FOR ENTERTAINMENT PURPOSES</p>',
         unsafe_allow_html=True,
     )
 
+
+
+# ── Pre-Flight: is the season actually ready to trade? ─────────────────────────
+
+def _preflight_runner_state() -> dict:
+    """Last headless-runner activity, and whether the launchd job is loaded.
+
+    The runner places bets when nobody has the app open, so "did it run" is a
+    question the app should answer rather than one you check by tailing a log.
+    """
+    events = _read_activity_log(max_events=200)
+    last_run = next((e for e in events if e.get("type") == "run_completed"), None)
+    skips = [e for e in events if e.get("type") == "fixture_skipped"]
+    loaded = False
+    try:
+        out = subprocess.run(["launchctl", "list"], capture_output=True,
+                             text=True, timeout=5).stdout
+        loaded = "com.eoinhoustoun.fpred" in out
+    except Exception:
+        loaded = False
+    return {"last_run": last_run, "skips": skips[:6], "job_loaded": loaded}
+
+
+def _preflight_chip(text: str, tone: str) -> str:
+    """A status pill. Tones map to the palette: go / hold / stop."""
+    colours = {
+        "go":   ("#00e676", "rgba(0,230,118,0.14)"),
+        "hold": ("#ffd600", "rgba(255,214,0,0.14)"),
+        "stop": ("#ff4081", "rgba(255,64,129,0.14)"),
+        "info": ("#00e5ff", "rgba(0,229,255,0.14)"),
+    }
+    fg, bg = colours.get(tone, colours["info"])
+    return (f'<span style="display:inline-block;padding:0.2rem 0.65rem;'
+            f'border-radius:999px;background:{bg};color:{fg};'
+            f'font-size:0.78rem;font-weight:800;letter-spacing:0.6px;'
+            f'white-space:nowrap">{text}</span>')
+
+
+def _preflight_portfolio_card(port: dict, title: str, accent: str) -> str:
+    """One portfolio's trading posture, as a single-line HTML card.
+
+    Built as one line on purpose: st.markdown stops passing raw HTML through
+    once any line is whitespace-only, which happens as soon as an interpolated
+    value comes back empty.
+    """
+    s = port["settings"]
+    live = bool(s.get("auto_bet_enabled", False))
+    posture = (_preflight_chip("AUTO-BET LIVE", "go") if live
+               else _preflight_chip("AUTO-BET OFF", "hold"))
+    gates = [
+        ("EV gate",     f"{int(float(s.get('min_ev', 0.40)) * 100)}%"),
+        ("Min prob",    f"{int(float(s.get('min_prob', 0.21)) * 100)}%"),
+        ("Kelly",       f"{float(s.get('kelly_fraction', 1.0)):g}x"),
+        ("Max stake",   f"{int(float(s.get('max_stake_pct', 0.25)) * 100)}%"),
+        ("Elo floor",   str(s.get("main_min_team_elo") or s.get("v2_min_team_elo") or "off")),
+        ("History gate", f"{s.get('min_team_matches') or 'off'} matches"),
+        ("Club cap",    f"{s.get('max_bets_per_club') or 'off'} bets"),
+        ("Markets",     "+".join(s.get("auto_markets", [])) or "none"),
+    ]
+    rows = "".join(
+        f'<div style="display:flex;justify-content:space-between;gap:0.6rem;'
+        f'padding:0.28rem 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+        f'<span style="font-size:0.82rem;color:#b8c0d0">{k}</span>'
+        f'<span style="font-size:0.82rem;color:#e8eaf0;font-weight:700;'
+        f'font-variant-numeric:tabular-nums">{v}</span></div>'
+        for k, v in gates)
+    label = s.get("main_settings_label") or s.get("v2_settings_label") or ""
+    html = f"""
+    <div class="metric-card" style="text-align:left;border-color:{accent}55">
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  gap:0.5rem;margin-bottom:0.6rem">
+        <span style="font-size:0.95rem;font-weight:900;color:{accent};
+                     letter-spacing:0.5px">{title}</span>{posture}
+      </div>
+      <div style="font-size:1.5rem;font-weight:900;color:#e8eaf0;
+                  font-variant-numeric:tabular-nums">£{port['bankroll']:,.2f}</div>
+      <div style="font-size:0.78rem;color:#b8c0d0;margin-bottom:0.7rem">
+        {len(port['bets'])} bets this season · opened £{port['initial_bankroll']:,.0f}</div>
+      {rows}
+      <div style="font-size:0.78rem;color:#b8c0d0;margin-top:0.7rem;
+                  line-height:1.45">{label}</div>
+    </div>
+    """
+    return "".join(seg.strip() for seg in html.splitlines())
+
+
+def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
+                  draw_xgb_m, draw_fc, teams, elo_dict):
+    """Season readiness in one screen: countdown, posture, and what is gated.
+
+    Everything here was previously only visible by reading data/activity.log or
+    the portfolio JSON. A gate that silently drops two of ten opening fixtures
+    is indistinguishable from a gate that found nothing, which is exactly how
+    the promoted-team problem stayed invisible.
+    """
+    info = _offseason_info(df)
+    main_port = pf.load_portfolio()
+    mt_port   = pf.load_portfolio_two()
+    match_counts = team_match_counts(df)
+
+    # ── Countdown hero ───────────────────────────────────────────────────
+    days = info["days_to_kickoff"]
+    tone = "#00e676" if days == 0 else ("#ffd600" if days <= 14 else "#7c4dff")
+    st.markdown(
+        f'<div class="pnl-hero pnl-neutral" style="border-color:{tone}55">'
+        f'<div class="pnl-tag" style="color:#b8c0d0">Season {info["season_label"]} '
+        f'· first bet-eligible fixture</div>'
+        f'<div class="pnl-amount" style="color:{tone}">{days}</div>'
+        f'<div style="font-size:0.95rem;color:#e8eaf0;font-weight:700">'
+        f'days to kickoff · {info["kickoff"].strftime("%A %-d %B %Y")}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Portfolio posture ────────────────────────────────────────────────
+    _section_header("Trading posture",
+                    "What each line would do if a qualifying fixture appeared "
+                    "right now.")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(_preflight_portfolio_card(main_port, "MAIN", "#3d6eff"),
+                    unsafe_allow_html=True)
+    with c2:
+        st.markdown(_preflight_portfolio_card(mt_port, "MOCK TWO", "#7c4dff"),
+                    unsafe_allow_html=True)
+
+    # ── Fixture board ────────────────────────────────────────────────────
+    _section_header("Opening fixtures",
+                    "Model draw probability, and whether the fixture is "
+                    "eligible to be staked.")
+    try:
+        fixtures = cached_fixtures()[:12]
+    except Exception as e:
+        fixtures = []
+        st.warning(f"Could not load fixtures: {e}")
+
+    if not fixtures:
+        st.info("No upcoming fixtures published yet.")
+    else:
+        # main() already seeds promoted sides before anything predicts, so
+        # re-seeding here would find nothing new and report an empty list.
+        # Trust the marker it leaves, and only seed if we were handed raw
+        # ratings (which happens if the seeding step upstream failed).
+        if dc_r.get("seeded_teams") is None:
+            names = [t for f in fixtures for t in (f["home"], f["away"])]
+            seeded_dc = seed_promoted_teams(dc_r, names)
+        else:
+            seeded_dc = dc_r
+        min_matches = main_port["settings"].get("min_team_matches")
+        rows_html = []
+        for f in fixtures:
+            h, a = f["home"], f["away"]
+            p = predict_dixon_coles(h, a, seeded_dc)
+            blocked = pf.should_skip_unrated(h, a, match_counts, min_matches)
+            if blocked:
+                low = [t for t in (h, a) if match_counts.get(t, 0) < (min_matches or 0)]
+                badge = _preflight_chip("GATED", "stop")
+                why = (f"{', '.join(low)} under {min_matches} Premier League "
+                       f"matches — priced on the promoted prior, not staked")
+            else:
+                badge = _preflight_chip("ELIGIBLE", "go")
+                why = "both sides rated"
+            draw_pct = p["draw"] * 100
+            rows_html.append(
+                f'<div style="display:grid;grid-template-columns:5.5rem 1fr auto auto;'
+                f'gap:0.7rem;align-items:center;padding:0.5rem 0;'
+                f'border-bottom:1px solid rgba(255,255,255,0.06)">'
+                f'<span style="font-size:0.78rem;color:#b8c0d0">'
+                f'{f["date"].strftime("%a %-d %b")}</span>'
+                f'<span><span style="font-size:0.88rem;color:#e8eaf0;font-weight:700">'
+                f'{h} v {a}</span><br>'
+                f'<span style="font-size:0.78rem;color:#b8c0d0">{why}</span></span>'
+                f'<span style="font-size:0.95rem;font-weight:900;color:#ffd600;'
+                f'font-variant-numeric:tabular-nums">{draw_pct:.1f}%</span>{badge}</div>')
+        st.markdown(
+            '<div class="metric-card" style="text-align:left">'
+            '<div style="display:grid;grid-template-columns:5.5rem 1fr auto auto;'
+            'gap:0.7rem;font-size:0.78rem;color:#b8c0d0;font-weight:800;'
+            'letter-spacing:1px;text-transform:uppercase;padding-bottom:0.4rem">'
+            '<span>Date</span><span>Fixture</span><span>Draw</span><span>Status</span>'
+            '</div>' + "".join(rows_html) + '</div>',
+            unsafe_allow_html=True)
+
+        seeded = seeded_dc.get("seeded_teams", [])
+        if seeded:
+            st.markdown(
+                f'<div style="margin-top:0.9rem;padding:0.8rem 1rem;border-radius:12px;'
+                f'background:rgba(255,214,0,0.08);border:1px solid rgba(255,214,0,0.28)">'
+                f'<div style="font-size:0.86rem;color:#ffd600;font-weight:800">'
+                f'Seeded on the promoted-side prior: {", ".join(seeded)}</div>'
+                f'<div style="font-size:0.82rem;color:#e8eaf0;line-height:1.5;'
+                f'margin-top:0.3rem">Attack {PROMOTED_PRIOR["attack"]:+.3f}, defence '
+                f'{PROMOTED_PRIOR["defense"]:+.3f}, fitted on '
+                f'{PROMOTED_PRIOR["n_teams"]} teams promoted '
+                f'{PROMOTED_PRIOR["fitted_on"]}. The prior is flat because no '
+                f'Championship signal beat the pooled mean out of sample, so every '
+                f'promoted side gets the same rating. Prices read honestly; the '
+                f'no-history gate still blocks the stake.</div></div>',
+                unsafe_allow_html=True)
+
+    # ── Runner ───────────────────────────────────────────────────────────
+    _section_header("Headless runner",
+                    "scripts/run_auto_bet.py places bets when the app is "
+                    "closed. Same gates as the app.")
+    state = _preflight_runner_state()
+    job = (_preflight_chip("SCHEDULED", "go") if state["job_loaded"]
+           else _preflight_chip("NOT SCHEDULED", "hold"))
+    last = state["last_run"]
+    when = _humanize_age(last["ts"]) if last else "never"
+    st.markdown(
+        f'<div class="metric-card" style="text-align:left">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center">'
+        f'<span style="font-size:0.88rem;color:#e8eaf0;font-weight:700">'
+        f'launchd job</span>{job}</div>'
+        f'<div style="font-size:0.82rem;color:#b8c0d0;margin-top:0.4rem">'
+        f'Last completed run: {when}</div></div>',
+        unsafe_allow_html=True)
+
+    if state["skips"]:
+        with st.expander(f"Fixtures the runner passed over ({len(state['skips'])})"):
+            for e in state["skips"]:
+                st.markdown(
+                    f'<div style="font-size:0.82rem;color:#e8eaf0;padding:0.2rem 0">'
+                    f'<b>{e.get("match", "?")}</b> — {e.get("reason", "?")}: '
+                    f'{e.get("detail", "")}</div>', unsafe_allow_html=True)
 
 def _render_top_bar(active_key: str) -> None:
     """Compact header for non-home views: small logo + tab title + Home button."""
@@ -10470,13 +10697,16 @@ def main():
     elif active_view == "portfolio2":
         tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                           draw_xgb_m, draw_fc, teams, elo_dict)
+    elif active_view == "preflight":
+        tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
+                      draw_xgb_m, draw_fc, teams, elo_dict)
     else:
         st.session_state["_active_view"] = None
         st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(
-        '<p style="text-align:center;font-size:0.78rem;color:#334;letter-spacing:2px">'
+        '<p style="text-align:center;font-size:0.78rem;color:#9aa6ba;letter-spacing:2px">'
         'DATA: FOOTBALL-DATA.CO.UK + UNDERSTAT · MODEL: DIXON-COLES + POISSON + XGBOOST · '
         'FOR ENTERTAINMENT PURPOSES</p>',
         unsafe_allow_html=True,
