@@ -40,6 +40,7 @@ from models import (  # noqa: E402
     predict_dixon_coles, predict_dixon_coles_kn,
     predict_xgb, predict_draw_xgb,
     seed_promoted_teams,
+    seed_promoted_elo,
 )
 import portfolio as pf  # noqa: E402
 
@@ -225,6 +226,10 @@ def main() -> int:
             dc_r, dc_draw_r, dc_kn_r = seeded_ratings_for(
                 fixtures, dc_r, dc_draw_r, dc_kn_r)
             teams = set(teams) | set(dc_r.get("attacks", {}))
+            # Same for Elo, so the runner and the app agree on how good a
+            # promoted side is rather than one of them defaulting to 1500.
+            elo_dict = seed_promoted_elo(
+                elo_dict, [t for f in fixtures for t in (f["home"], f["away"])])
 
             main_cands: list[dict] = []
             mt_cands:   list[dict] = []

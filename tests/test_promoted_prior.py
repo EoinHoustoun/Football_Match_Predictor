@@ -37,9 +37,12 @@ def _ratings() -> dict:
 # ── Seeding ───────────────────────────────────────────────────────────────────
 
 def test_missing_team_is_seeded_with_the_promoted_prior():
-    seeded = seed_promoted_teams(_ratings(), ["Arsenal", "Everton", "Coventry"])
-    assert seeded["attacks"]["Coventry"] == PROMOTED_PRIOR["attack"]
-    assert seeded["defenses"]["Coventry"] == PROMOTED_PRIOR["defense"]
+    # An unpriced side still gets the pooled value; a side the relegation market
+    # prices is now ordered against the 60% base rate instead (see
+    # tests/test_market_promoted.py), so this asserts the fallback path.
+    seeded = seed_promoted_teams(_ratings(), ["Arsenal", "Everton", "Unlisted FC"])
+    assert seeded["attacks"]["Unlisted FC"] == PROMOTED_PRIOR["attack"]
+    assert seeded["defenses"]["Unlisted FC"] == PROMOTED_PRIOR["defense"]
 
 
 def test_seeding_records_which_teams_it_invented():

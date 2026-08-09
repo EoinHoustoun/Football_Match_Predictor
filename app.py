@@ -33,6 +33,7 @@ from data import (
 )
 from models import (
     PROMOTED_PRIOR,
+    seed_promoted_elo,
     backtest_models,
     backtest_models_v2,
     blend,
@@ -10650,6 +10651,11 @@ def main():
             _fx_key = "|".join(f"{f['home']}~{f['away']}" for f in _fx)
             dc_r, dc_draw_r = cached_promoted_seeding(
                 cache_key, _fx_key, dc_r, dc_draw_r)
+            # Elo too. An unseen team defaults to 1500, which would rank a
+            # promoted side above Ipswich on 1351 — so seed from where promoted
+            # teams actually land, ordered by the relegation market.
+            elo_dict = seed_promoted_elo(
+                elo_dict, [t for f in _fx for t in (f["home"], f["away"])])
         except Exception:
             pass
 

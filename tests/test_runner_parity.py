@@ -56,10 +56,14 @@ def test_seeding_rates_a_promoted_side_in_every_ratings_dict(toy_dc_ratings):
         copy.deepcopy(toy_dc_ratings),
         copy.deepcopy(toy_dc_ratings),
     )
+    # The point is agreement across the three fits, not the specific value:
+    # Hull is priced by the relegation market, so it is no longer the pooled
+    # prior. Seeding one dict differently would quote the fixture three ways.
     for ratings in (dc, draw, kn):
-        assert ratings["attacks"]["Hull"] == PROMOTED_PRIOR["attack"]
-        assert ratings["defenses"]["Hull"] == PROMOTED_PRIOR["defense"]
+        assert ratings["attacks"]["Hull"] == dc["attacks"]["Hull"]
+        assert ratings["defenses"]["Hull"] == dc["defenses"]["Hull"]
         assert ratings["seeded_teams"] == ["Hull"]
+    assert dc["attacks"]["Hull"] < PROMOTED_PRIOR["attack"]
 
 
 def test_seeding_leaves_a_rated_side_untouched(toy_dc_ratings):

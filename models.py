@@ -3,6 +3,8 @@ Prediction models: Poisson goal model + Dixon-Coles + XGBoost form classifier.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -213,6 +215,150 @@ PROMOTED_PRIOR: dict = {
 }
 
 
+
+# ── Market view of the promoted sides ─────────────────────────────────────────
+#
+# The fitted prior above is flat, because no Championship signal predicted the
+# step up out of sample. That is honest statistics and poor football: the market
+# prices Hull at 1/4 to go down and Coventry at 4/6, and calling them the same
+# team ignores the sharpest read available.
+#
+# Pre-season 2026-27 relegation prices, captured 2026-08-09.
+# Source: thelines.com Premier League relegation odds, 2026-08-08.
+# Fractional as published. Update each August; a team absent here simply falls
+# back to the flat prior.
+MARKET_RELEGATION_ODDS: dict = {
+    "Hull": "1/4",          "Ipswich": "4/6",      "Coventry": "4/6",
+    "Sunderland": "3/1",    "Fulham": "11/2",      "Leeds": "6/1",
+    "Crystal Palace": "6/1", "Brentford": "8/1",   "Nott'm Forest": "8/1",
+    "Newcastle": "9/1",     "Everton": "9/1",      "Bournemouth": "9/1",
+    "Man City": "12/1",     "Brighton": "25/1",    "Tottenham": "50/1",
+    "Chelsea": "50/1",      "Aston Villa": "66/1", "Man United": "500/1",
+    "Liverpool": "750/1",   "Arsenal": "1000/1",
+}
+
+# How far the market is allowed to move a promoted side, as a fraction of the
+# spread actually observed across the fifteen promoted teams. Deliberately
+# shrunk: three separate attempts to predict a promoted side's rating before it
+# played all lost to the pooled mean, so the ORDER the market gives is trusted
+# further than the MAGNITUDE. Raise it only with evidence.
+MARKET_SHRINKAGE: float = 0.5
+
+# Nine of the fifteen promoted teams since 2021-22 went straight back down, so
+# 60% is what "an average promoted side" looks like to the market. Scoring
+# against this rather than against the current cohort's own mean matters: with
+# Hull at 71% and Coventry at 53%, a cohort-relative score would force them to
+# straddle the pooled prior and flatter Coventry into looking above-average.
+# Against the base rate, Hull is clearly worse and Coventry is barely better.
+PROMOTED_BASE_RELEGATION: float = 0.60
+
+# Logit units per standard deviation of the shift. Set so a side priced at the
+# pessimistic end of plausible (about 85%) reaches the +1.5 clamp.
+MARKET_LOGIT_SCALE: float = 0.9
+
+# Where a promoted side's Elo actually lands, measured over the same fifteen
+# teams at the end of their first Premier League season. The unseen-team default
+# of 1500 is more than a standard deviation too generous — it would rank a
+# promoted club above Ipswich on 1351 and Burnley on 1340.
+PROMOTED_ELO: dict = {"mean": 1394.0, "sd": 91.0, "min": 1254.0, "max": 1559.0}
+
+
+def _logit(p: float) -> float:
+    return math.log(p / (1.0 - p))
+
+
+def _to_probability(odds) -> float | None:
+    """Fractional ('4/6') or decimal (2.5) odds to an implied probability."""
+    if isinstance(odds, (int, float)):
+        return 1.0 / float(odds) if odds > 1 else None
+    try:
+        num, den = str(odds).split("/")
+        decimal = float(num) / float(den) + 1.0
+        return 1.0 / decimal
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def market_relegation_probs(odds: dict | None = None) -> dict:
+    """Relegation probabilities, with the bookmaker's overround removed.
+
+    Normalised so the book sums to 3.0 rather than 1.0, because three teams go
+    down. Without that the numbers are not probabilities of anything.
+    """
+    odds = MARKET_RELEGATION_ODDS if odds is None else odds
+    raw = {team: _to_probability(o) for team, o in odds.items()}
+    raw = {t: p for t, p in raw.items() if p is not None}
+    total = sum(raw.values())
+    if total <= 0:
+        return {}
+    return {t: p * 3.0 / total for t, p in raw.items()}
+
+
+def promoted_prior_for(teams, odds: dict | None = None,
+                       shrinkage: float = MARKET_SHRINKAGE) -> dict:
+    """A per-team promoted prior, ordered by the relegation market.
+
+    Each side is scored against the rest of the promoted cohort, not against the
+    league, so this reorders promoted teams among themselves without claiming
+    this year's intake is better or worse than the fifteen the prior was fitted
+    on. A single promoted side has nothing to be ranked against and keeps the
+    pooled value.
+
+    Every result is clamped inside the range promoted teams have actually
+    recorded. Inventing a rating no promoted team has ever had is the mistake
+    that sank the additive Championship prior.
+    """
+    teams = list(teams)
+    flat = {"attack": PROMOTED_PRIOR["attack"],
+            "defense": PROMOTED_PRIOR["defense"]}
+    probs = market_relegation_probs(odds)
+
+    out = {}
+    for team in teams:
+        p = probs.get(team)
+        if p is None or not 0.0 < p < 1.0:
+            out[team] = dict(flat)
+            continue
+        # Log-odds against the historical base rate, so a move from 50% to 70%
+        # counts like 70% to 85%, and "average promoted side" means average
+        # across fifteen years rather than average of this year's two.
+        z = max(-1.5, min(1.5, (_logit(p) - _logit(PROMOTED_BASE_RELEGATION))
+                          / MARKET_LOGIT_SCALE))
+        attack = PROMOTED_PRIOR["attack"] - z * shrinkage * PROMOTED_PRIOR["attack_sd"]
+        defense = PROMOTED_PRIOR["defense"] + z * shrinkage * PROMOTED_PRIOR["defense_sd"]
+        out[team] = {
+            "attack":  float(max(-0.95, min(-0.20, attack))),
+            "defense": float(max(0.38, min(1.25, defense))),
+            "market_relegation_prob": round(p, 4),
+        }
+    return out
+
+
+def seed_promoted_elo(elo: dict, teams, odds: dict | None = None,
+                      shrinkage: float = MARKET_SHRINKAGE) -> dict:
+    """Give unrated sides a starting Elo instead of the 1500 default.
+
+    Returns a new dict; teams already carrying an Elo keep it untouched.
+    """
+    out = dict(elo)
+    missing = [t for t in teams if t not in out]
+    if not missing:
+        return out
+    probs = market_relegation_probs(odds)
+
+    for team in missing:
+        p = probs.get(team)
+        if p is not None and 0.0 < p < 1.0:
+            z = max(-1.5, min(1.5, (_logit(p) - _logit(PROMOTED_BASE_RELEGATION))
+                              / MARKET_LOGIT_SCALE))
+        else:
+            z = 0.0
+        rating = PROMOTED_ELO["mean"] - z * shrinkage * PROMOTED_ELO["sd"]
+        out[team] = float(max(PROMOTED_ELO["min"],
+                              min(PROMOTED_ELO["max"], rating)))
+    return out
+
+
 def seed_promoted_teams(dc_ratings: dict, teams, prior: dict | None = None) -> dict:
     """Give unrated teams the promoted-side prior rather than league average.
 
@@ -224,15 +370,18 @@ def seed_promoted_teams(dc_ratings: dict, teams, prior: dict | None = None) -> d
     Returns a new ratings dict; the input is left alone. Seeded names are
     recorded under `seeded_teams` so callers can mark them as estimates.
     """
-    prior = prior or PROMOTED_PRIOR
     out = {k: (dict(v) if isinstance(v, dict) else
                list(v) if isinstance(v, list) else v)
            for k, v in dc_ratings.items()}
 
     seeded = [t for t in teams if t not in out.get("attacks", {})]
+    # An explicit prior overrides the market; otherwise the promoted sides are
+    # ordered by the relegation book rather than all given the pooled value.
+    per_team = ({t: prior for t in seeded} if prior
+                else promoted_prior_for(seeded))
     for team in seeded:
-        out["attacks"][team]  = prior["attack"]
-        out["defenses"][team] = prior["defense"]
+        out["attacks"][team]  = per_team[team]["attack"]
+        out["defenses"][team] = per_team[team]["defense"]
         if "teams" in out and team not in out["teams"]:
             out["teams"].append(team)
             out.setdefault("team_idx", {})[team] = len(out["teams"]) - 1
