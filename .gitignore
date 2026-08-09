@@ -30,6 +30,7 @@ data/portfolio_two.json
 data/portfolio.backup.*.json
 data/portfolio_two.backup.*.json
 data/seasons/
+data/championship/
 data/odds_snapshots/
 data/live_odds_cache.json
 data/odds_api_usage.json

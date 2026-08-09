@@ -186,6 +186,60 @@ def _dc_neg_log_lik(
     return -float(np.sum(weights * ll))
 
 
+# ── Promoted-team prior ───────────────────────────────────────────────────────
+# Fitted by scripts/promoted_team_prior.py over the fifteen teams promoted
+# between 2021-22 and 2025-26, comparing each side's final Championship season
+# against its first Premier League season (both fitted on goals, no time decay,
+# so the two leagues are measured on the same instrument).
+#
+# The prior is flat on purpose. Leave-one-out testing found that no Championship
+# signal — DC attack, DC defence, goal difference, points, or promotion route —
+# beat the pooled mean out of sample. Every one of them made the prediction
+# worse. Championship form does not survive the step up in any usable form, so
+# the honest estimate for a promoted side is "an average promoted side".
+#
+# Scale, from the 2025-26 Premier League: attack ran from +0.087 (Man City) to
+# -0.943 (Wolves) with a median of -0.320; defence from -0.178 (Arsenal, best)
+# to +0.843 (Burnley, worst). The prior therefore lands a promoted side around
+# the relegation places, which is where promoted sides land.
+PROMOTED_PRIOR: dict = {
+    "attack":      -0.645,
+    "defense":      0.817,
+    "attack_sd":    0.218,
+    "defense_sd":   0.228,
+    "n_teams":      15,
+    "fitted_on":    "2021-22..2025-26",
+    "source":       "scripts/promoted_team_prior.py",
+}
+
+
+def seed_promoted_teams(dc_ratings: dict, teams, prior: dict | None = None) -> dict:
+    """Give unrated teams the promoted-side prior rather than league average.
+
+    `predict_dixon_coles` falls back to 0.0 for an unknown team, which is not a
+    neutral default — 0.0 is exactly league average, so a promoted side gets
+    modelled as a mid-table club. On the real 2026-27 opener that inflated the
+    Arsenal v Coventry draw from 12.0% to 33.6%.
+
+    Returns a new ratings dict; the input is left alone. Seeded names are
+    recorded under `seeded_teams` so callers can mark them as estimates.
+    """
+    prior = prior or PROMOTED_PRIOR
+    out = {k: (dict(v) if isinstance(v, dict) else
+               list(v) if isinstance(v, list) else v)
+           for k, v in dc_ratings.items()}
+
+    seeded = [t for t in teams if t not in out.get("attacks", {})]
+    for team in seeded:
+        out["attacks"][team]  = prior["attack"]
+        out["defenses"][team] = prior["defense"]
+        if "teams" in out and team not in out["teams"]:
+            out["teams"].append(team)
+            out.setdefault("team_idx", {})[team] = len(out["teams"]) - 1
+    out["seeded_teams"] = seeded
+    return out
+
+
 def compute_dixon_coles_ratings(df: pd.DataFrame, decay_weeks: float = 14.0) -> dict:
     """
     Fit Dixon-Coles model via maximum-likelihood with exponential time decay.
@@ -267,6 +321,163 @@ def predict_dixon_coles(
             elif i == 0 and j == 1: p *= max(1.0 + lam_h * rho,          1e-10)
             elif i == 1 and j == 0: p *= max(1.0 + lam_a * rho,          1e-10)
             elif i == 1 and j == 1: p *= max(1.0 - rho,                   1e-10)
+            matrix[i, j] = p
+
+    return _summarise_matrix(lam_h, lam_a, matrix, max_goals)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dixon-Coles + Karlis-Ntzoufras diagonal inflation (research-track variant)
+# Reference: Karlis & Ntzoufras (2003), "Analysis of sports data using bivariate
+# Poisson models", JRSS Series D 52(3). The K-N model inflates the entire draw
+# diagonal of the bivariate Poisson, where standard D-C only adjusts (0,0)/(1,1).
+# This implementation keeps D-C's τ low-score correction and adds a γ parameter
+# that lifts probability mass on every (i,i) cell, fitted by MLE alongside the
+# existing parameters. γ = 0 reduces exactly to standard D-C.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _dc_kn_neg_log_lik(
+    params: np.ndarray,
+    n_teams: int,
+    home_idx: np.ndarray,
+    away_idx: np.ndarray,
+    hgoals: np.ndarray,
+    agoals: np.ndarray,
+    hxg: np.ndarray,
+    axg: np.ndarray,
+    weights: np.ndarray,
+) -> float:
+    """Negative log-likelihood for D-C with K-N diagonal inflation.
+
+    Parameter layout extends standard D-C by one slot for γ:
+        attack[1:], defense, home_adv, rho, gamma
+    """
+    attacks  = np.concatenate([[0.0], params[:n_teams - 1]])
+    defenses = params[n_teams - 1: 2 * n_teams - 1]
+    home_adv = params[2 * n_teams - 1]
+    rho      = params[2 * n_teams]
+    gamma    = params[2 * n_teams + 1]
+
+    lam = np.exp(attacks[home_idx] + defenses[away_idx] + home_adv)
+    mu  = np.exp(attacks[away_idx] + defenses[home_idx])
+
+    ll = (
+        hxg * np.log(np.maximum(lam, 1e-10)) - lam - gammaln(hxg + 1)
+        + axg * np.log(np.maximum(mu,  1e-10)) - mu  - gammaln(axg + 1)
+    )
+
+    tau = np.ones(len(hgoals))
+    m00 = (hgoals == 0) & (agoals == 0)
+    m01 = (hgoals == 0) & (agoals == 1)
+    m10 = (hgoals == 1) & (agoals == 0)
+    m11 = (hgoals == 1) & (agoals == 1)
+    m_diag_high = (hgoals == agoals) & (hgoals >= 2)
+
+    # Standard D-C corrections, lifted by (1+γ) on the draw cells (0,0) and (1,1)
+    tau[m00] = (1.0 - lam[m00] * mu[m00] * rho) * (1.0 + gamma)
+    tau[m01] = 1.0 + lam[m01] * rho
+    tau[m10] = 1.0 + mu[m10]  * rho
+    tau[m11] = (1.0 - rho) * (1.0 + gamma)
+    # K-N inflation on higher-score draws (2-2, 3-3, …)
+    tau[m_diag_high] = 1.0 + gamma
+
+    tau = np.maximum(tau, 1e-10)
+    ll += np.log(tau)
+
+    return -float(np.sum(weights * ll))
+
+
+def compute_dixon_coles_kn_ratings(df: pd.DataFrame, decay_weeks: float = 14.0) -> dict:
+    """
+    Fit Dixon-Coles + Karlis-Ntzoufras diagonal inflation via MLE with time decay.
+    Returns the same shape as compute_dixon_coles_ratings plus a `gamma` field.
+    """
+    max_date = df["Date"].max()
+    df = df.copy()
+    df["days_ago"] = (max_date - df["Date"]).dt.days
+    df["w"] = np.exp(-df["days_ago"] / (decay_weeks * 7))
+
+    teams = sorted(set(df["HomeTeam"]) | set(df["AwayTeam"]))
+    n     = len(teams)
+    t_idx = {t: i for i, t in enumerate(teams)}
+
+    home_idx = df["HomeTeam"].map(t_idx).values.astype(int)
+    away_idx = df["AwayTeam"].map(t_idx).values.astype(int)
+    hgoals   = df["FTHG"].values.astype(int)
+    agoals   = df["FTAG"].values.astype(int)
+    hxg = df["xg_h"].values if "xg_h" in df.columns else hgoals.astype(float)
+    axg = df["xg_a"].values if "xg_a" in df.columns else agoals.astype(float)
+    weights = df["w"].values
+
+    n_params = 2 * n + 2  # +1 for rho, +1 for gamma
+    x0 = np.zeros(n_params)
+    x0[2 * n - 1] = 0.25     # home advantage
+    x0[2 * n]     = -0.1     # rho
+    x0[2 * n + 1] = 0.05     # gamma — small positive prior (mild draw inflation)
+
+    # γ bounded conservatively at ±0.20 to match practitioner literature
+    # (penaltyblog, opisthokonta). Wider bounds let the MLE inflate the diagonal
+    # without paying the renormalisation cost — produces unrealistically large
+    # draw lifts. ±0.20 is the K-N "useful zone" empirically.
+    bounds = (
+        [(-3.0, 3.0)] * (2 * n - 1)
+        + [(-1.0, 1.0), (-0.99, 0.99), (-0.20, 0.20)]
+    )
+
+    result = minimize(
+        _dc_kn_neg_log_lik,
+        x0,
+        args=(n, home_idx, away_idx, hgoals, agoals, hxg, axg, weights),
+        method="L-BFGS-B",
+        bounds=bounds,
+        options={"maxiter": 1000, "ftol": 1e-10, "gtol": 1e-7},
+    )
+
+    params   = result.x
+    attacks  = np.concatenate([[0.0], params[:n - 1]])
+    defenses = params[n - 1: 2 * n - 1]
+    home_adv = float(params[2 * n - 1])
+    rho      = float(params[2 * n])
+    gamma    = float(params[2 * n + 1])
+
+    return {
+        "teams":       teams,
+        "team_idx":    t_idx,
+        "attacks":     {t: float(attacks[i])  for i, t in enumerate(teams)},
+        "defenses":    {t: float(defenses[i]) for i, t in enumerate(teams)},
+        "home_adv":    home_adv,
+        "rho":         rho,
+        "gamma":       gamma,
+        "model_variant": "dixon-coles-kn",
+        "converged":   result.success,
+    }
+
+
+def predict_dixon_coles_kn(
+    home_team: str,
+    away_team: str,
+    dc_kn_ratings: dict,
+    max_goals: int = 8,
+) -> dict:
+    """Predict scoreline distribution using fitted D-C + K-N parameters."""
+    att   = dc_kn_ratings["attacks"]
+    dfn   = dc_kn_ratings["defenses"]
+    h     = dc_kn_ratings["home_adv"]
+    rho   = dc_kn_ratings["rho"]
+    gamma = dc_kn_ratings.get("gamma", 0.0)
+
+    lam_h = max(np.exp(att.get(home_team, 0.0) + dfn.get(away_team, 0.0) + h), 0.05)
+    lam_a = max(np.exp(att.get(away_team, 0.0) + dfn.get(home_team, 0.0)),       0.05)
+
+    matrix = np.zeros((max_goals + 1, max_goals + 1))
+    for i in range(max_goals + 1):
+        for j in range(max_goals + 1):
+            p = poisson.pmf(i, lam_h) * poisson.pmf(j, lam_a)
+            if   i == 0 and j == 0: p *= max(1.0 - lam_h * lam_a * rho, 1e-10) * (1.0 + gamma)
+            elif i == 0 and j == 1: p *= max(1.0 + lam_h * rho,          1e-10)
+            elif i == 1 and j == 0: p *= max(1.0 + lam_a * rho,          1e-10)
+            elif i == 1 and j == 1: p *= max(1.0 - rho,                   1e-10) * (1.0 + gamma)
+            elif i == j and i >= 2: p *= (1.0 + gamma)
             matrix[i, j] = p
 
     return _summarise_matrix(lam_h, lam_a, matrix, max_goals)
@@ -824,7 +1035,10 @@ def backtest_models(
             "Pois_A":   round(p_blend["away_win"] * 100, 1),
             "Pois_Pred": _label(p_blend),
             "Pois_Correct": _label(p_blend) == actual,
-            # DC + XGB + Draw Specialist
+            # DC + XGB (without Draw Specialist) — diagnostic intermediate
+            "DCB_Pred":   _label(dc_blend),
+            "DCB_Correct": _label(dc_blend) == actual,
+            # DC + XGB + Draw Specialist (full ensemble — primary model)
             "DC_H":     round(final["home_win"] * 100, 1),
             "DC_D":     round(final["draw"]     * 100, 1),
             "DC_A":     round(final["away_win"] * 100, 1),
@@ -833,10 +1047,87 @@ def backtest_models(
             "DC_Correct": _label(final) == actual,
             # Probabilities for Brier score
             "_p_h": p_blend["home_win"], "_p_d": p_blend["draw"], "_p_a": p_blend["away_win"],
+            "_db_h": dc_blend["home_win"], "_db_d": dc_blend["draw"], "_db_a": dc_blend["away_win"],
             "_dc_h": final["home_win"], "_dc_d": final["draw"], "_dc_a": final["away_win"],
             "_act_h": 1.0 if actual == "Home Win" else 0.0,
             "_act_d": 1.0 if actual == "Draw"     else 0.0,
             "_act_a": 1.0 if actual == "Away Win" else 0.0,
+        })
+
+    return pd.DataFrame(records)
+
+
+def backtest_models_v2(
+    df: pd.DataFrame,
+    df_features: pd.DataFrame,
+    test_weeks: int = 10,
+) -> pd.DataFrame:
+    """Mock Portfolio Two variant of backtest_models.
+
+    Substitutes the standard Dixon-Coles for Karlis-Ntzoufras γ-inflated D-C as
+    the base scoreline distribution; XGB blend and Draw Specialist applied
+    identically. Returns the same DC_H/D/A schema so ev_backtest_simulate_v2
+    can reuse the column layout. Adds a `Variant` column = "K-N".
+    """
+    from data import get_current_stats, get_current_elo  # local import to avoid circular dep
+
+    max_date = df["Date"].max()
+    cutoff   = max_date - pd.Timedelta(weeks=test_weeks)
+
+    train_df  = df[df["Date"] <= cutoff].copy()
+    train_ft  = df_features[df_features["Date"] <= cutoff].copy()
+    test_df   = df[df["Date"] > cutoff].copy()
+
+    if len(train_df) < 100 or len(test_df) == 0:
+        return pd.DataFrame()
+
+    poisson_r   = compute_poisson_ratings(train_df)
+    dc_r        = compute_dixon_coles_ratings(train_df)
+    dc_kn_r     = compute_dixon_coles_kn_ratings(train_df)
+    dc_draw_r   = compute_draw_dc_ratings(train_df)
+    xgb_m, feat_cols = train_xgb(train_ft)
+    draw_xgb_m, draw_fc = train_draw_xgb(train_ft)
+    elo_dict    = get_current_elo(train_df)
+
+    def _label(d: dict) -> str:
+        k = max(d, key=d.get)
+        return {"home_win": "Home Win", "draw": "Draw", "away_win": "Away Win"}[k]
+
+    records = []
+    for _, match in test_df.iterrows():
+        home, away = match["HomeTeam"], match["AwayTeam"]
+        actual = {"H": "Home Win", "D": "Draw", "A": "Away Win"}.get(match["FTR"], "?")
+
+        hs  = get_current_stats(train_df, home, elo_dict=elo_dict)
+        as_ = get_current_stats(train_df, away, elo_dict=elo_dict)
+        xgb_p = predict_xgb(xgb_m, feat_cols, hs, as_)
+
+        kn_pred  = predict_dixon_coles_kn(home, away, dc_kn_r)
+        kn_blend = blend_dc(kn_pred, xgb_p)
+
+        draw_xgb_prob = predict_draw_xgb(draw_xgb_m, draw_fc, hs, as_)
+        final = blend_draw_specialist(kn_blend, dc_draw_r, draw_xgb_prob, home, away)
+
+        records.append({
+            "Date":    match["Date"],
+            "Home":    home,
+            "Away":    away,
+            "Score":   f"{int(match['FTHG'])}–{int(match['FTAG'])}",
+            "Actual":  actual,
+            "Variant": "K-N",
+            # Same DC_* schema as v1 so ev_backtest_simulate_v2 reads same columns
+            "DC_H":    round(final["home_win"] * 100, 1),
+            "DC_D":    round(final["draw"]     * 100, 1),
+            "DC_A":    round(final["away_win"] * 100, 1),
+            "DC_O25":  round(kn_pred.get("over_25", 0.5) * 100, 1),
+            "DC_Pred": _label(final),
+            "DC_Correct": _label(final) == actual,
+            "_dc_h":   final["home_win"],
+            "_dc_d":   final["draw"],
+            "_dc_a":   final["away_win"],
+            "_act_h":  1.0 if actual == "Home Win" else 0.0,
+            "_act_d":  1.0 if actual == "Draw"     else 0.0,
+            "_act_a":  1.0 if actual == "Away Win" else 0.0,
         })
 
     return pd.DataFrame(records)
@@ -870,7 +1161,7 @@ def compute_backtest_summary(bt: pd.DataFrame) -> dict:
         (1/3 - bt["_act_h"]) ** 2 + (1/3 - bt["_act_d"]) ** 2 + (1/3 - bt["_act_a"]) ** 2
     ) / 2)
 
-    return {
+    summary = {
         "n_matches":       len(bt),
         "pois_accuracy":   round(bt["Pois_Correct"].mean()  * 100, 1),
         "dc_accuracy":     round(bt["DC_Correct"].mean()    * 100, 1),
@@ -882,6 +1173,13 @@ def compute_backtest_summary(bt: pd.DataFrame) -> dict:
         "rand_brier":      round(rand_brier, 4),
         "rand_accuracy":   33.3,
     }
+    # DC + XGB (no Draw Specialist) — diagnostic intermediate
+    if "DCB_Correct" in bt.columns:
+        summary["dcb_accuracy"] = round(bt["DCB_Correct"].mean() * 100, 1)
+        if "_db_h" in bt.columns:
+            summary["dcb_brier"]   = round(brier("db"),   4)
+            summary["dcb_logloss"] = round(log_loss("db"), 4)
+    return summary
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -894,85 +1192,117 @@ def simulate_season(
     dc_ratings: dict,
     n_sims: int = 10_000,
     rng_seed: int = 42,
-) -> pd.DataFrame:
+    n_boot: int = 50,
+    param_noise: float = 0.12,
+    return_samples: bool = False,
+) -> pd.DataFrame | tuple:
     """
     Monte Carlo simulation of the remaining Premier League season.
+
+    Injects **parametric uncertainty** on the Dixon-Coles ratings so the league
+    outcome distribution isn't artificially narrow. Goal counts are drawn from
+    Poisson with the perturbed ratings, and H/D/A outcomes are derived from the
+    sampled goals — so points and goal difference are mutually consistent.
 
     Parameters
     ----------
     remaining_fixtures : list of {"home": str, "away": str}
     current_table     : DataFrame with columns [Team, Pts, GF, GA, GD, Played]
     dc_ratings        : fitted Dixon-Coles ratings dict
-    n_sims            : number of simulations
+    n_sims            : number of full-season simulations (default 10,000)
+    n_boot            : number of rating-perturbation samples (default 50).
+                        Each sim is assigned to one perturbation — this mimics
+                        parameter uncertainty without refitting the model.
+    param_noise       : Gaussian σ on attack/defence log-ratings per boot sample
+                        (default 0.12 ≈ moderate match-to-match rating wobble).
+                        home_adv noise is half this value.
+    return_samples    : if True, also return the raw (n_sims × n_teams) points
+                        matrix and remaining-fixtures list (for drill-down).
 
     Returns
     -------
-    DataFrame indexed by Team with columns:
-        mean_pts, mean_pos, p_title, p_top4, p_top6, p_relegated
-        and pos_1 … pos_20 (probability of finishing in each position)
+    summary DataFrame — if return_samples=False
+    (summary, sim_pts, fixtures_used, sim_positions) — if return_samples=True
+        sim_pts        : ndarray (n_sims, n_teams) of final points per sim
+        fixtures_used  : list of fixtures actually simulated (known teams only)
+        sim_positions  : ndarray (n_sims, n_teams) of finishing positions (1-based)
     """
     rng = np.random.default_rng(rng_seed)
     teams = list(current_table["Team"])
     n_teams = len(teams)
     t_idx = {t: i for i, t in enumerate(teams)}
 
-    # Pre-compute H/D/A probabilities for every remaining fixture
-    fixture_probs = []
-    for fix in remaining_fixtures:
-        h, a = fix["home"], fix["away"]
-        if h not in t_idx or a not in t_idx:
-            continue
-        pred = predict_dixon_coles(h, a, dc_ratings)
-        fixture_probs.append((
-            t_idx[h], t_idx[a],
-            pred["home_win"], pred["draw"], pred["away_win"],
-        ))
+    # Filter fixtures to known teams, build index arrays
+    fixtures_used = [
+        f for f in remaining_fixtures
+        if f["home"] in t_idx and f["away"] in t_idx
+    ]
+    if not fixtures_used:
+        empty = pd.DataFrame(columns=["Team", "mean_pts", "mean_pos"])
+        return (empty, np.zeros((0, n_teams)), [], np.zeros((0, n_teams), int)) if return_samples else empty
 
-    # Starting points, GF, GA for each team
+    fix_hi = np.array([t_idx[f["home"]] for f in fixtures_used])
+    fix_ai = np.array([t_idx[f["away"]] for f in fixtures_used])
+    n_fix = len(fixtures_used)
+
+    # Base rating vectors (team-indexed)
+    att_base = np.array([dc_ratings["attacks"].get(t, 0.0)  for t in teams])
+    def_base = np.array([dc_ratings["defenses"].get(t, 0.0) for t in teams])
+    h_base   = float(dc_ratings["home_adv"])
+
+    # ── Sample K parameter perturbations ─────────────────────────────────
+    K = max(1, int(n_boot))
+    att_pert = rng.normal(0.0, param_noise,       size=(K, n_teams))
+    def_pert = rng.normal(0.0, param_noise,       size=(K, n_teams))
+    h_pert   = rng.normal(0.0, param_noise * 0.5, size=K)
+
+    att_K = att_base[None, :] + att_pert          # (K, n_teams)
+    def_K = def_base[None, :] + def_pert
+    h_K   = h_base + h_pert                        # (K,)
+
+    # Expected goals per (perturbation, fixture)
+    # lam_h[k, f] = exp( att_K[k, home] + def_K[k, away] + h_K[k] )
+    lam_h_KF = np.exp(att_K[:, fix_hi] + def_K[:, fix_ai] + h_K[:, None])  # (K, n_fix)
+    lam_a_KF = np.exp(att_K[:, fix_ai] + def_K[:, fix_hi])                  # (K, n_fix)
+    lam_h_KF = np.clip(lam_h_KF, 0.05, 10.0)
+    lam_a_KF = np.clip(lam_a_KF, 0.05, 10.0)
+
+    # ── Assign each sim to a perturbation ────────────────────────────────
+    sim_to_k = rng.integers(0, K, size=n_sims)
+
+    # Starting points / GF / GA
     base_pts = current_table.set_index("Team")["Pts"].reindex(teams).fillna(0).values.astype(float)
     base_gf  = current_table.set_index("Team")["GF"].reindex(teams).fillna(0).values.astype(float)
     base_ga  = current_table.set_index("Team")["GA"].reindex(teams).fillna(0).values.astype(float)
 
-    # Vectorised simulation: shape (n_sims, n_teams)
     sim_pts = np.tile(base_pts, (n_sims, 1))
     sim_gf  = np.tile(base_gf,  (n_sims, 1))
     sim_ga  = np.tile(base_ga,  (n_sims, 1))
 
-    for hi, ai, ph, pd_, pa in fixture_probs:
-        outcomes = rng.choice(3, size=n_sims, p=[ph, pd_, pa])
-        # 0 = home win, 1 = draw, 2 = away win
-        home_win = outcomes == 0
-        draw     = outcomes == 1
-        away_win = outcomes == 2
+    # ── Simulate each fixture vectorised across sims ─────────────────────
+    for f in range(n_fix):
+        lam_h_sims = lam_h_KF[sim_to_k, f]   # (n_sims,) — per-sim λ_home
+        lam_a_sims = lam_a_KF[sim_to_k, f]
 
+        hg = rng.poisson(lam_h_sims).astype(float)
+        ag = rng.poisson(lam_a_sims).astype(float)
+
+        home_win = hg >  ag
+        away_win = hg <  ag
+        draw     = hg == ag
+
+        hi, ai = fix_hi[f], fix_ai[f]
         sim_pts[:, hi] += home_win * 3 + draw * 1
         sim_pts[:, ai] += away_win * 3 + draw * 1
-
-        # Approximate scorelines for GD tiebreaker (Poisson-based)
-        lam_h = max(np.exp(
-            dc_ratings["attacks"].get(teams[hi], 0.0) +
-            dc_ratings["defenses"].get(teams[ai], 0.0) +
-            dc_ratings["home_adv"]
-        ), 0.1)
-        lam_a = max(np.exp(
-            dc_ratings["attacks"].get(teams[ai], 0.0) +
-            dc_ratings["defenses"].get(teams[hi], 0.0)
-        ), 0.1)
-        hg = rng.poisson(lam_h, n_sims).astype(float)
-        ag = rng.poisson(lam_a, n_sims).astype(float)
-
-        sim_gf[:, hi] += hg;  sim_ga[:, hi] += ag
-        sim_gf[:, ai] += ag;  sim_ga[:, ai] += hg
+        sim_gf[:, hi]  += hg;  sim_ga[:, hi] += ag
+        sim_gf[:, ai]  += ag;  sim_ga[:, ai] += hg
 
     sim_gd = sim_gf - sim_ga
 
-    # Rank teams in each simulation (lower rank = better)
-    # Primary: pts desc, secondary: gd desc, tertiary: gf desc
-    # Build sort key: negate so argmax gives rank
+    # Rank teams per sim — pts desc, then gd desc, then gf desc
     sort_key = sim_pts * 1e8 + sim_gd * 1e4 + sim_gf
-    # argsort descending → positions
-    ranks = np.argsort(-sort_key, axis=1)           # shape (n_sims, n_teams): index of team at each position
-    positions = np.argsort(ranks, axis=1) + 1        # shape (n_sims, n_teams): position of each team
+    ranks = np.argsort(-sort_key, axis=1)
+    positions = np.argsort(ranks, axis=1) + 1
 
     rows = []
     for i, team in enumerate(teams):
@@ -990,5 +1320,8 @@ def simulate_season(
             **{f"pos_{p+1}": float(pos_dist[p]) for p in range(n_teams)},
         })
 
-    result = pd.DataFrame(rows).sort_values("mean_pos").reset_index(drop=True)
-    return result
+    summary = pd.DataFrame(rows).sort_values("mean_pos").reset_index(drop=True)
+
+    if return_samples:
+        return summary, sim_pts, fixtures_used, positions
+    return summary

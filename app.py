@@ -39,6 +39,7 @@ from models import (
     compute_backtest_summary,
     compute_dixon_coles_kn_ratings,
     compute_dixon_coles_ratings,
+    seed_promoted_teams,
     compute_draw_dc_ratings,
     compute_poisson_ratings,
     predict_dixon_coles,
@@ -2021,6 +2022,29 @@ def cached_models(df_hash: str):
     draw_xgb_m, draw_fc = train_draw_xgb(df_features)
     elo_dict   = get_current_elo(df)
     return poisson_r, dc_r, dc_draw_r, xgb_m, fc, draw_xgb_m, draw_fc, elo_dict
+
+
+@st.cache_resource(show_spinner=False)
+def cached_promoted_seeding(df_hash: str, fixture_key: str, _dc_r, _dc_draw_r):
+    """Seed promoted sides into the fitted ratings.
+
+    `predict_dixon_coles` falls back to 0.0 for an unknown team, and 0.0 is
+    league average rather than "unknown" — so a promoted side is silently
+    modelled as a mid-table club. On the real 2026-27 opener that inflated the
+    Arsenal v Coventry draw from 13.3% to 31.7%, against a market-implied 10.9%.
+
+    Kept out of `cached_models` on purpose: the fixture list comes from a
+    separate cached function, and nesting one Streamlit cache inside another
+    couples two independent TTLs and their locks.
+
+    Betting on seeded sides stays blocked by the no-history gate. This is so
+    predictions read honestly, not so they can be staked.
+    """
+    teams = [t for pair in fixture_key.split("|") if pair for t in pair.split("~")]
+    if not teams:
+        return _dc_r, _dc_draw_r
+    return (seed_promoted_teams(_dc_r, teams),
+            seed_promoted_teams(_dc_draw_r, teams))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -10391,6 +10415,16 @@ def main():
     with st.spinner("Training models (Dixon-Coles MLE + XGBoost)..."):
         cache_key = f"{len(df)}_{df['Date'].max().date()}"
         poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, elo_dict = cached_models(cache_key)
+
+        # Promoted sides carry no rating, and an unrated team reads as league
+        # average rather than as unknown. Seed them before anything predicts.
+        try:
+            _fx = cached_fixtures()
+            _fx_key = "|".join(f"{f['home']}~{f['away']}" for f in _fx)
+            dc_r, dc_draw_r = cached_promoted_seeding(
+                cache_key, _fx_key, dc_r, dc_draw_r)
+        except Exception:
+            pass
 
     teams = get_current_teams(df)
 

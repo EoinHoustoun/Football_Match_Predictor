@@ -122,6 +122,14 @@ _ESPN_TO_FD = {
 # (newly promoted sides each season).
 KNOWN_FD_TEAMS: set[str] = set()
 
+# Second-tier names, used only as a fallback when a fixture team matches
+# nothing in the Premier League data. A promoted side appears in the new
+# season's fixtures under an API display name ("Coventry City") months before
+# it appears in any Premier League CSV, and the top-flight names alone cannot
+# resolve it. Populated lazily from the cached Championship season by
+# `load_promoted_team_names()`.
+KNOWN_SECOND_TIER_TEAMS: set[str] = set()
+
 # Per-season real-xG coverage, populated by load_data():
 # {"2025-26": {"matched": 380, "total": 380}, ...}. Lets the app warn when
 # Understat has silently failed and the model is running on the
@@ -146,7 +154,37 @@ def _resolve_team_name(raw: str) -> str:
     if contained:
         return max(contained, key=len)
     close = difflib.get_close_matches(raw, list(KNOWN_FD_TEAMS), n=1, cutoff=0.75)
+    if close:
+        return close[0]
+    # Last resort: a newly promoted side, which has no top-flight history at
+    # all. Its football-data name lives in the Championship data.
+    second = [t for t in KNOWN_SECOND_TIER_TEAMS if t.lower() in raw.lower()]
+    if second:
+        return max(second, key=len)
+    close = difflib.get_close_matches(raw, list(KNOWN_SECOND_TIER_TEAMS),
+                                      n=1, cutoff=0.85)
     return close[0] if close else raw
+
+
+def load_promoted_team_names(season: str | None = None) -> set[str]:
+    """Register last season's Championship names so promoted sides resolve.
+
+    Reads the CSV cached by `scripts/promoted_team_prior.py`. Silent no-op when
+    it isn't there — resolution simply falls back to the raw API name, which is
+    the behaviour this replaces.
+    """
+    season = season or _season_label(_CUR_SEASON_START - 1)
+    code = f"{season[2:4]}{season[-2:]}"
+    path = DATA_DIR / "championship" / f"{code}.csv"
+    if not path.exists():
+        return set()
+    try:
+        champ = pd.read_csv(path, encoding="latin-1")
+        names = set(champ["HomeTeam"].dropna().unique())
+    except Exception:
+        return set()
+    KNOWN_SECOND_TIER_TEAMS.update(names)
+    return names
 
 
 def _fetch_json_with_backoff(url: str, timeout: int = 10, retries: int = 3):
@@ -347,6 +385,7 @@ def load_data() -> pd.DataFrame:
     # Feed the fuzzy team-name resolver with every name the CSVs use
     KNOWN_FD_TEAMS.update(df["HomeTeam"].unique())
     KNOWN_FD_TEAMS.update(df["AwayTeam"].unique())
+    load_promoted_team_names()   # so promoted sides resolve from August
 
     return df
 
