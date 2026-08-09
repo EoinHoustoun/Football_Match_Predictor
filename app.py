@@ -33,6 +33,7 @@ from data import (
 )
 from models import (
     PROMOTED_PRIOR,
+    promoted_prior_for,
     seed_promoted_elo,
     backtest_models,
     backtest_models_v2,
@@ -10153,6 +10154,17 @@ def _render_home_screen() -> None:
 
 # ── Pre-Flight: is the season actually ready to trade? ─────────────────────────
 
+def _season_of(day) -> str:
+    """The season a date belongs to. August onward starts a new one.
+
+    Needed because the loaded CSVs still end in 2025-26 — football-data does not
+    publish a season's file until it starts — so the data's own max season is a
+    year behind the one being counted down to.
+    """
+    return (f"{day.year}-{str(day.year + 1)[-2:]}" if day.month >= 8
+            else f"{day.year - 1}-{str(day.year)[-2:]}")
+
+
 def _preflight_runner_state() -> dict:
     """Last headless-runner activity, and whether the launchd job is loaded.
 
@@ -10204,8 +10216,10 @@ def _preflight_portfolio_card(port: dict, title: str, accent: str) -> str:
         ("Kelly",       f"{float(s.get('kelly_fraction', 1.0)):g}x"),
         ("Max stake",   f"{int(float(s.get('max_stake_pct', 0.25)) * 100)}%"),
         ("Elo floor",   str(s.get("main_min_team_elo") or s.get("v2_min_team_elo") or "off")),
-        ("History gate", f"{s.get('min_team_matches') or 'off'} matches"),
-        ("Club cap",    f"{s.get('max_bets_per_club') or 'off'} bets"),
+        ("History gate", f"{s['min_team_matches']} matches"
+                         if s.get("min_team_matches") else "off"),
+        ("Club cap",    f"{s['max_bets_per_club']} bets"
+                        if s.get("max_bets_per_club") else "off"),
         ("Markets",     "+".join(s.get("auto_markets", [])) or "none"),
     ]
     rows = "".join(
@@ -10254,7 +10268,7 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
     tone = "#00e676" if days == 0 else ("#ffd600" if days <= 14 else "#7c4dff")
     st.markdown(
         f'<div class="pnl-hero pnl-neutral" style="border-color:{tone}55">'
-        f'<div class="pnl-tag" style="color:#b8c0d0">Season {info["season_label"]} '
+        f'<div class="pnl-tag" style="color:#b8c0d0">Season {_season_of(info["kickoff"])} '
         f'· first bet-eligible fixture</div>'
         f'<div class="pnl-amount" style="color:{tone}">{days}</div>'
         f'<div style="font-size:0.95rem;color:#e8eaf0;font-weight:700">'
@@ -10294,13 +10308,24 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
         if dc_r.get("seeded_teams") is None:
             names = [t for f in fixtures for t in (f["home"], f["away"])]
             seeded_dc = seed_promoted_teams(dc_r, names)
+            seeded_draw = seed_promoted_teams(dc_draw_r, names)
         else:
-            seeded_dc = dc_r
+            seeded_dc, seeded_draw = dc_r, dc_draw_r
         min_matches = main_port["settings"].get("min_team_matches")
         rows_html = []
         for f in fixtures:
             h, a = f["home"], f["away"]
-            p = predict_dixon_coles(h, a, seeded_dc)
+            # Full ensemble, not bare Dixon-Coles: this must be the same number
+            # the auto-bet path stakes on, or the board is quietly lying.
+            try:
+                hs = get_current_stats(df, h, elo_dict=elo_dict)
+                as_ = get_current_stats(df, a, elo_dict=elo_dict)
+                _dc, _blend, res = full_predict(
+                    h, a, seeded_dc, seeded_draw, xgb_m, feat_cols,
+                    draw_xgb_m, draw_fc, hs, as_)
+                p = {"draw": res["draw"]}
+            except Exception:
+                p = predict_dixon_coles(h, a, seeded_dc)
             blocked = pf.should_skip_unrated(h, a, match_counts, min_matches)
             if blocked:
                 low = [t for t in (h, a) if match_counts.get(t, 0) < (min_matches or 0)]
@@ -10319,7 +10344,9 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                 f'{f["date"].strftime("%a %-d %b")}</span>'
                 f'<span><span style="font-size:0.88rem;color:#e8eaf0;font-weight:700">'
                 f'{h} v {a}</span><br>'
-                f'<span style="font-size:0.78rem;color:#b8c0d0">{why}</span></span>'
+                f'<span style="font-size:0.78rem;color:#b8c0d0">'
+                f'Elo {elo_dict.get(h, 0):.0f} v {elo_dict.get(a, 0):.0f} · '
+                f'{why}</span></span>'
                 f'<span style="font-size:0.95rem;font-weight:900;color:#ffd600;'
                 f'font-variant-numeric:tabular-nums">{draw_pct:.1f}%</span>{badge}</div>')
         st.markdown(
@@ -10333,19 +10360,70 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
 
         seeded = seeded_dc.get("seeded_teams", [])
         if seeded:
+            priors = promoted_prior_for(seeded)
+            rows = "".join(
+                f'<div style="display:grid;'
+                f'grid-template-columns:9rem 5.5rem 1fr 1fr 5rem;gap:0.6rem;'
+                f'align-items:center;padding:0.35rem 0;'
+                f'border-bottom:1px solid rgba(255,214,0,0.15)">'
+                f'<span style="font-size:0.88rem;color:#e8eaf0;font-weight:800">'
+                f'{team}</span>'
+                f'<span style="font-size:0.86rem;color:#ffd600;font-weight:800;'
+                f'font-variant-numeric:tabular-nums">'
+                f'{priors[team].get("market_relegation_prob", 0):.0%}</span>'
+                f'<span style="font-size:0.86rem;color:#e8eaf0;'
+                f'font-variant-numeric:tabular-nums">'
+                f'{priors[team]["attack"]:+.3f}</span>'
+                f'<span style="font-size:0.86rem;color:#e8eaf0;'
+                f'font-variant-numeric:tabular-nums">'
+                f'{priors[team]["defense"]:+.3f}</span>'
+                f'<span style="font-size:0.95rem;color:#00e5ff;font-weight:900;'
+                f'font-variant-numeric:tabular-nums">{elo_dict.get(team, 0):.0f}'
+                f'</span></div>'
+                for team in sorted(seeded,
+                                   key=lambda t: elo_dict.get(t, 0), reverse=True))
+            rated = sorted(((t, v) for t, v in elo_dict.items()
+                            if t not in seeded and t in teams),
+                           key=lambda kv: kv[1])[:2]
+            scale = " · ".join(f"{t} {v:.0f}" for t, v in rated)
             st.markdown(
-                f'<div style="margin-top:0.9rem;padding:0.8rem 1rem;border-radius:12px;'
-                f'background:rgba(255,214,0,0.08);border:1px solid rgba(255,214,0,0.28)">'
-                f'<div style="font-size:0.86rem;color:#ffd600;font-weight:800">'
-                f'Seeded on the promoted-side prior: {", ".join(seeded)}</div>'
+                f'<div style="margin-top:0.9rem;padding:0.9rem 1rem;'
+                f'border-radius:12px;background:rgba(255,214,0,0.08);'
+                f'border:1px solid rgba(255,214,0,0.28)">'
+                f'<div style="font-size:0.86rem;color:#ffd600;font-weight:800;'
+                f'margin-bottom:0.5rem">No Premier League history — rated by the '
+                f'relegation market</div>'
+                f'<div style="display:grid;'
+                f'grid-template-columns:9rem 5.5rem 1fr 1fr 5rem;gap:0.6rem;'
+                f'font-size:0.78rem;color:#b8c0d0;font-weight:800;'
+                f'letter-spacing:1px;text-transform:uppercase;'
+                f'padding-bottom:0.3rem">'
+                f'<span>Team</span><span>Relegation</span><span>Attack</span>'
+                f'<span>Defence</span><span>Elo</span></div>'
+                f'{rows}'
+                f'<div style="display:grid;'
+                f'grid-template-columns:9rem 5.5rem 1fr 1fr 5rem;gap:0.6rem;'
+                f'padding-top:0.35rem">'
+                f'<span style="font-size:0.82rem;color:#b8c0d0">pooled prior</span>'
+                f'<span style="font-size:0.82rem;color:#b8c0d0;'
+                f'font-variant-numeric:tabular-nums">60%</span>'
+                f'<span style="font-size:0.82rem;color:#b8c0d0;'
+                f'font-variant-numeric:tabular-nums">'
+                f'{PROMOTED_PRIOR["attack"]:+.3f}</span>'
+                f'<span style="font-size:0.82rem;color:#b8c0d0;'
+                f'font-variant-numeric:tabular-nums">'
+                f'{PROMOTED_PRIOR["defense"]:+.3f}</span>'
+                f'<span style="font-size:0.82rem;color:#b8c0d0;'
+                f'font-variant-numeric:tabular-nums">1394</span></div>'
                 f'<div style="font-size:0.82rem;color:#e8eaf0;line-height:1.5;'
-                f'margin-top:0.3rem">Attack {PROMOTED_PRIOR["attack"]:+.3f}, defence '
-                f'{PROMOTED_PRIOR["defense"]:+.3f}, fitted on '
-                f'{PROMOTED_PRIOR["n_teams"]} teams promoted '
-                f'{PROMOTED_PRIOR["fitted_on"]}. The prior is flat because no '
-                f'Championship signal beat the pooled mean out of sample, so every '
-                f'promoted side gets the same rating. Prices read honestly; the '
-                f'no-history gate still blocks the stake.</div></div>',
+                f'margin-top:0.6rem">The fitted prior is flat: no Championship '
+                f'signal beat the pooled mean out of sample, so it cannot tell '
+                f'these two apart. The relegation book can — 9 of the last 15 '
+                f'promoted sides went straight back down, so 60% is average, and '
+                f'each team is moved off the pooled value by half the observed '
+                f'spread. Elo is anchored on where promoted teams actually finish '
+                f'their first season (mean 1394, sd 91), not the 1500 default. '
+                f'Lowest rated sides with real history: {scale}.</div></div>',
                 unsafe_allow_html=True)
 
     # ── Runner ───────────────────────────────────────────────────────────
