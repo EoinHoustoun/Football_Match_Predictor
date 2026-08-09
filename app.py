@@ -2255,14 +2255,20 @@ def cached_backtest(df_hash: int, test_weeks: int):
 
 @st.cache_resource(show_spinner=False)
 def cached_calibrators(df_hash: int):
-    """Fit per-market isotonic calibrators from the most recent 10-week backtest.
+    """Fit per-market isotonic calibrators from a full season of backtest.
 
-    LIVE-BETTING USE ONLY. The most recent 10 weeks are genuinely in the past
-    relative to any new live bet, so this is leak-free for live sizing — but
-    it must NOT be handed to a backtest that evaluates a window overlapping
-    those 10 weeks. Backtests use `cached_honest_calibrators` instead.
+    LIVE-BETTING USE ONLY. The window is genuinely in the past relative to any
+    new live bet, so this is leak-free for live sizing — but it must NOT be
+    handed to a backtest evaluating an overlapping window. Backtests use
+    `cached_honest_calibrators` instead.
+
+    Forty weeks, not ten. Ten weeks is 80 matches pre-season, and isotonic on 80
+    points is a three-step staircase: on 2026-08-09 it mapped six of nine
+    opening fixtures to exactly 31.2% and sent a raw 17.3% to the 0.005 floor,
+    leaving one bet on the board. `MIN_CALIBRATION_SAMPLES` now refuses such a
+    fit outright, so a short window here means no calibration at all.
     """
-    bt, _ = cached_backtest(df_hash, test_weeks=10)
+    bt, _ = cached_backtest(df_hash, test_weeks=40)
     return pf.fit_calibrators_from_backtest(bt)
 
 
@@ -5722,7 +5728,12 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     port["settings"]["auto_markets"] = _new_auto_mkts
                 else:
                     port["settings"].pop("market_gates", None)
-                if not any(b["status"] in ("won", "lost") for b in port["bets"]):
+                # Only rebase an untouched portfolio. This used to check for
+                # settled bets alone, so saving settings with money still on
+                # the table reset the bankroll and silently refunded every
+                # pending stake — observed 2026-08-09, £1,042.64 handed back
+                # while the bet was still live.
+                if not port["bets"]:
                     port["initial_bankroll"] = new_initial
                     port["bankroll"]         = new_initial
                 pf.save_portfolio(port)
@@ -10608,12 +10619,17 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
     main_cands: list[dict] = []
     mt_cands:   list[dict] = []
+    # The runner treats any club the model can rate as playable; the app used
+    # `teams` = the most recent season's 20 sides, so it silently dropped
+    # Coventry, Hull AND Ipswich — three of the ten openers, including the
+    # largest edge on the board. Same rule in both now: rated means playable.
+    rateable = set(teams) | set(dc_r.get("attacks", {}))
     for fix in fixtures:
         h, a = fix["home"], fix["away"]
-        if h not in teams or a not in teams:
+        if h not in rateable or a not in rateable:
             # Was a bare continue, which made promoted sides invisible: in
             # 2026-27 that silently hid 2 of the 10 opening fixtures.
-            unknown = [t for t in (h, a) if t not in teams]
+            unknown = [t for t in (h, a) if t not in rateable]
             _log_activity_event("fixture_skipped", reason="unknown_team",
                                 match=f"{h} vs {a}",
                                 detail=f"{', '.join(unknown)} not in the model's team list")

@@ -157,7 +157,9 @@ def main() -> int:
 
     # Calibrators (10-week walk-forward backtest)
     print(f"[{datetime.now():%H:%M:%S}] Fitting isotonic calibrators…")
-    bt_main = backtest_models(df, df_features, test_weeks=10)
+    # Forty weeks, matching app.py. Ten is 80 matches pre-season, which
+    # isotonic turns into a staircase (see MIN_CALIBRATION_SAMPLES).
+    bt_main = backtest_models(df, df_features, test_weeks=40)
     calibrators = pf.fit_calibrators_from_backtest(bt_main)
     bin_variances = {
         "H": pf.compute_per_bin_variance(bt_main, "H"),

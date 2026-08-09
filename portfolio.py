@@ -144,6 +144,14 @@ def compute_ev(model_prob: float, decimal_odds: float) -> float:
 
 # ── Isotonic probability calibration ─────────────────────────────────────────
 
+# Minimum matches before an isotonic calibrator is trusted. A full Premier
+# League season is 380. Below roughly this, isotonic degenerates into a few
+# large steps that erase the model's discrimination between fixtures — see
+# tests/test_calibration_window.py for the 2026-08-09 case where it flattened
+# six fixtures onto one probability and put a single bet on the board.
+MIN_CALIBRATION_SAMPLES: int = 250
+
+
 def fit_calibrators_from_backtest(bt_df: pd.DataFrame) -> dict:
     """Fit per-market IsotonicRegression calibrators from backtest predictions.
 
@@ -171,7 +179,14 @@ def fit_calibrators_from_backtest(bt_df: pd.DataFrame) -> dict:
             continue
         preds = bt_df[pred_col].values.astype(float)
         acts  = bt_df[act_col].values.astype(float)
-        if len(preds) < 20:    # too few samples for a stable fit
+        if len(preds) < MIN_CALIBRATION_SAMPLES:
+            # Isotonic on a short window is not a curve, it is a staircase.
+            # On 80 matches it mapped six of nine opening fixtures to exactly
+            # 31.2% and sent a raw 17.3% to the 0.005 floor. Identity
+            # calibration is a defensible fallback; a staircase is not.
+            continue
+        if acts.sum() < 1 or acts.sum() == len(acts):
+            # One-class sample: isotonic maps everything to a single value.
             continue
         iso = IsotonicRegression(out_of_bounds="clip", y_min=0.005, y_max=0.995)
         try:
