@@ -216,6 +216,60 @@ def test_reset_backs_up_both_live_files_first(live_portfolios, tmp_path):
     assert len(restored["bets"]) == 3
 
 
+# ── Season picker ─────────────────────────────────────────────────────────────
+
+def test_live_season_reads_the_live_portfolio(live_portfolios):
+    assert sa.live_season(default="2025-26") == "2025-26"   # no season tag yet
+
+    sa.archive_season("2025-26")
+    sa.reset_for_new_season("2026-27", closing_season="2025-26",
+                            initial_bankroll=10000.0)
+    assert sa.live_season(default="2025-26") == "2026-27"
+
+
+def test_season_options_put_the_live_season_first(live_portfolios):
+    sa.archive_season("2024-25")
+    sa.archive_season("2025-26")
+    assert sa.season_options("2026-27") == ["2026-27", "2025-26", "2024-25"]
+
+
+def test_season_options_do_not_repeat_a_live_season_that_is_also_archived(live_portfolios):
+    sa.archive_season("2025-26")
+    assert sa.season_options("2025-26") == ["2025-26"]
+
+
+def test_load_season_view_reads_live_files_for_the_live_season(live_portfolios):
+    view = sa.load_season_view("2025-26", live_season="2025-26")
+    assert view["is_live"] is True
+    assert view["main"]["bankroll"] == 12000.0
+    assert view["manifest"] is None
+
+
+def test_load_season_view_reads_the_archive_for_a_past_season(live_portfolios):
+    sa.archive_season("2025-26")
+    sa.reset_for_new_season("2026-27", closing_season="2025-26",
+                            initial_bankroll=10000.0)
+
+    view = sa.load_season_view("2025-26", live_season="2026-27")
+    assert view["is_live"] is False
+    assert view["main"]["bankroll"] == 12000.0        # the archived figure
+    assert len(view["main"]["bets"]) == 3
+    assert view["manifest"]["portfolios"]["main"]["profit"] == 1200.0
+
+    # ...while the live line stays empty.
+    assert pf.load_portfolio()["bets"] == []
+
+
+def test_load_season_view_substitutes_an_empty_portfolio_when_mock_two_is_absent(
+        live_portfolios):
+    sa.archive_season("2025-26")
+    (sa.SEASONS_DIR / "2025-26" / "portfolio_two.json").unlink()
+
+    view = sa.load_season_view("2025-26", live_season="2026-27")
+    assert view["mock_two"]["bets"] == []
+    assert view["mock_two"]["bankroll"] == view["mock_two"]["initial_bankroll"]
+
+
 def test_reset_is_refused_a_second_time_for_the_same_season(live_portfolios):
     sa.archive_season("2025-26")
     sa.reset_for_new_season("2026-27", closing_season="2025-26",

@@ -157,6 +157,57 @@ def load_archived_season(season: str) -> dict:
     }
 
 
+# ── Season picker (drives the Season Review tab) ──────────────────────────────
+
+def live_season(default: str | None = None) -> str | None:
+    """The season the live portfolios are currently on.
+
+    Portfolios written before the archive existed carry no season tag, so the
+    caller passes the dataset's latest season as the fallback.
+    """
+    return pf.load_portfolio().get("season") or default
+
+
+def season_options(live: str | None) -> list[str]:
+    """Seasons offered in the review picker: the live one first, then archives."""
+    archived = list_archived_seasons()
+    if live is None:
+        return archived
+    return [live] + [s for s in archived if s != live]
+
+
+def _empty_like(reference: dict | None) -> dict:
+    """A zeroed portfolio, for archives predating Mock Two."""
+    initial = (reference or {}).get("initial_bankroll", 0.0)
+    return {"initial_bankroll": initial, "bankroll": initial,
+            "bets": [], "settings": {}}
+
+
+def load_season_view(season: str, *, live_season: str | None) -> dict:
+    """Portfolios for `season`, from the live files or the archive.
+
+    Returns `{season, is_live, main, mock_two, manifest}`. `manifest` is None
+    for the live season, which has not closed yet.
+    """
+    if season == live_season:
+        return {
+            "season":   season,
+            "is_live":  True,
+            "main":     pf.load_portfolio(),
+            "mock_two": pf.load_portfolio_two(),
+            "manifest": None,
+        }
+
+    archived = load_archived_season(season)
+    return {
+        "season":   season,
+        "is_live":  False,
+        "main":     archived["main"],
+        "mock_two": archived["mock_two"] or _empty_like(archived["main"]),
+        "manifest": archived["manifest"],
+    }
+
+
 # ── Starting the next season ──────────────────────────────────────────────────
 
 def _backup(live_file: Path, tag: str) -> Path:
