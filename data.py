@@ -396,6 +396,23 @@ def load_data() -> pd.DataFrame:
             try:
                 r = requests.get(url, timeout=15)
                 r.raise_for_status()
+                # football-data.co.uk 301-redirects a season file that does not
+                # exist yet to ANOTHER division's file: on 2026-08-16,
+                # 2627/E0.csv silently served 2627/EC.csv and twelve National
+                # League matches entered the dataset as the Premier League.
+                # The status is 200 and the CSV is well-formed, so the only
+                # tells are the final URL and the Div column. Refuse both:
+                # a missing season is the truthful state until E0 is published,
+                # and the next load picks it up automatically once it is.
+                final_name = r.url.rsplit("/", 1)[-1]
+                wanted_name = url.rsplit("/", 1)[-1]
+                data_divs = {ln.split(",", 1)[0].strip()
+                             for ln in r.text.splitlines()[1:] if ln.strip()}
+                if final_name != wanted_name or not data_divs <= {"E0"}:
+                    print(f"Warning: {season} not published yet · server "
+                          f"returned {final_name} with divisions "
+                          f"{sorted(data_divs) or ['none']} · skipping")
+                    continue
                 path.write_text(r.text, encoding="utf-8")
             except Exception as e:
                 print(f"Warning: could not download {season}: {e}")
@@ -753,6 +770,10 @@ def get_current_stats(
 # Upcoming fixtures scraper (ESPN public API)
 # ─────────────────────────────────────────────────────────────────────────────
 
+_ESPN_DAY_CACHE: dict[str, tuple[float, list]] = {}
+_ESPN_RANGE_FAILED_AT: list[float] = [0.0]
+
+
 def fetch_upcoming_fixtures(lookahead_days: int = 30) -> list[dict]:
     """
     Fetch upcoming Premier League fixtures from ESPN's public scoreboard API.
@@ -768,11 +789,40 @@ def fetch_upcoming_fixtures(lookahead_days: int = 30) -> list[dict]:
         "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
         f"?dates={today.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
     )
-    data = _fetch_json_with_backoff(url, timeout=15)
-    if data is None:
-        return []
+    # A rejected range query costs ~3s of retry back-off, so once it fails
+    # skip it for an hour and go straight to the per-day path.
+    data = None
+    if time.time() - _ESPN_RANGE_FAILED_AT[0] > 3600:
+        data = _fetch_json_with_backoff(url, timeout=15)
+        if data is None:
+            _ESPN_RANGE_FAILED_AT[0] = time.time()
+    if data is not None:
+        events = data.get("events", [])
+    else:
+        # Since Sep 2026 ESPN answers every range query with a 400 while
+        # single-day queries still work. Fall back to one request per day.
+        # Days are cached in-process for 15 minutes: several app paths call
+        # this uncached on every rerun, and 30+ requests each made pages crawl.
+        from concurrent.futures import ThreadPoolExecutor
+        days = [(today + timedelta(days=i)).strftime('%Y%m%d')
+                for i in range(lookahead_days + 1)]
+        now = time.time()
+        missing = [d for d in days
+                   if d not in _ESPN_DAY_CACHE or now - _ESPN_DAY_CACHE[d][0] > 900]
 
-    for event in data.get("events", []):
+        def _get(day):
+            return _fetch_json_with_backoff(
+                "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
+                f"?dates={day}", timeout=10, retries=2)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for day, page in zip(missing, pool.map(_get, missing)):
+                if page is not None:  # never cache a failed day
+                    _ESPN_DAY_CACHE[day] = (now, page.get("events", []))
+        events = [ev for d in days if d in _ESPN_DAY_CACHE
+                  for ev in _ESPN_DAY_CACHE[d][1]]
+
+    for event in events:
         try:
             comps  = event["competitions"][0]
             status = comps["status"]["type"]["name"]

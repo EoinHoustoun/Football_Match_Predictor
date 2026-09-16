@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import portfolio as pf
+from chart_labels import now_badge_offset, spread_label_shifts
 import season_archive as sa
 from data import (
     add_rolling_features,
@@ -90,9 +91,11 @@ _BADGE_URL: dict[str, str] = {
     "Brighton":       "https://a.espncdn.com/i/teamlogos/soccer/500/331.png",
     "Burnley":        "https://a.espncdn.com/i/teamlogos/soccer/500/379.png",
     "Chelsea":        "https://a.espncdn.com/i/teamlogos/soccer/500/363.png",
+    "Coventry":       "https://a.espncdn.com/i/teamlogos/soccer/500/388.png",
     "Crystal Palace": "https://a.espncdn.com/i/teamlogos/soccer/500/384.png",
     "Everton":        "https://a.espncdn.com/i/teamlogos/soccer/500/368.png",
     "Fulham":         "https://a.espncdn.com/i/teamlogos/soccer/500/370.png",
+    "Hull":           "https://a.espncdn.com/i/teamlogos/soccer/500/306.png",
     "Ipswich":        "https://a.espncdn.com/i/teamlogos/soccer/500/373.png",
     "Leeds":          "https://a.espncdn.com/i/teamlogos/soccer/500/357.png",
     "Leicester":      "https://a.espncdn.com/i/teamlogos/soccer/500/375.png",
@@ -1046,8 +1049,14 @@ div[data-baseweb="select"] > div {
     margin-bottom: 0.8rem;
     font-variant-numeric: tabular-nums;
 }
-/* Bigger team badges in the bet history rows */
-.bh-team img.team-badge { width: 44px !important; height: 44px !important; }
+/* Team badges in the bet history rows */
+.bh-team img.team-badge {
+    width: 38px !important; height: 38px !important; padding: 3px;
+    /* Brighter halo than the default: Liverpool's red crest disappeared into
+       the faint one at this size. */
+    background: radial-gradient(circle, rgba(255,255,255,0.85) 0%,
+                rgba(255,255,255,0.65) 60%, rgba(255,255,255,0.15) 100%);
+}
 
 /* ── CLV Hero panel — unified all-time + recent-trend layout ── */
 .clv-hero {
@@ -1414,18 +1423,19 @@ div[data-baseweb="select"] > div {
 }
 .bh-row {
     display: grid;
+    /* # and date share a cell, as do pick and odds, so the team columns keep
+       real width in Streamlit's ~970px content column. With ten columns the
+       fixed widths left each team 33px and the names drew over each other. */
     grid-template-columns:
-        56px        /* # */
-        110px       /* date */
-        1.4fr       /* home */
-        1.4fr       /* away */
-        1.5fr       /* selection */
-        82px        /* odds */
-        1.6fr       /* why we bet */
-        110px       /* stake */
-        110px       /* result */
-        140px;      /* P&L */
-    gap: 0.7rem; align-items: center;
+        84px                   /* # + date */
+        minmax(0, 1fr)         /* home */
+        minmax(0, 1fr)         /* away */
+        78px                   /* pick + odds */
+        minmax(124px, 1.1fr)   /* why we bet */
+        96px                   /* stake */
+        92px                   /* result */
+        136px;                 /* P&L */
+    gap: 0.6rem; align-items: center;
     padding: 0.85rem 1.1rem;
     background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
     border: 1px solid rgba(255,255,255,0.07);
@@ -1458,7 +1468,19 @@ div[data-baseweb="select"] > div {
 .bh-team  { display: flex; align-items: center; gap: 0.5rem;
             font-size: 0.95rem; font-weight: 700; color: #e8eaf0; min-width: 0; }
 .bh-team img { flex-shrink: 0; }
-.bh-team > :last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bh-name  { min-width: 0; line-height: 1.2; }
+/* A narrow team column stacks the badge above the name, so a long single
+   word like "Sunderland" never breaks mid-word or runs into the next cell. */
+.bh-row:not(.bh-header) .bh-team { container-type: inline-size; }
+@container (max-width: 150px) {
+    .bh-name { display: block; text-align: center; font-size: 0.88rem; }
+}
+.bh-team-inner { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
+.bh-row.bh-header .bh-team { justify-content: center; }
+@container (max-width: 150px) {
+    .bh-team-inner { flex-direction: column; gap: 0.3rem; }
+}
+.bh-meta, .bh-pick { display: flex; flex-direction: column; gap: 0.2rem; }
 .bh-sel   { font-size: 0.95rem; font-weight: 700; color: #ffd600; }
 .bh-odds  { font-size: 1.1rem; font-weight: 900; color: #00e5ff;
             letter-spacing: -0.3px; }
@@ -2057,9 +2079,43 @@ def cached_promoted_seeding(df_hash: str, fixture_key: str, _dc_r, _dc_draw_r):
             seed_promoted_teams(_dc_draw_r, teams))
 
 
+class _NoFixtures(Exception):
+    pass
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
+def _cached_fixtures_nonempty():
+    fixtures = fetch_upcoming_fixtures(lookahead_days=30)
+    if not fixtures:
+        raise _NoFixtures  # st.cache_data never stores a raised call
+    return fixtures
+
+
+@st.cache_resource(show_spinner=False)
+def _fixtures_empty_at() -> list:
+    # app.py re-executes on every rerun, so a plain module global would reset.
+    return []
+
+
 def cached_fixtures():
-    return fetch_upcoming_fixtures(lookahead_days=30)
+    """Upcoming fixtures, cached for an hour, but never cache an EMPTY list.
+
+    An empty result used to be held for the full hour, so one failed ESPN call
+    (or ESPN's Sep 2026 switch to rejecting range queries) blanked the Weekend
+    tab and starved every other consumer long after the fetch recovered.
+    Empty results are retried at most every five minutes instead.
+    """
+    import time
+    empty_at = _fixtures_empty_at()
+    if empty_at and time.time() - empty_at[0] < 300:
+        return []
+    try:
+        fixtures = _cached_fixtures_nonempty()
+    except _NoFixtures:
+        empty_at[:] = [time.time()]
+        return []
+    empty_at.clear()
+    return fixtures
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -6067,7 +6123,11 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         peak_idx   = int(np.argmax(y_vals))
         trough_idx = int(np.argmin(y_vals))
         # Peak marker (only annotate if it's not the start AND meaningfully above start)
-        if peak_idx > 0 and y_vals[peak_idx] > init_br * 1.05:
+        # When the peak is the latest bet or sits just behind it, the NOW
+        # badge covers that spot; a second chip there made the labels pile up.
+        # ~850px of plot width, so each bet is 850/n px wide.
+        _peak_near_now = (len(y_vals) - 1 - peak_idx) * 850 / max(len(y_vals), 1) < 170
+        if peak_idx > 0 and not _peak_near_now and y_vals[peak_idx] > init_br * 1.05:
             fig_br.add_annotation(
                 x=x_vals[peak_idx], y=y_vals[peak_idx],
                 text=f"<b>Peak</b><br>£{y_vals[peak_idx]:,.0f}",
@@ -6091,17 +6151,32 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 bordercolor="rgba(255,64,129,0.4)",
                 borderpad=4, borderwidth=1,
             )
-        # Current bankroll badge at the right edge
-        fig_br.add_annotation(
-            x=x_vals[-1], y=y_vals[-1],
-            text=f"<b>NOW · £{y_vals[-1]:,.0f}</b>",
-            showarrow=False, xshift=15,
-            font=dict(size=14, color="#fff", family="Inter"),
-            bgcolor=line_col,
-            bordercolor=line_col,
-            borderpad=8, borderwidth=2,
-            xanchor="left",
-        )
+        # Current bankroll badge. With pending bets the projection lines and
+        # their chips own the space to the right, so NOW moves up-left or
+        # down-left with a pointer, away from the line coming into it.
+        if pending_bets:
+            _ax, _ay = now_badge_offset(
+                rising=len(y_vals) < 2 or y_vals[-1] >= y_vals[-2])
+            fig_br.add_annotation(
+                x=x_vals[-1], y=y_vals[-1],
+                text=f"<b>NOW · £{y_vals[-1]:,.0f}</b>",
+                showarrow=True, ax=_ax, ay=_ay, arrowcolor=line_col,
+                arrowwidth=1.5, arrowhead=0, xanchor="right",
+                font=dict(size=14, color="#fff", family="Inter"),
+                bgcolor=line_col, bordercolor=line_col,
+                borderpad=8, borderwidth=2,
+            )
+        else:
+            fig_br.add_annotation(
+                x=x_vals[-1], y=y_vals[-1],
+                text=f"<b>NOW · £{y_vals[-1]:,.0f}</b>",
+                showarrow=False, xshift=15,
+                font=dict(size=14, color="#fff", family="Inter"),
+                bgcolor=line_col,
+                bordercolor=line_col,
+                borderpad=8, borderwidth=2,
+                xanchor="left",
+            )
 
         # ── Pending bets projection ───────────────────────────────────
         # Three dotted forks extending from the LAST SETTLED bet point:
@@ -6184,37 +6259,28 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 showlegend=False,
             ))
 
-            # Endpoint annotations — small chips at the right end of each line
-            fig_br.add_annotation(
-                x=x_proj[-1], y=best_y[-1],
-                text=f"<b>If all win<br>£{best_y[-1]:,.0f}</b>",
-                showarrow=False, xshift=12,
-                font=dict(size=12, color="#00e676", family="Inter"),
-                bgcolor="rgba(0,230,118,0.10)",
-                bordercolor="rgba(0,230,118,0.4)",
-                borderpad=5, borderwidth=1,
-                xanchor="left",
-            )
-            fig_br.add_annotation(
-                x=x_proj[-1], y=exp_y[-1],
-                text=f"<b>Expected<br>£{exp_y[-1]:,.0f}</b>",
-                showarrow=False, xshift=12,
-                font=dict(size=12, color="#00e5ff", family="Inter"),
-                bgcolor="rgba(0,229,255,0.10)",
-                bordercolor="rgba(0,229,255,0.4)",
-                borderpad=5, borderwidth=1,
-                xanchor="left",
-            )
-            fig_br.add_annotation(
-                x=x_proj[-1], y=worst_y[-1],
-                text=f"<b>If all lose<br>£{worst_y[-1]:,.0f}</b>",
-                showarrow=False, xshift=12,
-                font=dict(size=12, color="#ff4081", family="Inter"),
-                bgcolor="rgba(255,64,129,0.10)",
-                bordercolor="rgba(255,64,129,0.4)",
-                borderpad=5, borderwidth=1,
-                xanchor="left",
-            )
+            # Endpoint chips share one x, so spread them vertically when two
+            # outcomes are close in money (they used to draw over each other).
+            _all_y = list(y_vals) + best_y + worst_y + exp_y
+            _lo, _hi = min(_all_y), max(_all_y)
+            _pad = (_hi - _lo) * 0.06
+            _ends = [(best_y[-1], "#00e676", "If all win"),
+                     (exp_y[-1], "#00e5ff", "Expected"),
+                     (worst_y[-1], "#ff4081", "If all lose")]
+            _shifts = spread_label_shifts([e[0] for e in _ends],
+                                          _lo - _pad, _hi + _pad,
+                                          plot_px=400, min_gap_px=46)
+            for (_y, _c, _lbl), _sh in zip(_ends, _shifts):
+                fig_br.add_annotation(
+                    x=x_proj[-1], y=_y, yshift=_sh,
+                    text=f"<b>{_lbl}<br>£{_y:,.0f}</b>",
+                    showarrow=False, xshift=12,
+                    font=dict(size=12, color=_c, family="Inter"),
+                    bgcolor=f"rgba({_hex_to_rgb(_c)},0.10)",
+                    bordercolor=f"rgba({_hex_to_rgb(_c)},0.4)",
+                    borderpad=5, borderwidth=1,
+                    xanchor="left",
+                )
 
             # Vertical separator between settled and pending
             fig_br.add_vline(
@@ -6919,12 +6985,14 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
 
             rows_html.append(
                 f'<div class="{row_cls}" id="bet-row-{bet_idx}">'
-                f'  <div class="bh-num">#{bet_idx}</div>'
-                f'  <div class="bh-date">{date_short}</div>'
-                f'  <div class="bh-team bh-home">{tb(home, 32)}</div>'
-                f'  <div class="bh-team bh-away">{tb(away, 32)}</div>'
-                f'  <div class="bh-sel">{sel_label}</div>'
-                f'  <div class="bh-odds">{odds_b:.2f}</div>'
+                f'  <div class="bh-meta"><div class="bh-num">#{bet_idx}</div>'
+                f'    <div class="bh-date">{date_short}</div></div>'
+                f'  <div class="bh-team bh-home"><div class="bh-team-inner">{badge(home, 36)}'
+                f'<span class="bh-name">{home}</span></div></div>'
+                f'  <div class="bh-team bh-away"><div class="bh-team-inner">{badge(away, 36)}'
+                f'<span class="bh-name">{away}</span></div></div>'
+                f'  <div class="bh-pick"><div class="bh-sel">{sel_label}</div>'
+                f'    <div class="bh-odds">{odds_b:.2f}</div></div>'
                 f'  {edge_html}'
                 f'  <div class="bh-stake">£{stake_b:,.2f}</div>'
                 f'  <div class="bh-cell-result">{res_html}</div>'
@@ -6935,13 +7003,11 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         # Header row
         header_html = (
             '<div class="bh-row bh-header">'
-            '<div class="bh-num">#</div>'
-            '<div class="bh-date">DATE</div>'
+            '<div class="bh-num"># · DATE</div>'
             '<div class="bh-team">HOME</div>'
             '<div class="bh-team">AWAY</div>'
             '<div class="bh-sel">PICK</div>'
-            '<div class="bh-odds">ODDS</div>'
-            '<div class="bh-edge">WHY WE BET</div>'
+            '<div>WHY WE BET</div>'
             '<div class="bh-stake">STAKE</div>'
             '<div class="bh-cell-result">RESULT</div>'
             '<div class="bh-cell-pnl">P&amp;L</div>'
@@ -8589,7 +8655,10 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         # Peak / Low / NOW badges
         peak_idx_p2   = int(np.argmax(y_vals_p2))
         trough_idx_p2 = int(np.argmin(y_vals_p2))
-        if peak_idx_p2 > 0 and y_vals_p2[peak_idx_p2] > init_br_p2 * 1.05:
+        _peak_near_now_p2 = ((len(y_vals_p2) - 1 - peak_idx_p2) * 850
+                             / max(len(y_vals_p2), 1) < 170)
+        if (peak_idx_p2 > 0 and not _peak_near_now_p2
+                and y_vals_p2[peak_idx_p2] > init_br_p2 * 1.05):
             fig_p2.add_annotation(
                 x=x_vals_p2[peak_idx_p2], y=y_vals_p2[peak_idx_p2],
                 text=f"<b>Peak</b><br>£{y_vals_p2[peak_idx_p2]:,.0f}",
@@ -8612,14 +8681,30 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 bordercolor="rgba(255,64,129,0.4)",
                 borderpad=4, borderwidth=1,
             )
-        fig_p2.add_annotation(
-            x=x_vals_p2[-1], y=y_vals_p2[-1],
-            text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
-            showarrow=False, xshift=15,
-            font=dict(size=14, color="#fff", family="Inter"),
-            bgcolor=line_col_p2, bordercolor=line_col_p2,
-            borderpad=8, borderwidth=2, xanchor="left",
-        )
+        # NOW badge: moves off to the left when the pending projection owns
+        # the space to the right (same rule as Main's chart).
+        if any(b["status"] == "pending" and b.get("type") != "acca"
+               for b in port2["bets"]):
+            _ax, _ay = now_badge_offset(
+                rising=len(y_vals_p2) < 2 or y_vals_p2[-1] >= y_vals_p2[-2])
+            fig_p2.add_annotation(
+                x=x_vals_p2[-1], y=y_vals_p2[-1],
+                text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
+                showarrow=True, ax=_ax, ay=_ay, arrowcolor=line_col_p2,
+                arrowwidth=1.5, arrowhead=0, xanchor="right",
+                font=dict(size=14, color="#fff", family="Inter"),
+                bgcolor=line_col_p2, bordercolor=line_col_p2,
+                borderpad=8, borderwidth=2,
+            )
+        else:
+            fig_p2.add_annotation(
+                x=x_vals_p2[-1], y=y_vals_p2[-1],
+                text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
+                showarrow=False, xshift=15,
+                font=dict(size=14, color="#fff", family="Inter"),
+                bgcolor=line_col_p2, bordercolor=line_col_p2,
+                borderpad=8, borderwidth=2, xanchor="left",
+            )
 
         # ── Mock Two pending bets projection ───────────────────────────
         # Same projection logic as Main: starts from LAST SETTLED bet's
@@ -8681,13 +8766,18 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 showlegend=False,
             ))
             # Endpoint annotations
-            for y_val, color, label in (
-                (best_y_p2[-1],  "#00e676", "If all win"),
-                (exp_y_p2[-1],   "#00e5ff", "Expected"),
-                (worst_y_p2[-1], "#ff4081", "If all lose"),
-            ):
+            _ends_p2 = ((best_y_p2[-1],  "#00e676", "If all win"),
+                        (exp_y_p2[-1],   "#00e5ff", "Expected"),
+                        (worst_y_p2[-1], "#ff4081", "If all lose"))
+            _all_y2 = list(y_vals_p2) + best_y_p2 + worst_y_p2 + exp_y_p2
+            _lo2, _hi2 = min(_all_y2), max(_all_y2)
+            _pad2 = (_hi2 - _lo2) * 0.06
+            _shifts_p2 = spread_label_shifts([e[0] for e in _ends_p2],
+                                             _lo2 - _pad2, _hi2 + _pad2,
+                                             plot_px=340, min_gap_px=46)
+            for (y_val, color, label), _sh in zip(_ends_p2, _shifts_p2):
                 fig_p2.add_annotation(
-                    x=x_proj_p2[-1], y=y_val,
+                    x=x_proj_p2[-1], y=y_val, yshift=_sh,
                     text=f"<b>{label}<br>£{y_val:,.0f}</b>",
                     showarrow=False, xshift=12,
                     font=dict(size=11, color=color, family="Inter"),
@@ -8903,12 +8993,14 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
             rows_html_p2.append(
                 f'<div class="{row_cls}" id="bet-row-p2-{bet_idx}">'
-                f'  <div class="bh-num">#{bet_idx}</div>'
-                f'  <div class="bh-date">{date_short}</div>'
-                f'  <div class="bh-team bh-home">{tb(home, 32)}</div>'
-                f'  <div class="bh-team bh-away">{tb(away, 32)}</div>'
-                f'  <div class="bh-sel">{sel_label}</div>'
-                f'  <div class="bh-odds">{odds_b:.2f}</div>'
+                f'  <div class="bh-meta"><div class="bh-num">#{bet_idx}</div>'
+                f'    <div class="bh-date">{date_short}</div></div>'
+                f'  <div class="bh-team bh-home"><div class="bh-team-inner">{badge(home, 36)}'
+                f'<span class="bh-name">{home}</span></div></div>'
+                f'  <div class="bh-team bh-away"><div class="bh-team-inner">{badge(away, 36)}'
+                f'<span class="bh-name">{away}</span></div></div>'
+                f'  <div class="bh-pick"><div class="bh-sel">{sel_label}</div>'
+                f'    <div class="bh-odds">{odds_b:.2f}</div></div>'
                 f'  {edge_html}'
                 f'  <div class="bh-stake">£{stake_b:,.2f}</div>'
                 f'  <div class="bh-cell-result">{res_html}</div>'
@@ -8918,13 +9010,11 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
         header_html_p2 = (
             '<div class="bh-row bh-header">'
-            '<div class="bh-num">#</div>'
-            '<div class="bh-date">DATE</div>'
+            '<div class="bh-num"># · DATE</div>'
             '<div class="bh-team">HOME</div>'
             '<div class="bh-team">AWAY</div>'
             '<div class="bh-sel">PICK</div>'
-            '<div class="bh-odds">ODDS</div>'
-            '<div class="bh-edge">WHY WE BET</div>'
+            '<div>WHY WE BET</div>'
             '<div class="bh-stake">STAKE</div>'
             '<div class="bh-cell-result">RESULT</div>'
             '<div class="bh-cell-pnl">P&amp;L</div>'
@@ -10808,8 +10898,20 @@ def main():
     _render_top_bar(active_view)
 
     if active_view == "predict":
+        # Preseason, the promoted sides have no played PL match, so the
+        # played-data team list omits them · yet they are already RATED (the
+        # fixtures block above seeded Dixon-Coles and Elo from the relegation
+        # market). Offer them in Predict-a-Match. The union is UI-only and
+        # gated on holding a rating, so a stray fixture name cannot enter;
+        # the auto-bet call above keeps the played-data list untouched.
+        try:
+            _fx_names = {t for f in cached_fixtures()
+                         for t in (f["home"], f["away"])}
+            ui_teams = sorted(set(teams) | (_fx_names & set(elo_dict)))
+        except Exception:
+            ui_teams = teams
         tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r,
-                    xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict)
+                    xgb_m, feat_cols, draw_xgb_m, draw_fc, ui_teams, elo_dict)
     elif active_view == "weekend":
         tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                     draw_xgb_m, draw_fc, teams, elo_dict)
