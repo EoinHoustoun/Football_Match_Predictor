@@ -5927,7 +5927,9 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         with sb2:
             new_kelly = st.select_slider(
                 "Kelly Fraction",
-                options=[0.25, 0.5, 0.75, 1.0],
+                # The saved value is always an option: a fraction set outside
+                # the presets (Mock Two's 0.45) would otherwise crash the page.
+                options=sorted({0.25, 0.45, 0.5, 0.75, 1.0, float(kelly_frac)}),
                 value=kelly_frac, key="port_kelly",
                 format_func=lambda x: f"{int(x*100)}%",
             )
@@ -8161,7 +8163,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                                         key="p2_budget")
         with sb2:
             new_kelly = st.select_slider("Base Kelly Fraction",
-                options=[0.25, 0.5, 0.75, 1.0],
+                options=sorted({0.25, 0.45, 0.5, 0.75, 1.0,
+                                float(settings["kelly_fraction"])}),
                 value=float(settings["kelly_fraction"]), key="p2_kelly",
                 format_func=lambda x: f"{int(x*100)}%",
                 help="Pre-shrinkage Kelly. Baker-McHale shrinks further from this.")
