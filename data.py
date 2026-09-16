@@ -235,6 +235,11 @@ _ESPN_TO_FD = {
     "Brighton and Hove Albion":  "Brighton",
     "Ipswich Town":              "Ipswich",
     "Leicester City":            "Leicester",
+    # 2026-27 promoted sides. The fuzzy fallback below also finds these, but
+    # only once load_data has filled KNOWN_FD_TEAMS, and a hot reload of this
+    # module empties that set while load_data stays cached.
+    "Hull City":                 "Hull",
+    "Coventry City":             "Coventry",
 }
 
 # Team names present in the loaded football-data CSVs — populated by

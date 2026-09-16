@@ -81,3 +81,15 @@ def test_per_day_fallback_is_cached_between_calls(monkeypatch):
     first = len(calls)
     data.fetch_upcoming_fixtures(lookahead_days=10)
     assert len(calls) == first  # range skipped after failing, days cached
+
+
+def test_promoted_names_resolve_even_before_match_data_loads(monkeypatch):
+    """Streamlit reloads data.py when it changes on disk, which empties
+    KNOWN_FD_TEAMS while load_data stays cached and never refills it. The
+    promoted sides then kept ESPN's long names and auto-bet skipped them as
+    unknown teams (16 Sep 2026). The fixed map must cover them on its own."""
+    monkeypatch.setattr(data, "KNOWN_FD_TEAMS", set())
+    monkeypatch.setattr(data, "KNOWN_SECOND_TIER_TEAMS", set())
+    assert data._resolve_team_name("Hull City") == "Hull"
+    assert data._resolve_team_name("Coventry City") == "Coventry"
+    assert data._resolve_team_name("Ipswich Town") == "Ipswich"
