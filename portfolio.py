@@ -730,6 +730,46 @@ ODDS_SOURCES = {
 }
 
 
+def _gameweek_blocks(dates: pd.Series) -> pd.Series:
+    """Label each match date with its gameweek block.
+
+    Premier League rounds run either over a weekend (Friday to Monday) or
+    midweek (Tuesday to Thursday). A new block starts when the date crosses
+    between those two windows or after a gap of four days or more, which keeps
+    a Saturday-Sunday-Monday round together and splits it from a Tuesday round.
+    """
+    uniq = sorted(pd.to_datetime(dates.unique()))
+    label, prev, prev_mid, out = 0, None, None, {}
+    for d in uniq:
+        mid = d.weekday() in (1, 2, 3)
+        if prev is not None and (mid != prev_mid or (d - prev).days >= 4):
+            label += 1
+        out[d] = label
+        prev, prev_mid = d, mid
+    return pd.to_datetime(dates).map(out)
+
+
+def _sim_row(c: dict, stake: float, profit: float, bankroll: float) -> dict:
+    """One bet-log row, same shape as the day-settled loop writes."""
+    return {
+        "Date":       c["Date"],
+        "Match":      f"{c['Home']} vs {c['Away']}",
+        "Market":     {"H": "Home Win", "D": "Draw", "A": "Away Win",
+                       "over25": "Over 2.5", "under25": "Under 2.5"}.get(
+                           c["mkt"], c["mkt"]),
+        "Model%":     f"{c['prob']*100:.1f}%",
+        "Implied%":   f"{100/c['place_odds']:.1f}%",
+        "EV":         f"+{c['ev_val']*100:.1f}%",
+        "Odds":       round(c["place_odds"], 2),
+        "DetectOdds": round(c["detect_odds"], 2),
+        "SimFactor":  round(c["sim_factor"], 3),
+        "Stake":      round(stake, 2),
+        "Result":     "✅" if c["won"] else "❌",
+        "Profit":     round(profit, 2),
+        "Bankroll":   round(bankroll, 2),
+    }
+
+
 def ev_backtest_simulate(
     bt_df: pd.DataFrame,
     df: pd.DataFrame,
@@ -764,6 +804,13 @@ def ev_backtest_simulate(
     # probs before EV gate, matching live auto_place_value_bets behaviour.
     # Caller is responsible for ensuring no train/test leakage.
     calibrators: dict | None = None,
+    # Gameweek settlement: stake a whole gameweek from its opening bankroll and
+    # settle at the end, as live does. Off = the historical day-settled loop.
+    gameweek_mode: bool = False,
+    # Cap on stake riding on unsettled bets within a gameweek (gameweek_mode).
+    exposure_cap_pct: float | None = None,
+    exposure_cap_basis: str = "opening",   # "opening" | "gameweek"
+    max_pending_bets: int | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Simulate EV-based Kelly betting using full-ensemble (DC + XGB + Draw Specialist)
@@ -873,6 +920,9 @@ def ev_backtest_simulate(
     skipped_xg       = 0
     skipped_no_history = 0
     skipped_club_exposure = 0
+    skipped_exposure_cap = 0
+    if (exposure_cap_pct is not None or max_pending_bets is not None) and not gameweek_mode:
+        raise ValueError("exposure caps need gameweek_mode: day-settled bets never pend")
     club_counts: dict[str, int] | None = {} if max_bets_per_club else None
     sim_factors_observed = []
 
@@ -883,124 +933,132 @@ def ev_backtest_simulate(
     # Date-grouped two-pass loop: collect candidates per day, apply optional
     # simultaneous-bet correction, then place. This mirrors v2 and lets us
     # extract the same Kelly variance reduction on Saturday cards.
-    for date, day_matches in merged.sort_values("Date").groupby("Date", sort=True):
-        if skip_late_season and _is_late_season(date):
-            skipped_late_season += int(len(day_matches) * 3)
-            continue
-        if _should_skip_calendar(date, banned_dows, banned_months):
-            skipped_calendar += int(len(day_matches) * 3)
-            continue
-
+    merged = merged.sort_values("Date")
+    group_key = (_gameweek_blocks(merged["Date"]) if gameweek_mode
+                 else merged["Date"])
+    for _, block in merged.groupby(group_key, sort=True):
         candidates: list[dict] = []
-        for _, r in day_matches.iterrows():
-            # No-history gate, point-in-time so a promoted side is blocked
-            # during its own first matches rather than retroactively rated
-            if should_skip_unrated_at(r["Home"], r["Away"], date,
-                                      rated_from, min_team_matches):
-                skipped_no_history += 3
+        block_start_bankroll = bankroll
+        for date, day_matches in block.groupby("Date", sort=True):
+            if skip_late_season and _is_late_season(date):
+                skipped_late_season += int(len(day_matches) * 3)
                 continue
-            if skip_home_title_race and r.get("h_motivation") == "title_race":
-                skipped_home_title_race += 1
+            if _should_skip_calendar(date, banned_dows, banned_months):
+                skipped_calendar += int(len(day_matches) * 3)
                 continue
-            # Main: ELO-profile filter (validated multi-season winner = 1500)
-            if elo_filter_active and should_skip_elo_profile(
-                    r.get("home_elo"), r.get("away_elo"),
-                    min_team_elo, max_team_elo, elo_gap_min, elo_gap_max,
-                    require_known_elo=True):
-                skipped_elo += 3
-                continue
-            # Main: xG-regression filter (skip luck-driven teams)
-            if xg_filter_active and should_skip_xg_overperform(
-                    r.get("home_roll_gf"), r.get("home_roll_xg"),
-                    r.get("away_roll_gf"), r.get("away_roll_xg"),
-                    xg_overperform_threshold):
-                skipped_xg += 3
-                continue
-            try:
-                o_h = float(r[h_col]); o_d = float(r[d_col]); o_a = float(r[a_col])
-                d_h = float(r[dh_col]); d_d = float(r[dd_col]); d_a = float(r[da_col])
-            except (ValueError, TypeError):
-                continue
-            if o_h <= 1 or o_d <= 1 or o_a <= 1: continue
-            if d_h <= 1 or d_d <= 1 or d_a <= 1: continue
 
-            actual = r["Actual"]
-            total_goals = int(r.get("FTHG", 0) or 0) + int(r.get("FTAG", 0) or 0)
-            p_h = float(r["DC_H"]) / 100.0
-            p_d = float(r["DC_D"]) / 100.0
-            p_a = float(r["DC_A"]) / 100.0
-
-            market_list = [
-                ("H", p_h, o_h, d_h, "Home Win"),
-                ("D", p_d, o_d, d_d, "Draw"),
-                ("A", p_a, o_a, d_a, "Away Win"),
-            ]
-            if has_ou:
+            for _, r in day_matches.iterrows():
+                # No-history gate, point-in-time so a promoted side is blocked
+                # during its own first matches rather than retroactively rated
+                if should_skip_unrated_at(r["Home"], r["Away"], date,
+                                          rated_from, min_team_matches):
+                    skipped_no_history += 3
+                    continue
+                if skip_home_title_race and r.get("h_motivation") == "title_race":
+                    skipped_home_title_race += 1
+                    continue
+                # Main: ELO-profile filter (validated multi-season winner = 1500)
+                if elo_filter_active and should_skip_elo_profile(
+                        r.get("home_elo"), r.get("away_elo"),
+                        min_team_elo, max_team_elo, elo_gap_min, elo_gap_max,
+                        require_known_elo=True):
+                    skipped_elo += 3
+                    continue
+                # Main: xG-regression filter (skip luck-driven teams)
+                if xg_filter_active and should_skip_xg_overperform(
+                        r.get("home_roll_gf"), r.get("home_roll_xg"),
+                        r.get("away_roll_gf"), r.get("away_roll_xg"),
+                        xg_overperform_threshold):
+                    skipped_xg += 3
+                    continue
                 try:
-                    p_o25  = float(r["DC_O25"]) / 100.0
-                    o_over = float(r[o25_col]);  o_under = float(r[u25_col])
-                    d_over = float(r[do25_col]); d_under = float(r[du25_col])
-                    if o_over > 1 and o_under > 1 and d_over > 1 and d_under > 1:
-                        market_list += [
-                            ("over25",  p_o25,       o_over,  d_over,  "Over 2.5"),
-                            ("under25", 1.0 - p_o25, o_under, d_under, "Under 2.5"),
-                        ]
-                except (ValueError, TypeError, KeyError):
-                    pass
+                    o_h = float(r[h_col]); o_d = float(r[d_col]); o_a = float(r[a_col])
+                    d_h = float(r[dh_col]); d_d = float(r[dd_col]); d_a = float(r[da_col])
+                except (ValueError, TypeError):
+                    continue
+                if o_h <= 1 or o_d <= 1 or o_a <= 1: continue
+                if d_h <= 1 or d_d <= 1 or d_a <= 1: continue
 
-            for mkt, prob, place_odds, detect_odds, outcome in market_list:
-                if allowed_markets and mkt not in allowed_markets:
-                    continue
-                # Apply isotonic calibration if available (matches live behaviour)
-                if calibrators:
-                    prob = calibrate_prob(prob, mkt, calibrators)
-                if prob < _gate(market_gates, mkt, "min_prob", min_prob):
-                    skipped_min_prob += 1
-                    continue
-                ev_val = compute_ev(prob, detect_odds)
-                # NaN guard: missing odds → NaN EV → NaN<threshold is False
-                # which would silently let the bet through. Reject explicitly.
-                if pd.isna(ev_val):
-                    continue
-                if ev_val < _gate(market_gates, mkt, "min_ev", min_ev):
-                    continue
-                # Main: max-EV cap (high-EV bucket calibrates badly per Phase 1)
-                if max_ev_pct is not None and ev_val > max_ev_pct:
-                    skipped_max_ev += 1
-                    continue
+                actual = r["Actual"]
+                total_goals = int(r.get("FTHG", 0) or 0) + int(r.get("FTAG", 0) or 0)
+                p_h = float(r["DC_H"]) / 100.0
+                p_d = float(r["DC_D"]) / 100.0
+                p_a = float(r["DC_A"]) / 100.0
 
-                # Compute Kelly fraction (don't multiply by bankroll yet — sim
-                # correction may scale this down before placement)
-                if place_odds > 1 and prob > 0:
-                    b_ = place_odds - 1.0
-                    q_ = 1.0 - prob
-                    full_kelly = max(0.0, (prob * b_ - q_) / b_)
-                else:
-                    full_kelly = 0.0
-                kelly_pct_raw = min(full_kelly * kelly_frac, max_stake_pct)
-                if kelly_pct_raw <= 0:
-                    continue
+                market_list = [
+                    ("H", p_h, o_h, d_h, "Home Win"),
+                    ("D", p_d, o_d, d_d, "Draw"),
+                    ("A", p_a, o_a, d_a, "Away Win"),
+                ]
+                if has_ou:
+                    try:
+                        p_o25  = float(r["DC_O25"]) / 100.0
+                        o_over = float(r[o25_col]);  o_under = float(r[u25_col])
+                        d_over = float(r[do25_col]); d_under = float(r[du25_col])
+                        if o_over > 1 and o_under > 1 and d_over > 1 and d_under > 1:
+                            market_list += [
+                                ("over25",  p_o25,       o_over,  d_over,  "Over 2.5"),
+                                ("under25", 1.0 - p_o25, o_under, d_under, "Under 2.5"),
+                            ]
+                    except (ValueError, TypeError, KeyError):
+                        pass
 
-                won = ((total_goals > 2) if mkt == "over25"
-                       else (total_goals <= 2) if mkt == "under25"
-                       else (actual == outcome))
+                for mkt, prob, place_odds, detect_odds, outcome in market_list:
+                    if allowed_markets and mkt not in allowed_markets:
+                        continue
+                    # Apply isotonic calibration if available (matches live behaviour)
+                    if calibrators:
+                        prob = calibrate_prob(prob, mkt, calibrators)
+                    if prob < _gate(market_gates, mkt, "min_prob", min_prob):
+                        skipped_min_prob += 1
+                        continue
+                    ev_val = compute_ev(prob, detect_odds)
+                    # NaN guard: missing odds → NaN EV → NaN<threshold is False
+                    # which would silently let the bet through. Reject explicitly.
+                    if pd.isna(ev_val):
+                        continue
+                    if ev_val < _gate(market_gates, mkt, "min_ev", min_ev):
+                        continue
+                    # Main: max-EV cap (high-EV bucket calibrates badly per Phase 1)
+                    if max_ev_pct is not None and ev_val > max_ev_pct:
+                        skipped_max_ev += 1
+                        continue
 
-                candidates.append({
-                    "Date":          r["Date"],
-                    "Home":          r["Home"],
-                    "Away":          r["Away"],
-                    "mkt":           mkt,
-                    "outcome":       outcome,
-                    "prob":          prob,
-                    "place_odds":    place_odds,
-                    "detect_odds":   detect_odds,
-                    "ev_val":        ev_val,
-                    "kelly_pct_raw": kelly_pct_raw,
-                    "won":           won,
-                })
+                    # Compute Kelly fraction (don't multiply by bankroll yet — sim
+                    # correction may scale this down before placement)
+                    if place_odds > 1 and prob > 0:
+                        b_ = place_odds - 1.0
+                        q_ = 1.0 - prob
+                        full_kelly = max(0.0, (prob * b_ - q_) / b_)
+                    else:
+                        full_kelly = 0.0
+                    kelly_pct_raw = min(full_kelly * kelly_frac, max_stake_pct)
+                    if kelly_pct_raw <= 0:
+                        continue
+
+                    won = ((total_goals > 2) if mkt == "over25"
+                           else (total_goals <= 2) if mkt == "under25"
+                           else (actual == outcome))
+
+                    candidates.append({
+                        "Date":          r["Date"],
+                        "Home":          r["Home"],
+                        "Away":          r["Away"],
+                        "mkt":           mkt,
+                        "outcome":       outcome,
+                        "prob":          prob,
+                        "place_odds":    place_odds,
+                        "detect_odds":   detect_odds,
+                        "ev_val":        ev_val,
+                        "kelly_pct_raw": kelly_pct_raw,
+                        "won":           won,
+                    })
 
         if not candidates:
             continue
+        if gameweek_mode:
+            # Live ranks a run by EV and places the best first.
+            candidates.sort(key=lambda c: c["ev_val"], reverse=True)
 
         # Apply simultaneous-bet correction across the day's qualifying set
         if enable_simultaneous_correction and len(candidates) > 1:
@@ -1014,6 +1072,53 @@ def ev_backtest_simulate(
             for c in candidates:
                 c["kelly_pct_final"] = c["kelly_pct_raw"]
                 c["sim_factor"] = 1.0
+
+        if gameweek_mode:
+            # The whole gameweek is staked from the bankroll it opened on, the
+            # way live places Friday-to-Monday in one go, and nothing settles
+            # until the block ends. Cash falls with every stake, as live's
+            # p["bankroll"] does, and the pending cap binds on the running total.
+            cash = bankroll
+            pending = 0.0
+            if exposure_cap_pct is None:
+                cap = float("inf")
+            elif exposure_cap_basis == "opening":
+                cap = initial_bankroll * exposure_cap_pct
+            else:
+                cap = block_start_bankroll * exposure_cap_pct
+            placed_now: list[tuple[dict, float]] = []
+            for c in candidates:
+                if max_pending_bets is not None and len(placed_now) >= max_pending_bets:
+                    skipped_exposure_cap += 1
+                    continue
+                if pending >= cap - 0.005:
+                    skipped_exposure_cap += 1
+                    continue
+                if should_skip_club_exposure(c["Home"], c["Away"], club_counts,
+                                             max_bets_per_club):
+                    skipped_club_exposure += 1
+                    continue
+                stake = round(cash * c["kelly_pct_final"], 2)
+                if stake <= 0 or stake > cash:
+                    continue
+                stake = round(min(stake, cap - pending), 2)
+                if stake <= 0:
+                    continue
+                if club_counts is not None:
+                    for club in (c["Home"], c["Away"]):
+                        club_counts[club] = club_counts.get(club, 0) + 1
+                cash = round(cash - stake, 2)
+                pending += stake
+                placed_now.append((c, stake))
+            returns = sum(round(st_ * c["place_odds"], 2) for c, st_ in placed_now if c["won"])
+            running = bankroll
+            for c, stake in sorted(placed_now, key=lambda x: x[0]["Date"]):
+                profit = round(stake * (c["place_odds"] - 1), 2) if c["won"] else round(-stake, 2)
+                running = round(running + profit, 2)
+                sim_factors_observed.append(c["sim_factor"])
+                rows.append(_sim_row(c, stake, profit, running))
+            bankroll = round(cash + returns, 2)
+            continue
 
         # Place bets
         for c in candidates:
@@ -1088,6 +1193,7 @@ def ev_backtest_simulate(
         "skipped_xg":       skipped_xg,
         "skipped_no_history": skipped_no_history,
         "skipped_club_exposure": skipped_club_exposure,
+        "skipped_exposure_cap": skipped_exposure_cap,
         "odds_source": odds_source,
         "detect_source": detect_source,
         "mean_sim_factor": (round(float(np.mean(sim_factors_observed)), 3)
