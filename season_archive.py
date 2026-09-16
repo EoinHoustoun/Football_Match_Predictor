@@ -208,6 +208,54 @@ def load_season_view(season: str, *, live_season: str | None) -> dict:
     }
 
 
+# ── Bankroll chart scopes ─────────────────────────────────────────────────────
+
+def previous_season(live: str | None) -> str | None:
+    """The newest archived season that is not the live one."""
+    return next((s for s in list_archived_seasons() if s != live), None)
+
+
+def all_time_portfolio(archived: list[tuple[str, dict]],
+                       live: tuple[str, dict]) -> tuple[dict, list[tuple[int, str]]]:
+    """Join archived seasons (oldest first) and the live one into one portfolio
+    whose `bankroll_history` runs continuously from the first opening bankroll.
+
+    Only the live season contributes pending bets. When a season opened on a
+    different bankroll from the one the previous season closed on, a settled
+    "carry-over" row bridges the gap so the line still ends on the real live
+    bankroll. Returns `(portfolio, marks)`, where marks are
+    `(settled_index, season_label)` for where each season's line begins.
+    """
+    def _settled(p):
+        return sorted((b for b in p.get("bets", [])
+                       if b.get("status") in ("won", "lost") and b.get("settled_at")),
+                      key=lambda b: b["settled_at"])
+
+    seasons = list(archived) + [live]
+    bets: list[dict] = []
+    marks: list[tuple[int, str]] = []
+    running = seasons[0][1].get("initial_bankroll", 0.0)
+    for i, (label, p) in enumerate(seasons):
+        season_bets = _settled(p)
+        gap = round(p.get("initial_bankroll", running) - running, 2)
+        if i > 0 and abs(gap) >= 0.01:
+            # bankroll_history orders by settled_at, so stamp the bridge just
+            # after the previous season's last settlement.
+            last = bets[-1]["settled_at"] if bets else ""
+            bets.append({"id": f"carry-{label}", "home": "Bankroll", "away": "carry-over",
+                         "selection": label, "status": "won" if gap > 0 else "lost",
+                         "profit": gap, "stake": 0.0, "odds": 1.0,
+                         "settled_at": last + "~"})
+            running += gap
+        marks.append((len(bets), label))
+        bets.extend(season_bets)
+        running = round(running + sum(b["profit"] for b in season_bets), 2)
+    bets.extend(b for b in live[1].get("bets", []) if b.get("status") == "pending")
+    merged = {**live[1], "initial_bankroll": seasons[0][1].get("initial_bankroll", 0.0),
+              "bets": bets}
+    return merged, marks
+
+
 # ── Starting the next season ──────────────────────────────────────────────────
 
 def _backup(live_file: Path, tag: str) -> Path:

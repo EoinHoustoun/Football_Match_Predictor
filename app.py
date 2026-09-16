@@ -5419,6 +5419,425 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         )
 
 
+def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
+                           now_label: str = "NOW",
+                           season_marks: list | None = None,
+                           chart_key: str = "br_chart") -> None:
+    """Main portfolio's bankroll line: fills around the start, win/loss markers,
+    Peak/Low/NOW chips, and the pending-bet projection when there are pending
+    bets. `now_label` reads FINAL for a closed season; `season_marks` draws
+    season boundaries on the all-time view."""
+    history = pf.bankroll_history(port)
+    init_br = port["initial_bankroll"]
+    if len(history) > 1:
+        y_vals  = history["bankroll"].tolist()
+        x_vals  = list(range(len(y_vals)))
+        labels  = history["match"].tolist()
+    else:
+        # No settled bets yet — show starting bankroll + pending stakes
+        y_vals = [init_br]
+        labels = ["Start"]
+        running = init_br
+        for pb in sorted(pending_bets, key=lambda b: b.get("placed_at", "")):
+            running -= pb["stake"]
+            y_vals.append(round(running, 2))
+            if pb.get("type") == "acca":
+                lbl = f"ACCA £{pb['stake']:.0f}"
+            else:
+                lbl = f"{pb.get('selection', '?')} £{pb['stake']:.0f}"
+            labels.append(lbl)
+        if pending_bets:
+            best_return = running + sum(
+                pb["stake"] * pb["odds"] for pb in pending_bets
+            )
+            y_vals.append(round(best_return, 2))
+            labels.append("If all win")
+        x_vals = list(range(len(y_vals)))
+
+    line_col = "#00e676" if y_vals[-1] >= init_br else "#ff4081"
+    fig_br = go.Figure()
+
+    if len(history) > 1:
+        # ── Red/green fill zones around the initial-bankroll baseline ──
+        # Insert interpolated points wherever the bankroll line CROSSES the
+        # baseline. Without this, fills bleed past the actual line because
+        # Plotly draws straight segments between data points.
+        x_exp: list[float] = [x_vals[0]]
+        y_exp: list[float] = [y_vals[0]]
+        for i in range(1, len(y_vals)):
+            y_prev, y_cur = y_vals[i - 1], y_vals[i]
+            # Sign change relative to baseline → insert crossing point
+            if (y_prev - init_br) * (y_cur - init_br) < 0:
+                t = (init_br - y_prev) / (y_cur - y_prev)
+                x_cross = x_vals[i - 1] + t * (x_vals[i] - x_vals[i - 1])
+                x_exp.append(x_cross); y_exp.append(init_br)
+            x_exp.append(x_vals[i]); y_exp.append(y_cur)
+
+        y_up = [max(v, init_br) for v in y_exp]
+        y_dn = [min(v, init_br) for v in y_exp]
+        baseline = [init_br] * len(y_exp)
+
+        # Baseline (invisible anchor for green fill)
+        fig_br.add_trace(go.Scatter(
+            x=x_exp, y=baseline,
+            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
+            hoverinfo="skip", showlegend=False,
+        ))
+        # Green: from baseline up to bankroll curve where bankroll ≥ baseline
+        fig_br.add_trace(go.Scatter(
+            x=x_exp, y=y_up,
+            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
+            fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
+            hoverinfo="skip", showlegend=False,
+        ))
+        # Baseline again (anchor for red fill)
+        fig_br.add_trace(go.Scatter(
+            x=x_exp, y=baseline,
+            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
+            hoverinfo="skip", showlegend=False,
+        ))
+        # Red: from baseline down to bankroll curve where bankroll ≤ baseline
+        fig_br.add_trace(go.Scatter(
+            x=x_exp, y=y_dn,
+            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
+            fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
+            hoverinfo="skip", showlegend=False,
+        ))
+
+        # Baseline line on top of fills
+        fig_br.add_hline(
+            y=init_br, line_color="rgba(255,255,255,0.30)", line_dash="dot",
+            annotation_text=f"Start £{init_br:,.0f}",
+            annotation_font=dict(color="#8892a4", size=14, family="Inter"),
+            annotation_position="top left",
+        )
+
+        # Main bankroll line with direction arrows per bet
+        # (triangle-up = win / bankroll rose, triangle-down = loss / fell)
+        deltas = [0.0] + [y_vals[i] - y_vals[i - 1] for i in range(1, len(y_vals))]
+        marker_symbols = ["circle"] + [
+            "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
+            for d in deltas[1:]
+        ]
+        marker_colors = ["#8892a4"] + [
+            "#00e676" if d > 0 else ("#ff4081" if d < 0 else "#8892a4")
+            for d in deltas[1:]
+        ]
+        marker_sizes = [0] + [13 if d != 0 else 6 for d in deltas[1:]]
+        # Hover label tells you won/lost and delta
+        hover_texts = ["Start"] + [
+            ("▲ WON "  + f"+£{d:,.2f}") if d > 0 else
+            ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
+            "No change"
+            for d in deltas[1:]
+        ]
+
+        # Soft halo line beneath the main line for a subtle glow effect
+        fig_br.add_trace(go.Scatter(
+            x=x_vals, y=y_vals,
+            mode="lines",
+            line=dict(color=f"rgba({_hex_to_rgb(line_col)},0.30)", width=10),
+            hoverinfo="skip", showlegend=False,
+        ))
+        fig_br.add_trace(go.Scatter(
+            x=x_vals, y=y_vals,
+            mode="lines+markers",
+            line=dict(color=line_col, width=3.5, shape="linear"),
+            marker=dict(
+                symbol=marker_symbols,
+                size=marker_sizes,
+                color=marker_colors,
+                line=dict(color="#0a0e1a", width=1.5),
+            ),
+            text=hover_texts,
+            hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
+                           "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b><extra></extra>"),
+            hoverlabel=dict(
+                bgcolor="#1a1d27",
+                bordercolor=line_col,
+                font=dict(size=14, family="Inter", color="#e8eaf0"),
+            ),
+            showlegend=False,
+        ))
+
+        # ── Peak / trough / current annotations ───────────────────────
+        peak_idx   = int(np.argmax(y_vals))
+        trough_idx = int(np.argmin(y_vals))
+        # Peak marker (only annotate if it's not the start AND meaningfully above start)
+        # When the peak is the latest bet or sits just behind it, the NOW
+        # badge covers that spot; a second chip there made the labels pile up.
+        # ~850px of plot width, so each bet is 850/n px wide.
+        _peak_near_now = (len(y_vals) - 1 - peak_idx) * 850 / max(len(y_vals), 1) < 170
+        if peak_idx > 0 and not _peak_near_now and y_vals[peak_idx] > init_br * 1.05:
+            fig_br.add_annotation(
+                x=x_vals[peak_idx], y=y_vals[peak_idx],
+                text=f"<b>Peak</b><br>£{y_vals[peak_idx]:,.0f}",
+                showarrow=True, arrowhead=2, arrowcolor="#00e676",
+                arrowsize=1.2, arrowwidth=1.5,
+                ax=0, ay=-38,
+                font=dict(size=12, color="#00e676", family="Inter"),
+                bgcolor="rgba(0,230,118,0.10)",
+                bordercolor="rgba(0,230,118,0.4)",
+                borderpad=4, borderwidth=1,
+            )
+        if trough_idx > 0 and y_vals[trough_idx] < init_br * 0.95 and trough_idx != peak_idx:
+            fig_br.add_annotation(
+                x=x_vals[trough_idx], y=y_vals[trough_idx],
+                text=f"<b>Low</b><br>£{y_vals[trough_idx]:,.0f}",
+                showarrow=True, arrowhead=2, arrowcolor="#ff4081",
+                arrowsize=1.2, arrowwidth=1.5,
+                ax=0, ay=38,
+                font=dict(size=12, color="#ff4081", family="Inter"),
+                bgcolor="rgba(255,64,129,0.10)",
+                bordercolor="rgba(255,64,129,0.4)",
+                borderpad=4, borderwidth=1,
+            )
+        # Current bankroll badge. With pending bets the projection lines and
+        # their chips own the space to the right, so NOW moves up-left or
+        # down-left with a pointer, away from the line coming into it.
+        if pending_bets:
+            _ax, _ay = now_badge_offset(
+                rising=len(y_vals) < 2 or y_vals[-1] >= y_vals[-2])
+            fig_br.add_annotation(
+                x=x_vals[-1], y=y_vals[-1],
+                text=f"<b>{now_label} · £{y_vals[-1]:,.0f}</b>",
+                showarrow=True, ax=_ax, ay=_ay, arrowcolor=line_col,
+                arrowwidth=1.5, arrowhead=0, xanchor="right",
+                font=dict(size=14, color="#fff", family="Inter"),
+                bgcolor=line_col, bordercolor=line_col,
+                borderpad=8, borderwidth=2,
+            )
+        else:
+            fig_br.add_annotation(
+                x=x_vals[-1], y=y_vals[-1],
+                text=f"<b>{now_label} · £{y_vals[-1]:,.0f}</b>",
+                showarrow=False, xshift=15,
+                font=dict(size=14, color="#fff", family="Inter"),
+                bgcolor=line_col,
+                bordercolor=line_col,
+                borderpad=8, borderwidth=2,
+                xanchor="left",
+            )
+
+        # ── Pending bets projection ───────────────────────────────────
+        # Three dotted forks extending from the LAST SETTLED bet point:
+        #   - Best case (all pending win)        → green
+        #   - Expected case (model-weighted)     → cyan
+        #   - Worst case (all lose)              → pink
+        #
+        # Visually attaching to the last settled bet is more intuitive than
+        # attaching to "now" (which already has pending stakes deducted, so
+        # the curves would start lower than they should). The TERMINAL
+        # values (final if-all-win / expected / if-all-lose) are identical
+        # to the old math — just expressed as profit-from-last-settled
+        # rather than gross-return-from-current-cash.
+        if pending_bets:
+            n_pending = len(pending_bets)
+
+            pending_sorted = sorted(
+                pending_bets,
+                key=lambda b: (b.get("date") or "", b.get("placed_at") or ""),
+            )
+
+            # Baseline = bankroll BEFORE pending stakes were deducted.
+            # = current cash (`bankroll`) + sum of pending stakes still at risk.
+            total_pending_stake = sum(float(b["stake"]) for b in pending_sorted)
+            last_settled_br = bankroll + total_pending_stake
+
+            x_proj = list(range(x_vals[-1], x_vals[-1] + n_pending + 1))
+            best_y  = [last_settled_br]
+            exp_y   = [last_settled_br]
+            worst_y = [last_settled_br]
+            for b in pending_sorted:
+                stake = float(b["stake"])
+                odds  = float(b["odds"])
+                p_win = float(b.get("model_prob") or 0.0)
+                # Profit if bet wins  = stake * (odds - 1)
+                # Loss if bet loses   = -stake
+                profit_win  = stake * (odds - 1)
+                profit_loss = -stake
+                exp_change  = p_win * profit_win + (1.0 - p_win) * profit_loss
+                best_y.append(round(best_y[-1]   + profit_win,  2))
+                worst_y.append(round(worst_y[-1] + profit_loss, 2))
+                exp_y.append (round(exp_y[-1]    + exp_change,  2))
+
+            # Best case (all pending win)
+            fig_br.add_trace(go.Scatter(
+                x=x_proj, y=best_y,
+                mode="lines+markers",
+                line=dict(color="#00e676", width=2.2, dash="dot"),
+                marker=dict(size=[0] + [8] * n_pending,
+                            color="#00e676", symbol="diamond"),
+                hovertemplate=("<b>Pending #%{x}</b><br>"
+                               "If all wins from here → £%{y:,.2f}<extra></extra>"),
+                name="If all pending WIN",
+                showlegend=False,
+            ))
+
+            # Expected case (probability-weighted)
+            fig_br.add_trace(go.Scatter(
+                x=x_proj, y=exp_y,
+                mode="lines+markers",
+                line=dict(color="#00e5ff", width=2.5, dash="dash"),
+                marker=dict(size=[0] + [8] * n_pending,
+                            color="#00e5ff", symbol="circle"),
+                hovertemplate=("<b>Pending #%{x}</b><br>"
+                               "Expected (model-weighted) → £%{y:,.2f}<extra></extra>"),
+                name="Expected (model-weighted)",
+                showlegend=False,
+            ))
+
+            # Worst case (all lose) — flat at current bankroll
+            fig_br.add_trace(go.Scatter(
+                x=x_proj, y=worst_y,
+                mode="lines+markers",
+                line=dict(color="#ff4081", width=2.2, dash="dot"),
+                marker=dict(size=[0] + [8] * n_pending,
+                            color="#ff4081", symbol="x"),
+                hovertemplate=("<b>Pending #%{x}</b><br>"
+                               "If all losses from here → £%{y:,.2f}<extra></extra>"),
+                name="If all pending LOSE",
+                showlegend=False,
+            ))
+
+            # Endpoint chips share one x, so spread them vertically when two
+            # outcomes are close in money (they used to draw over each other).
+            _all_y = list(y_vals) + best_y + worst_y + exp_y
+            _lo, _hi = min(_all_y), max(_all_y)
+            _pad = (_hi - _lo) * 0.06
+            _ends = [(best_y[-1], "#00e676", "If all win"),
+                     (exp_y[-1], "#00e5ff", "Expected"),
+                     (worst_y[-1], "#ff4081", "If all lose")]
+            _shifts = spread_label_shifts([e[0] for e in _ends],
+                                          _lo - _pad, _hi + _pad,
+                                          plot_px=400, min_gap_px=46)
+            for (_y, _c, _lbl), _sh in zip(_ends, _shifts):
+                fig_br.add_annotation(
+                    x=x_proj[-1], y=_y, yshift=_sh,
+                    text=f"<b>{_lbl}<br>£{_y:,.0f}</b>",
+                    showarrow=False, xshift=12,
+                    font=dict(size=12, color=_c, family="Inter"),
+                    bgcolor=f"rgba({_hex_to_rgb(_c)},0.10)",
+                    bordercolor=f"rgba({_hex_to_rgb(_c)},0.4)",
+                    borderpad=5, borderwidth=1,
+                    xanchor="left",
+                )
+
+            # Vertical separator between settled and pending
+            fig_br.add_vline(
+                x=x_vals[-1], line_color="rgba(255,255,255,0.15)",
+                line_dash="dot",
+            )
+            # Right-aligned to the left of the separator: the projection chips
+            # own the space to its right and "If all win" often sits at the top.
+            fig_br.add_annotation(
+                x=x_vals[-1], y=1.0, yref="paper",
+                text="settled  →  pending",
+                showarrow=False, yshift=-6, xshift=-6, xanchor="right",
+                font=dict(size=11, color="#7c4dff", family="Inter"),
+            )
+    else:
+        # Pending-only view — dashed line with labeled dots
+        fig_br.add_hline(
+            y=init_br, line_color="rgba(255,255,255,0.25)", line_dash="dot",
+            annotation_text=f"Start £{init_br:,.0f}",
+            annotation_font=dict(color="#8892a4", size=11),
+            annotation_position="top left",
+        )
+        n_pts = len(y_vals)
+        _mk_colors = ["#7c4dff"] + ["#ffd600"] * (n_pts - 2) + ["#00e676"] if n_pts > 2 else ["#7c4dff"] * n_pts
+        _mk_sizes = [10] + [8] * (n_pts - 2) + [10] if n_pts > 2 else [10] * n_pts
+        fig_br.add_trace(go.Scatter(
+            x=x_vals[:-1] if n_pts > 2 else x_vals,
+            y=y_vals[:-1] if n_pts > 2 else y_vals,
+            mode="lines+markers+text",
+            line=dict(color="#ffd600", width=2, dash="dot"),
+            marker=dict(size=_mk_sizes[:-1] if n_pts > 2 else _mk_sizes,
+                        color=_mk_colors[:-1] if n_pts > 2 else _mk_colors),
+            text=labels[:-1] if n_pts > 2 else labels,
+            textposition="top center",
+            textfont=dict(size=10, color="#8892a4"),
+            hovertemplate="%{text}<br>£%{y:,.2f}<extra></extra>",
+            name="Staked",
+        ))
+        if n_pts > 2:
+            fig_br.add_trace(go.Scatter(
+                x=[x_vals[-2], x_vals[-1]],
+                y=[y_vals[-2], y_vals[-1]],
+                mode="lines+markers+text",
+                line=dict(color="#00e676", width=2, dash="dot"),
+                marker=dict(size=[0, 12], color=["#00e676", "#00e676"],
+                            symbol=["circle", "star"]),
+                text=["", f"£{y_vals[-1]:,.0f}"],
+                textposition="top center",
+                textfont=dict(size=11, color="#00e676"),
+                hovertemplate="If all win<br>£%{y:,.2f}<extra></extra>",
+                name="Potential",
+            ))
+
+    fig_br.update_layout(
+        **{k: v for k, v in DARK.items() if k != "margin"},
+        height=520, showlegend=False,
+        margin=dict(t=40, b=40, l=20, r=140),
+        xaxis=dict(
+            title=dict(text="BET NUMBER", font=dict(size=12, color="#7c4dff", family="Inter"),
+                       standoff=18),
+            showgrid=False, showticklabels=True,
+            tickfont=dict(size=13, color="#8892a4", family="Inter"),
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title=dict(text="BANKROLL", font=dict(size=12, color="#7c4dff", family="Inter"),
+                       standoff=14),
+            gridcolor="rgba(255,255,255,0.05)",
+            tickprefix="£",
+            tickfont=dict(size=14, color="#cdd", family="Inter"),
+            zeroline=False,
+            tickformat=",.0f",
+        ),
+    )
+    # Season boundaries on the all-time view: a faint line where each season's
+    # first settled bet sits, labelled at the foot so it clears the top chips.
+    for _mx, _mlabel in (season_marks or []):
+        if _mx <= 0 or _mx >= len(y_vals) - 1:
+            continue
+        fig_br.add_vline(x=_mx, line_color="rgba(167,139,250,0.35)", line_dash="dash")
+        fig_br.add_annotation(
+            x=_mx, y=0, yref="paper", yanchor="bottom", xanchor="left",
+            text=f"<b>{_mlabel}</b>", showarrow=False, xshift=6, yshift=6,
+            font=dict(size=12, color="#a78bfa", family="Inter"),
+        )
+    st.plotly_chart(fig_br, use_container_width=True, config={"displayModeBar": False},
+                    key=chart_key)
+
+
+@st.fragment
+def _bankroll_chart_scopes(port: dict, pending_bets: list, bankroll: float) -> None:
+    """Previous season / This season / All time switch over the bankroll chart.
+    A fragment, so flicking between them redraws only the chart."""
+    live = port.get("season")
+    prev = sa.previous_season(live)
+    options = (["Previous season"] if prev else []) + ["This season", "All time"]
+    scope = st.segmented_control(
+        "Bankroll range", options, default="This season",
+        key="br_scope_main", label_visibility="collapsed",
+    ) or "This season"
+
+    if scope == "Previous season" and prev:
+        old = sa.load_archived_season(prev)["main"]
+        st.caption(f"{prev} · closed on £{old['bankroll']:,.2f} from £{old['initial_bankroll']:,.0f}")
+        _render_bankroll_chart(old, [], old["bankroll"], now_label="FINAL",
+                               chart_key="br_chart_prev")
+    elif scope == "All time":
+        archived = [(s, sa.load_archived_season(s)["main"])
+                    for s in sorted(sa.list_archived_seasons()) if s != live]
+        merged, marks = sa.all_time_portfolio(archived, (live or "This season", port))
+        _render_bankroll_chart(merged, pending_bets, bankroll,
+                               season_marks=marks, chart_key="br_chart_all")
+    else:
+        _render_bankroll_chart(port, pending_bets, bankroll, chart_key="br_chart_now")
+
+
 def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict):
     # ── Auto-settle pending bets ─────────────────────────────────────────
     port = pf.load_portfolio()
@@ -5986,374 +6405,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
 
     # ── Bankroll chart (full width) ───────────────────────────────────────
     st.markdown('<p class="section-label">📈  BANKROLL HISTORY</p>', unsafe_allow_html=True)
-    history = pf.bankroll_history(port)
-    init_br = port["initial_bankroll"]
-    if len(history) > 1:
-        y_vals  = history["bankroll"].tolist()
-        x_vals  = list(range(len(y_vals)))
-        labels  = history["match"].tolist()
-    else:
-        # No settled bets yet — show starting bankroll + pending stakes
-        y_vals = [init_br]
-        labels = ["Start"]
-        running = init_br
-        for pb in sorted(pending_bets, key=lambda b: b.get("placed_at", "")):
-            running -= pb["stake"]
-            y_vals.append(round(running, 2))
-            if pb.get("type") == "acca":
-                lbl = f"ACCA £{pb['stake']:.0f}"
-            else:
-                lbl = f"{pb.get('selection', '?')} £{pb['stake']:.0f}"
-            labels.append(lbl)
-        if pending_bets:
-            best_return = running + sum(
-                pb["stake"] * pb["odds"] for pb in pending_bets
-            )
-            y_vals.append(round(best_return, 2))
-            labels.append("If all win")
-        x_vals = list(range(len(y_vals)))
-
-    line_col = "#00e676" if y_vals[-1] >= init_br else "#ff4081"
-    fig_br = go.Figure()
-
-    if len(history) > 1:
-        # ── Red/green fill zones around the initial-bankroll baseline ──
-        # Insert interpolated points wherever the bankroll line CROSSES the
-        # baseline. Without this, fills bleed past the actual line because
-        # Plotly draws straight segments between data points.
-        x_exp: list[float] = [x_vals[0]]
-        y_exp: list[float] = [y_vals[0]]
-        for i in range(1, len(y_vals)):
-            y_prev, y_cur = y_vals[i - 1], y_vals[i]
-            # Sign change relative to baseline → insert crossing point
-            if (y_prev - init_br) * (y_cur - init_br) < 0:
-                t = (init_br - y_prev) / (y_cur - y_prev)
-                x_cross = x_vals[i - 1] + t * (x_vals[i] - x_vals[i - 1])
-                x_exp.append(x_cross); y_exp.append(init_br)
-            x_exp.append(x_vals[i]); y_exp.append(y_cur)
-
-        y_up = [max(v, init_br) for v in y_exp]
-        y_dn = [min(v, init_br) for v in y_exp]
-        baseline = [init_br] * len(y_exp)
-
-        # Baseline (invisible anchor for green fill)
-        fig_br.add_trace(go.Scatter(
-            x=x_exp, y=baseline,
-            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
-            hoverinfo="skip", showlegend=False,
-        ))
-        # Green: from baseline up to bankroll curve where bankroll ≥ baseline
-        fig_br.add_trace(go.Scatter(
-            x=x_exp, y=y_up,
-            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
-            fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
-            hoverinfo="skip", showlegend=False,
-        ))
-        # Baseline again (anchor for red fill)
-        fig_br.add_trace(go.Scatter(
-            x=x_exp, y=baseline,
-            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
-            hoverinfo="skip", showlegend=False,
-        ))
-        # Red: from baseline down to bankroll curve where bankroll ≤ baseline
-        fig_br.add_trace(go.Scatter(
-            x=x_exp, y=y_dn,
-            mode="lines", line=dict(width=0, color="rgba(0,0,0,0)"),
-            fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
-            hoverinfo="skip", showlegend=False,
-        ))
-
-        # Baseline line on top of fills
-        fig_br.add_hline(
-            y=init_br, line_color="rgba(255,255,255,0.30)", line_dash="dot",
-            annotation_text=f"Start £{init_br:,.0f}",
-            annotation_font=dict(color="#8892a4", size=14, family="Inter"),
-            annotation_position="top left",
-        )
-
-        # Main bankroll line with direction arrows per bet
-        # (triangle-up = win / bankroll rose, triangle-down = loss / fell)
-        deltas = [0.0] + [y_vals[i] - y_vals[i - 1] for i in range(1, len(y_vals))]
-        marker_symbols = ["circle"] + [
-            "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
-            for d in deltas[1:]
-        ]
-        marker_colors = ["#8892a4"] + [
-            "#00e676" if d > 0 else ("#ff4081" if d < 0 else "#8892a4")
-            for d in deltas[1:]
-        ]
-        marker_sizes = [0] + [13 if d != 0 else 6 for d in deltas[1:]]
-        # Hover label tells you won/lost and delta
-        hover_texts = ["Start"] + [
-            ("▲ WON "  + f"+£{d:,.2f}") if d > 0 else
-            ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
-            "No change"
-            for d in deltas[1:]
-        ]
-
-        # Soft halo line beneath the main line for a subtle glow effect
-        fig_br.add_trace(go.Scatter(
-            x=x_vals, y=y_vals,
-            mode="lines",
-            line=dict(color=f"rgba({_hex_to_rgb(line_col)},0.30)", width=10),
-            hoverinfo="skip", showlegend=False,
-        ))
-        fig_br.add_trace(go.Scatter(
-            x=x_vals, y=y_vals,
-            mode="lines+markers",
-            line=dict(color=line_col, width=3.5, shape="linear"),
-            marker=dict(
-                symbol=marker_symbols,
-                size=marker_sizes,
-                color=marker_colors,
-                line=dict(color="#0a0e1a", width=1.5),
-            ),
-            text=hover_texts,
-            hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
-                           "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b><extra></extra>"),
-            hoverlabel=dict(
-                bgcolor="#1a1d27",
-                bordercolor=line_col,
-                font=dict(size=14, family="Inter", color="#e8eaf0"),
-            ),
-            showlegend=False,
-        ))
-
-        # ── Peak / trough / current annotations ───────────────────────
-        peak_idx   = int(np.argmax(y_vals))
-        trough_idx = int(np.argmin(y_vals))
-        # Peak marker (only annotate if it's not the start AND meaningfully above start)
-        # When the peak is the latest bet or sits just behind it, the NOW
-        # badge covers that spot; a second chip there made the labels pile up.
-        # ~850px of plot width, so each bet is 850/n px wide.
-        _peak_near_now = (len(y_vals) - 1 - peak_idx) * 850 / max(len(y_vals), 1) < 170
-        if peak_idx > 0 and not _peak_near_now and y_vals[peak_idx] > init_br * 1.05:
-            fig_br.add_annotation(
-                x=x_vals[peak_idx], y=y_vals[peak_idx],
-                text=f"<b>Peak</b><br>£{y_vals[peak_idx]:,.0f}",
-                showarrow=True, arrowhead=2, arrowcolor="#00e676",
-                arrowsize=1.2, arrowwidth=1.5,
-                ax=0, ay=-38,
-                font=dict(size=12, color="#00e676", family="Inter"),
-                bgcolor="rgba(0,230,118,0.10)",
-                bordercolor="rgba(0,230,118,0.4)",
-                borderpad=4, borderwidth=1,
-            )
-        if trough_idx > 0 and y_vals[trough_idx] < init_br * 0.95 and trough_idx != peak_idx:
-            fig_br.add_annotation(
-                x=x_vals[trough_idx], y=y_vals[trough_idx],
-                text=f"<b>Low</b><br>£{y_vals[trough_idx]:,.0f}",
-                showarrow=True, arrowhead=2, arrowcolor="#ff4081",
-                arrowsize=1.2, arrowwidth=1.5,
-                ax=0, ay=38,
-                font=dict(size=12, color="#ff4081", family="Inter"),
-                bgcolor="rgba(255,64,129,0.10)",
-                bordercolor="rgba(255,64,129,0.4)",
-                borderpad=4, borderwidth=1,
-            )
-        # Current bankroll badge. With pending bets the projection lines and
-        # their chips own the space to the right, so NOW moves up-left or
-        # down-left with a pointer, away from the line coming into it.
-        if pending_bets:
-            _ax, _ay = now_badge_offset(
-                rising=len(y_vals) < 2 or y_vals[-1] >= y_vals[-2])
-            fig_br.add_annotation(
-                x=x_vals[-1], y=y_vals[-1],
-                text=f"<b>NOW · £{y_vals[-1]:,.0f}</b>",
-                showarrow=True, ax=_ax, ay=_ay, arrowcolor=line_col,
-                arrowwidth=1.5, arrowhead=0, xanchor="right",
-                font=dict(size=14, color="#fff", family="Inter"),
-                bgcolor=line_col, bordercolor=line_col,
-                borderpad=8, borderwidth=2,
-            )
-        else:
-            fig_br.add_annotation(
-                x=x_vals[-1], y=y_vals[-1],
-                text=f"<b>NOW · £{y_vals[-1]:,.0f}</b>",
-                showarrow=False, xshift=15,
-                font=dict(size=14, color="#fff", family="Inter"),
-                bgcolor=line_col,
-                bordercolor=line_col,
-                borderpad=8, borderwidth=2,
-                xanchor="left",
-            )
-
-        # ── Pending bets projection ───────────────────────────────────
-        # Three dotted forks extending from the LAST SETTLED bet point:
-        #   - Best case (all pending win)        → green
-        #   - Expected case (model-weighted)     → cyan
-        #   - Worst case (all lose)              → pink
-        #
-        # Visually attaching to the last settled bet is more intuitive than
-        # attaching to "now" (which already has pending stakes deducted, so
-        # the curves would start lower than they should). The TERMINAL
-        # values (final if-all-win / expected / if-all-lose) are identical
-        # to the old math — just expressed as profit-from-last-settled
-        # rather than gross-return-from-current-cash.
-        if pending_bets:
-            n_pending = len(pending_bets)
-
-            pending_sorted = sorted(
-                pending_bets,
-                key=lambda b: (b.get("date") or "", b.get("placed_at") or ""),
-            )
-
-            # Baseline = bankroll BEFORE pending stakes were deducted.
-            # = current cash (`bankroll`) + sum of pending stakes still at risk.
-            total_pending_stake = sum(float(b["stake"]) for b in pending_sorted)
-            last_settled_br = bankroll + total_pending_stake
-
-            x_proj = list(range(x_vals[-1], x_vals[-1] + n_pending + 1))
-            best_y  = [last_settled_br]
-            exp_y   = [last_settled_br]
-            worst_y = [last_settled_br]
-            for b in pending_sorted:
-                stake = float(b["stake"])
-                odds  = float(b["odds"])
-                p_win = float(b.get("model_prob") or 0.0)
-                # Profit if bet wins  = stake * (odds - 1)
-                # Loss if bet loses   = -stake
-                profit_win  = stake * (odds - 1)
-                profit_loss = -stake
-                exp_change  = p_win * profit_win + (1.0 - p_win) * profit_loss
-                best_y.append(round(best_y[-1]   + profit_win,  2))
-                worst_y.append(round(worst_y[-1] + profit_loss, 2))
-                exp_y.append (round(exp_y[-1]    + exp_change,  2))
-
-            # Best case (all pending win)
-            fig_br.add_trace(go.Scatter(
-                x=x_proj, y=best_y,
-                mode="lines+markers",
-                line=dict(color="#00e676", width=2.2, dash="dot"),
-                marker=dict(size=[0] + [8] * n_pending,
-                            color="#00e676", symbol="diamond"),
-                hovertemplate=("<b>Pending #%{x}</b><br>"
-                               "If all wins from here → £%{y:,.2f}<extra></extra>"),
-                name="If all pending WIN",
-                showlegend=False,
-            ))
-
-            # Expected case (probability-weighted)
-            fig_br.add_trace(go.Scatter(
-                x=x_proj, y=exp_y,
-                mode="lines+markers",
-                line=dict(color="#00e5ff", width=2.5, dash="dash"),
-                marker=dict(size=[0] + [8] * n_pending,
-                            color="#00e5ff", symbol="circle"),
-                hovertemplate=("<b>Pending #%{x}</b><br>"
-                               "Expected (model-weighted) → £%{y:,.2f}<extra></extra>"),
-                name="Expected (model-weighted)",
-                showlegend=False,
-            ))
-
-            # Worst case (all lose) — flat at current bankroll
-            fig_br.add_trace(go.Scatter(
-                x=x_proj, y=worst_y,
-                mode="lines+markers",
-                line=dict(color="#ff4081", width=2.2, dash="dot"),
-                marker=dict(size=[0] + [8] * n_pending,
-                            color="#ff4081", symbol="x"),
-                hovertemplate=("<b>Pending #%{x}</b><br>"
-                               "If all losses from here → £%{y:,.2f}<extra></extra>"),
-                name="If all pending LOSE",
-                showlegend=False,
-            ))
-
-            # Endpoint chips share one x, so spread them vertically when two
-            # outcomes are close in money (they used to draw over each other).
-            _all_y = list(y_vals) + best_y + worst_y + exp_y
-            _lo, _hi = min(_all_y), max(_all_y)
-            _pad = (_hi - _lo) * 0.06
-            _ends = [(best_y[-1], "#00e676", "If all win"),
-                     (exp_y[-1], "#00e5ff", "Expected"),
-                     (worst_y[-1], "#ff4081", "If all lose")]
-            _shifts = spread_label_shifts([e[0] for e in _ends],
-                                          _lo - _pad, _hi + _pad,
-                                          plot_px=400, min_gap_px=46)
-            for (_y, _c, _lbl), _sh in zip(_ends, _shifts):
-                fig_br.add_annotation(
-                    x=x_proj[-1], y=_y, yshift=_sh,
-                    text=f"<b>{_lbl}<br>£{_y:,.0f}</b>",
-                    showarrow=False, xshift=12,
-                    font=dict(size=12, color=_c, family="Inter"),
-                    bgcolor=f"rgba({_hex_to_rgb(_c)},0.10)",
-                    bordercolor=f"rgba({_hex_to_rgb(_c)},0.4)",
-                    borderpad=5, borderwidth=1,
-                    xanchor="left",
-                )
-
-            # Vertical separator between settled and pending
-            fig_br.add_vline(
-                x=x_vals[-1], line_color="rgba(255,255,255,0.15)",
-                line_dash="dot",
-            )
-            fig_br.add_annotation(
-                x=x_vals[-1], y=1.0, yref="paper",
-                text="settled  →  pending",
-                showarrow=False, yshift=-6,
-                font=dict(size=11, color="#7c4dff", family="Inter"),
-            )
-    else:
-        # Pending-only view — dashed line with labeled dots
-        fig_br.add_hline(
-            y=init_br, line_color="rgba(255,255,255,0.25)", line_dash="dot",
-            annotation_text=f"Start £{init_br:,.0f}",
-            annotation_font=dict(color="#8892a4", size=11),
-            annotation_position="top left",
-        )
-        n_pts = len(y_vals)
-        _mk_colors = ["#7c4dff"] + ["#ffd600"] * (n_pts - 2) + ["#00e676"] if n_pts > 2 else ["#7c4dff"] * n_pts
-        _mk_sizes = [10] + [8] * (n_pts - 2) + [10] if n_pts > 2 else [10] * n_pts
-        fig_br.add_trace(go.Scatter(
-            x=x_vals[:-1] if n_pts > 2 else x_vals,
-            y=y_vals[:-1] if n_pts > 2 else y_vals,
-            mode="lines+markers+text",
-            line=dict(color="#ffd600", width=2, dash="dot"),
-            marker=dict(size=_mk_sizes[:-1] if n_pts > 2 else _mk_sizes,
-                        color=_mk_colors[:-1] if n_pts > 2 else _mk_colors),
-            text=labels[:-1] if n_pts > 2 else labels,
-            textposition="top center",
-            textfont=dict(size=10, color="#8892a4"),
-            hovertemplate="%{text}<br>£%{y:,.2f}<extra></extra>",
-            name="Staked",
-        ))
-        if n_pts > 2:
-            fig_br.add_trace(go.Scatter(
-                x=[x_vals[-2], x_vals[-1]],
-                y=[y_vals[-2], y_vals[-1]],
-                mode="lines+markers+text",
-                line=dict(color="#00e676", width=2, dash="dot"),
-                marker=dict(size=[0, 12], color=["#00e676", "#00e676"],
-                            symbol=["circle", "star"]),
-                text=["", f"£{y_vals[-1]:,.0f}"],
-                textposition="top center",
-                textfont=dict(size=11, color="#00e676"),
-                hovertemplate="If all win<br>£%{y:,.2f}<extra></extra>",
-                name="Potential",
-            ))
-
-    fig_br.update_layout(
-        **{k: v for k, v in DARK.items() if k != "margin"},
-        height=520, showlegend=False,
-        margin=dict(t=40, b=40, l=20, r=140),
-        xaxis=dict(
-            title=dict(text="BET NUMBER", font=dict(size=12, color="#7c4dff", family="Inter"),
-                       standoff=18),
-            showgrid=False, showticklabels=True,
-            tickfont=dict(size=13, color="#8892a4", family="Inter"),
-            zeroline=False,
-        ),
-        yaxis=dict(
-            title=dict(text="BANKROLL", font=dict(size=12, color="#7c4dff", family="Inter"),
-                       standoff=14),
-            gridcolor="rgba(255,255,255,0.05)",
-            tickprefix="£",
-            tickfont=dict(size=14, color="#cdd", family="Inter"),
-            zeroline=False,
-            tickformat=",.0f",
-        ),
-    )
-    st.plotly_chart(fig_br, use_container_width=True, config={"displayModeBar": False})
+    _bankroll_chart_scopes(port, pending_bets, bankroll)
 
     # ── Pending bets — singles only; accas live in their own section below ──
     pending_singles = [b for b in pending_bets if b.get("type") != "acca"]

@@ -345,3 +345,46 @@ def test_reset_is_refused_a_second_time_for_the_same_season(live_portfolios):
     with pytest.raises(sa.ArchiveError):
         sa.reset_for_new_season("2026-27", closing_season="2025-26",
                                 initial_bankroll=10000.0)
+
+
+# ── Chart scopes: previous season / all time ──────────────────────────────────
+
+def _settled(bet_id, profit, when):
+    b = _bet(bet_id, "won" if profit > 0 else "lost", 100.0, profit)
+    b["settled_at"] = when
+    return b
+
+
+def test_all_time_chains_seasons_into_one_bankroll_line():
+    old = {"initial_bankroll": 10_000.0, "bankroll": 10_300.0,
+           "bets": [_settled("a", 500.0, "2026-01-01T20:00"),
+                    _settled("b", -200.0, "2026-02-01T20:00")]}
+    live = {"initial_bankroll": 10_300.0, "bankroll": 10_700.0,
+            "bets": [_settled("c", 400.0, "2026-08-20T20:00"),
+                     {**_bet("d", "pending", 50.0, 0.0), "settled_at": None}]}
+
+    merged, marks = sa.all_time_portfolio([("2025-26", old)], ("2026-27", live))
+    hist = pf.bankroll_history(merged)
+
+    assert merged["initial_bankroll"] == 10_000.0
+    assert hist["bankroll"].tolist() == [10_000.0, 10_500.0, 10_300.0, 10_700.0]
+    # Each season is marked at the bet index its line starts from.
+    assert marks == [(0, "2025-26"), (2, "2026-27")]
+    # Pending bets come only from the live season.
+    assert [b["id"] for b in merged["bets"] if b["status"] == "pending"] == ["d"]
+
+
+def test_all_time_bridges_a_bankroll_that_did_not_carry_over():
+    """If a season opened on a different bankroll than the last one closed on,
+    the joined line must still end on the live bankroll, not drift from it."""
+    old = {"initial_bankroll": 10_000.0, "bankroll": 10_500.0,
+           "bets": [_settled("a", 500.0, "2026-01-01T20:00")]}
+    live = {"initial_bankroll": 10_000.0, "bankroll": 10_100.0,
+            "bets": [_settled("c", 100.0, "2026-08-20T20:00")]}
+
+    merged, _ = sa.all_time_portfolio([("2025-26", old)], ("2026-27", live))
+    assert pf.bankroll_history(merged)["bankroll"].iloc[-1] == 10_100.0
+
+
+def test_previous_season_is_the_newest_archive_that_is_not_live(live_portfolios):
+    assert sa.previous_season("2026-27") is None
