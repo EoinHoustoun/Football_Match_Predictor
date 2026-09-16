@@ -185,16 +185,17 @@ def test_auto_bet_accepts_when_prob_above_gate():
 # ── Exposure cap: no zero-stake bets from a sub-penny remainder ──────────────
 
 def _capped_portfolio():
-    """Main's real state before the 09 Sep 2026 run: three pending draws that
-    sum to £9,125.87 against a cap of £9,125.875 (50% of £18,251.75), leaving
-    half a penny of float headroom."""
+    """Three pending draws summing to £9,125.87 against a cap of £9,125.875,
+    leaving half a penny of float headroom. Originally Main's 09 Sep state
+    under the opening-bankroll cap; the cash is set so the current-bankroll
+    cap, 50% of (cash + pending), lands on the same half penny."""
     pending = [
         ("Chelsea", "Hull", 3965.67),
         ("Sunderland", "Arsenal", 4265.28),
         ("Liverpool", "Fulham", 894.92),
     ]
     return {
-        "initial_bankroll": 18_251.75, "bankroll": 20_841.72,
+        "initial_bankroll": 18_251.75, "bankroll": 9_125.88,
         "bets": [{"home": h, "away": a, "market": "D", "status": "pending",
                   "stake": s} for h, a, s in pending],
         "settings": {

@@ -510,7 +510,7 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
     """
     Automatically place Kelly-sized bets for every candidate with EV >= threshold.
     Skips duplicates (already have a pending bet on that home/away/market).
-    Caps total pending exposure at 50% of initial bankroll.
+    Caps total pending exposure at 50% of the current bankroll (cash + pending).
     Caps auto-bets per run at max_auto_bets.
 
     Filters (all must pass):
@@ -548,7 +548,11 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
 
     pending_singles = [b for b in p["bets"] if b["status"] == "pending" and b.get("type") != "acca"]
     pending_stake = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
-    max_exposure  = p["initial_bankroll"] * 0.50
+    # Half the CURRENT bankroll may ride on unsettled bets: cash plus what is
+    # already staked, so the cap does not shrink as each bet is placed and holds
+    # through a gameweek. It was 50% of the season's opening bankroll until
+    # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
+    max_exposure  = (p["bankroll"] + pending_stake) * 0.50
 
     if len(pending_singles) >= 5:
         return []
@@ -2592,7 +2596,11 @@ def auto_place_value_bets_v2(
     pending_singles = [b for b in p["bets"]
                        if b["status"] == "pending" and b.get("type") != "acca"]
     pending_stake = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
-    max_exposure  = p["initial_bankroll"] * 0.50
+    # Half the CURRENT bankroll may ride on unsettled bets: cash plus what is
+    # already staked, so the cap does not shrink as each bet is placed and holds
+    # through a gameweek. It was 50% of the season's opening bankroll until
+    # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
+    max_exposure  = (p["bankroll"] + pending_stake) * 0.50
 
     if len(pending_singles) >= 5:
         return []
