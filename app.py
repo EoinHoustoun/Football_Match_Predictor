@@ -10708,6 +10708,21 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         return
     st.session_state["_session_auto_bet_ts"] = now
 
+    # One run at a time across every session and the launchd runner: each run
+    # saves both portfolios whole, so a concurrent run would overwrite the
+    # other's bets. A skipped session retries after its five-minute throttle.
+    with pf.autobet_lock() as got_lock:
+        if not got_lock:
+            _log_activity_event("info", source="app_load",
+                                message="auto-bet already running elsewhere; skipped")
+            return
+        _session_auto_bet_run(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                              draw_xgb_m, draw_fc, teams, elo_dict)
+
+
+def _session_auto_bet_run(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                          draw_xgb_m, draw_fc, teams, elo_dict) -> None:
+    """The body of `_session_auto_bet`, run while holding `pf.autobet_lock`."""
     # Load both portfolios fresh — these reads are cheap (small JSONs)
     main_port = pf.load_portfolio()
     mt_port   = pf.load_portfolio_two()

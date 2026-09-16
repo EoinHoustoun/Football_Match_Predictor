@@ -55,3 +55,25 @@ def test_cap_still_binds_at_half_the_bankroll(place):
     port["bankroll"] = 9_125.88          # cash now equals what is pending
     placed = place(port, _SPURS_VILLA, threshold=0.23)
     assert placed == []                  # (9,125.88 + 9,125.88) / 2 is already staked
+
+
+def _four_weekend_draws():
+    return [{"home": f"H{i}", "away": f"A{i}", "date": "2026-09-19",
+             "market": "D", "selection": "Draw",
+             "model_prob": 0.36, "odds": 4.0, "ev": 0.36 * 4.0 - 1}
+            for i in range(4)]
+
+
+@pytest.mark.parametrize("place", [auto_place_value_bets, auto_place_value_bets_v2])
+def test_pending_singles_never_exceed_five_after_a_run(place):
+    """The five-bet limit was checked only when a run started, so a run that
+    began on three pending bets could add three more and finish on six
+    (Mock Two, 16 Sep 2026)."""
+    port = _main_16_sep()
+    port["bets"].append({"home": "Everton", "away": "Ipswich", "market": "D",
+                         "status": "pending", "stake": 100.0})
+    placed = place(port, _four_weekend_draws(), threshold=0.23)
+    pending = [b for b in port["bets"]
+               if b["status"] == "pending" and b.get("type") != "acca"]
+    assert len(pending) == 5
+    assert len(placed) == 2

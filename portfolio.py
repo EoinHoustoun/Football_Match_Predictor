@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -150,6 +151,36 @@ def compute_ev(model_prob: float, decimal_odds: float) -> float:
 # tests/test_calibration_window.py for the 2026-08-09 case where it flattened
 # six fixtures onto one probability and put a single bet on the board.
 MIN_CALIBRATION_SAMPLES: int = 250
+
+# Most single bets either portfolio may hold unsettled at once.
+MAX_PENDING_SINGLES: int = 5
+
+
+@contextmanager
+def autobet_lock():
+    """Exclusive, non-blocking lock around one auto-bet run.
+
+    A run loads both portfolio files, decides and saves them whole, so two runs
+    at once (two browser sessions, or a session and the launchd runner) each
+    save their own copy and the later save silently discards the other's bets.
+    Yields True when this run holds the lock, False when another run does; the
+    caller should then skip. The OS drops the lock if the process dies.
+    """
+    import fcntl
+    Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+    handle = open(Path(DATA_DIR) / "autobet.lock", "a")
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
 def fit_calibrators_from_backtest(bt_df: pd.DataFrame) -> dict:
@@ -554,7 +585,7 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
     # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
     max_exposure  = (p["bankroll"] + pending_stake) * 0.50
 
-    if len(pending_singles) >= 5:
+    if len(pending_singles) >= MAX_PENDING_SINGLES:
         return []
 
     # Pass 1 — enrich each candidate
@@ -664,6 +695,10 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
 
     # Pass 4 — place bets
     for c in qualifying:
+        # The limit binds on the running count, not just at the start of a
+        # run: a run opening on three pending bets used to add three more.
+        if len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES:
+            break
         if pending_stake >= max_exposure:
             break
         stake = round(p["bankroll"] * c["_kelly_pct"], 2)
@@ -2609,7 +2644,7 @@ def auto_place_value_bets_v2(
     # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
     max_exposure  = (p["bankroll"] + pending_stake) * 0.50
 
-    if len(pending_singles) >= 5:
+    if len(pending_singles) >= MAX_PENDING_SINGLES:
         return []
 
     # Pass 1 — enrich each candidate with calibrated prob, EV, variance, and
@@ -2773,6 +2808,10 @@ def auto_place_value_bets_v2(
 
     # Pass 4 — place bets in order
     for c in qualifying:
+        # Running count, as in Main: the start-of-run check alone let a run
+        # finish on six pending bets.
+        if len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES:
+            break
         stake = round(p["bankroll"] * c["_kelly_pct"] * dd_factor, 2)
         if stake <= 0 or stake > p["bankroll"]:
             continue

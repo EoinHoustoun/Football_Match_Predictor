@@ -45,3 +45,4 @@ data/results.csv
 # OS
 .DS_Store
 Thumbs.db
+data/autobet.lock

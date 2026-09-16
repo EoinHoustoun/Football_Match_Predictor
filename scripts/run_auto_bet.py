@@ -339,9 +339,20 @@ def main() -> int:
     return 0
 
 
+def main_locked() -> int:
+    """`main` under the shared auto-bet lock. This run loads the portfolios,
+    trains for minutes, then saves them whole; without the lock an app session
+    placing bets in that window would have them overwritten."""
+    with pf.autobet_lock() as got:
+        if not got:
+            log_event("info", message="auto-bet already running elsewhere; skipped")
+            return 0
+        return main()
+
+
 if __name__ == "__main__":
     try:
-        sys.exit(main())
+        sys.exit(main_locked())
     except SystemExit:
         raise
     except Exception as e:
