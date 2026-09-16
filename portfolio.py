@@ -665,7 +665,9 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
         stake = round(p["bankroll"] * c["_kelly_pct"], 2)
         if stake <= 0 or stake > p["bankroll"]:
             continue
-        stake = min(stake, max_exposure - pending_stake)
+        # Round before the gate: place_bet records pennies, so a sub-penny
+        # remainder under the cap would otherwise become a £0.00 bet.
+        stake = round(min(stake, max_exposure - pending_stake), 2)
         if stake <= 0:
             break
 
@@ -2655,7 +2657,9 @@ def auto_place_value_bets_v2(
             continue
         if pending_stake >= max_exposure:
             break
-        stake = min(stake, max_exposure - pending_stake)
+        # Round before the gate: place_bet records pennies, so a sub-penny
+        # remainder under the cap would otherwise become a £0.00 bet.
+        stake = round(min(stake, max_exposure - pending_stake), 2)
         if stake <= 0:
             break
         bet = place_bet(p, c["home"], c["away"], c["date"],

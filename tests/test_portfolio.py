@@ -180,3 +180,42 @@ def test_auto_bet_accepts_when_prob_above_gate():
     placed = auto_place_value_bets(port, cand, threshold=0.05)
     assert len(placed) == 1
     assert placed[0]["stake"] > 0
+
+
+# ── Exposure cap: no zero-stake bets from a sub-penny remainder ──────────────
+
+def _capped_portfolio():
+    """Main's real state before the 09 Sep 2026 run: three pending draws that
+    sum to £9,125.87 against a cap of £9,125.875 (50% of £18,251.75), leaving
+    half a penny of float headroom."""
+    pending = [
+        ("Chelsea", "Hull", 3965.67),
+        ("Sunderland", "Arsenal", 4265.28),
+        ("Liverpool", "Fulham", 894.92),
+    ]
+    return {
+        "initial_bankroll": 18_251.75, "bankroll": 20_841.72,
+        "bets": [{"home": h, "away": a, "market": "D", "status": "pending",
+                  "stake": s} for h, a, s in pending],
+        "settings": {
+            "kelly_fraction": 1.0, "max_stake_pct": 0.25,
+            "auto_markets": ["D"], "min_prob": 0.17,
+            "use_calibrated_probs": False,
+        },
+    }
+
+
+_COVENTRY_BRIGHTON = [{
+    "home": "Coventry", "away": "Brighton", "date": "2026-09-13",
+    "market": "D", "selection": "Draw",
+    "model_prob": 0.3597, "odds": 3.9, "ev": 0.3597 * 3.9 - 1,
+}]
+
+
+def test_auto_bet_skips_sub_penny_exposure_remainder():
+    """Half a penny of cap headroom must not become a £0.00 bet."""
+    from portfolio import auto_place_value_bets
+    port = _capped_portfolio()
+    placed = auto_place_value_bets(port, _COVENTRY_BRIGHTON, threshold=0.23)
+    assert placed == []
+    assert all(b["stake"] > 0 for b in port["bets"])
