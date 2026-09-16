@@ -124,3 +124,29 @@ def test_default_day_settled_path_matches_the_committed_simulator(tmp_path):
     pd.testing.assert_frame_equal(new_log, old_log)
     new_sum.pop("skipped_exposure_cap")
     assert new_sum == old_sum
+
+
+class _Const:
+    """A calibrator stub that maps every probability to one value."""
+    def __init__(self, value):
+        self.value = value
+
+    def predict(self, xs):
+        return [self.value for _ in xs]
+
+
+def test_calibrator_fn_is_refitted_per_gameweek_with_its_first_date():
+    bt, df = _frames(FIXTURES)
+    seen = []
+
+    def fn(first_date):
+        seen.append(first_date)
+        # Weekend 1 calibrates draws to 5% (no edge at 4.0), later rounds to 40%.
+        value = 0.05 if first_date < pd.Timestamp("2025-09-15") else 0.40
+        return {"D": _Const(value)}
+
+    log, _ = pf.ev_backtest_simulate(bt, df, gameweek_mode=True,
+                                     calibrator_fn=fn, **KW)
+    assert seen == [pd.Timestamp("2025-09-13"), pd.Timestamp("2025-09-16"),
+                    pd.Timestamp("2025-09-20")]
+    assert log["Date"].min() >= pd.Timestamp("2025-09-16")   # weekend 1 skipped

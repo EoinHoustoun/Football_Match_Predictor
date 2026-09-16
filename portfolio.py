@@ -815,6 +815,9 @@ def ev_backtest_simulate(
     exposure_cap_pct: float | None = None,
     exposure_cap_basis: str = "opening",   # "opening" | "gameweek"
     max_pending_bets: int | None = None,
+    # Research: a calibrator per gameweek, fitted only on data before it.
+    # Called with the gameweek's first match date; overrides `calibrators`.
+    calibrator_fn=None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Simulate EV-based Kelly betting using full-ensemble (DC + XGB + Draw Specialist)
@@ -927,6 +930,8 @@ def ev_backtest_simulate(
     skipped_exposure_cap = 0
     if (exposure_cap_pct is not None or max_pending_bets is not None) and not gameweek_mode:
         raise ValueError("exposure caps need gameweek_mode: day-settled bets never pend")
+    if calibrator_fn is not None and not gameweek_mode:
+        raise ValueError("calibrator_fn needs gameweek_mode")
     club_counts: dict[str, int] | None = {} if max_bets_per_club else None
     sim_factors_observed = []
 
@@ -943,6 +948,8 @@ def ev_backtest_simulate(
     for _, block in merged.groupby(group_key, sort=True):
         candidates: list[dict] = []
         block_start_bankroll = bankroll
+        block_cal = (calibrator_fn(block["Date"].min()) if calibrator_fn is not None
+                     else calibrators)
         for date, day_matches in block.groupby("Date", sort=True):
             if skip_late_season and _is_late_season(date):
                 skipped_late_season += int(len(day_matches) * 3)
@@ -1011,8 +1018,8 @@ def ev_backtest_simulate(
                     if allowed_markets and mkt not in allowed_markets:
                         continue
                     # Apply isotonic calibration if available (matches live behaviour)
-                    if calibrators:
-                        prob = calibrate_prob(prob, mkt, calibrators)
+                    if block_cal:
+                        prob = calibrate_prob(prob, mkt, block_cal)
                     if prob < _gate(market_gates, mkt, "min_prob", min_prob):
                         skipped_min_prob += 1
                         continue
