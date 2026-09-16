@@ -152,8 +152,11 @@ def compute_ev(model_prob: float, decimal_odds: float) -> float:
 # six fixtures onto one probability and put a single bet on the board.
 MIN_CALIBRATION_SAMPLES: int = 250
 
-# Most single bets either portfolio may hold unsettled at once.
-MAX_PENDING_SINGLES: int = 5
+# Most single bets either portfolio may hold unsettled at once; None = no count
+# limit. Removed 16 Sep 2026 (was 5): the stake cap (50% of the current
+# bankroll) and simultaneous-bet Kelly limit concurrent risk in money terms,
+# and the gameweek backtest showed the count never changed a result.
+MAX_PENDING_SINGLES: int | None = None
 
 
 @contextmanager
@@ -585,7 +588,7 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
     # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
     max_exposure  = (p["bankroll"] + pending_stake) * 0.50
 
-    if len(pending_singles) >= MAX_PENDING_SINGLES:
+    if MAX_PENDING_SINGLES is not None and len(pending_singles) >= MAX_PENDING_SINGLES:
         return []
 
     # Pass 1 — enrich each candidate
@@ -697,7 +700,8 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
     for c in qualifying:
         # The limit binds on the running count, not just at the start of a
         # run: a run opening on three pending bets used to add three more.
-        if len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES:
+        if (MAX_PENDING_SINGLES is not None
+                and len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES):
             break
         if pending_stake >= max_exposure:
             break
@@ -2644,7 +2648,7 @@ def auto_place_value_bets_v2(
     # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
     max_exposure  = (p["bankroll"] + pending_stake) * 0.50
 
-    if len(pending_singles) >= MAX_PENDING_SINGLES:
+    if MAX_PENDING_SINGLES is not None and len(pending_singles) >= MAX_PENDING_SINGLES:
         return []
 
     # Pass 1 — enrich each candidate with calibrated prob, EV, variance, and
@@ -2810,7 +2814,8 @@ def auto_place_value_bets_v2(
     for c in qualifying:
         # Running count, as in Main: the start-of-run check alone let a run
         # finish on six pending bets.
-        if len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES:
+        if (MAX_PENDING_SINGLES is not None
+                and len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES):
             break
         stake = round(p["bankroll"] * c["_kelly_pct"] * dd_factor, 2)
         if stake <= 0 or stake > p["bankroll"]:

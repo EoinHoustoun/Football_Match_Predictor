@@ -65,10 +65,13 @@ def _four_weekend_draws():
 
 
 @pytest.mark.parametrize("place", [auto_place_value_bets, auto_place_value_bets_v2])
-def test_pending_singles_never_exceed_five_after_a_run(place):
-    """The five-bet limit was checked only when a run started, so a run that
-    began on three pending bets could add three more and finish on six
-    (Mock Two, 16 Sep 2026)."""
+def test_a_count_limit_binds_on_the_running_count(place, monkeypatch):
+    """When a count limit is set it binds mid-run: a run that began on three
+    pending bets used to add three more and finish on six (Mock Two, 16 Sep
+    2026). The live limit is off; this pins the mechanism for anyone who sets
+    it again."""
+    import portfolio
+    monkeypatch.setattr(portfolio, "MAX_PENDING_SINGLES", 5)
     port = _main_16_sep()
     port["bets"].append({"home": "Everton", "away": "Ipswich", "market": "D",
                          "status": "pending", "stake": 100.0})
@@ -77,3 +80,15 @@ def test_pending_singles_never_exceed_five_after_a_run(place):
                if b["status"] == "pending" and b.get("type") != "acca"]
     assert len(pending) == 5
     assert len(placed) == 2
+
+
+@pytest.mark.parametrize("place", [auto_place_value_bets, auto_place_value_bets_v2])
+def test_no_count_limit_live_only_money_caps_apply(place):
+    """Live has no pending-bet count limit: six pending singles do not stop a
+    seventh when the stake cap still has room."""
+    port = _main_16_sep()
+    for i in range(4):
+        port["bets"].append({"home": f"X{i}", "away": f"Y{i}", "market": "D",
+                             "status": "pending", "stake": 10.0})
+    placed = place(port, _four_weekend_draws(), threshold=0.23)
+    assert len(placed) >= 1
