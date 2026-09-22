@@ -5953,11 +5953,18 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 int(settings.get("min_prob", 0.30) * 100), key="port_minprob",
                 help="Reject long-shots even with +EV. WF-validated optimum: 30%.")
         with eg3:
+            _raw_floor_now = settings.get("min_raw_draw_prob")
+            new_raw_floor = st.slider("Raw Draw Floor (%)", 0, 45,
+                int(round(float(_raw_floor_now or 0) * 100)), key="port_rawfloor",
+                help="Floor on the model's OWN draw probability, before the trailing "
+                     "calibrator touches it. 0 = off. Validated at 30% on 22 Sep 2026: "
+                     "worst season -6.3k -> -2.1k, max drawdown 83% -> 66%.")
             st.markdown(
-                f'<div style="font-size:0.78rem;color:#8892a4;padding-top:0.5rem;line-height:1.5">'
+                f'<div style="font-size:0.78rem;color:#8892a4;line-height:1.5">'
                 f'📋 A bet must clear: probability ≥ <b style="color:#a78bfa">{new_min_prob}%</b> '
-                f'AND EV ≥ <b style="color:#a78bfa">+{new_min_ev}%</b> '
-                f'(unless market_gates overrides for U2.5/etc.)</div>',
+                f'AND EV ≥ <b style="color:#a78bfa">+{new_min_ev}%</b>'
+                + (f' AND raw draw ≥ <b style="color:#a78bfa">{new_raw_floor}%</b>' if new_raw_floor else '')
+                + ' (unless market_gates overrides for U2.5/etc.)</div>',
                 unsafe_allow_html=True,
             )
 
@@ -6180,6 +6187,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 port["settings"]["auto_bet_threshold"]  = new_auto_thresh / 100
                 port["settings"]["auto_markets"]        = _new_auto_mkts
                 port["settings"]["min_prob"]            = new_min_prob / 100
+                port["settings"]["min_raw_draw_prob"]   = (new_raw_floor / 100) if new_raw_floor else None
                 port["settings"]["use_calibrated_probs"] = new_use_cal
                 port["settings"]["max_stake_pct"]       = new_max_stake / 100
                 port["settings"]["skip_late_season"]    = new_skip_late
@@ -6258,62 +6266,14 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
     # ── Auto-bet (fires on every page load if enabled + API key set) ──────
     auto_enabled   = settings.get("auto_bet_enabled", False)
     auto_threshold = float(settings.get("auto_bet_threshold", 0.15))
-    if auto_enabled and api_key.strip():
-        _auto_odds = pf.fetch_live_odds(api_key)   # uses 4h cache — no extra API calls
-        if _auto_odds:
-            _auto_fixtures = cached_fixtures()
-            _candidates: list[dict] = []
-            for _fix in (_auto_fixtures or []):
-                _h, _a = _fix["home"], _fix["away"]
-                if _h not in teams or _a not in teams:
-                    continue
-                _api_o = _auto_odds.get((_h, _a), {})
-                if len(_api_o) < 3:
-                    continue
-                _hs   = get_current_stats(df, _h, elo_dict=elo_dict)
-                _as   = get_current_stats(df, _a, elo_dict=elo_dict)
-                _dc, _, _res = full_predict(
-                    _h, _a, dc_r, dc_draw_r, xgb_m, feat_cols,
-                    draw_xgb_m, draw_fc, _hs, _as,
-                )
-                _ds   = _fix["date"].isoformat()
-                _p_o25 = _dc.get("over_25", 0.5)
-                _pinn  = _api_o.get("_pinnacle") if isinstance(_api_o, dict) else None
-                for _mkt, _prob, _lbl in [
-                    ("H",      _res["home_win"], f"Home Win ({_h})"),
-                    ("D",      _res["draw"],     "Draw"),
-                    ("A",      _res["away_win"], f"Away Win ({_a})"),
-                    ("over25", _p_o25,           "Over 2.5 Goals"),
-                    ("under25",1 - _p_o25,       "Under 2.5 Goals"),
-                ]:
-                    _place_odds  = _api_o.get(_mkt)
-                    _detect_odds = _pinn.get(_mkt) if _pinn else None
-                    _ev_ref = _detect_odds if (_detect_odds and _detect_odds > 1) else _place_odds
-                    _candidates.append({
-                        "home": _h, "away": _a, "date": _ds,
-                        "market": _mkt, "selection": _lbl,
-                        "model_prob": _prob,
-                        "odds": _place_odds,
-                        "detect_odds": _detect_odds,
-                        "home_elo": elo_dict.get(_h),
-                        "away_elo": elo_dict.get(_a),
-                        "ev": pf.compute_ev(_prob, _ev_ref) if _ev_ref else -1,
-                    })
-            _auto_placed = pf.auto_place_value_bets(
-                port, _candidates, auto_threshold, calibrators=calibrators,
-            )
-            if _auto_placed:
-                pf.save_portfolio(port)
-                st.success(
-                    f"🤖 Auto-placed {len(_auto_placed)} bet{'s' if len(_auto_placed) > 1 else ''} "
-                    f"with EV ≥ +{int(auto_threshold*100)}%! "
-                    + " · ".join(f"{b['selection']} @ {b['odds']}" for b in _auto_placed)
-                )
-                stats    = pf.portfolio_stats(port)
-                bankroll = stats["bankroll"]
-
-            # Auto-accas disabled — backtest shows they consistently lose (-16% to -46% ROI).
-            # Singles on Draw + Under 2.5 is where the model has proven edge.
+    # Auto-bet no longer fires from inside this tab. Until 22 Sep 2026 a second,
+    # unlogged copy of the placement loop lived here: it took no auto-bet lock,
+    # wrote nothing to activity.log, skipped the no-history gate, priced only
+    # Main, and read fixtures 30 days ahead where the shared run reads 7. On
+    # 22 Sep it placed three Main bets on fixtures 18 days away that the shared
+    # run had just reported as "No upcoming fixtures". Every placement now goes
+    # through _session_auto_bet_run (app load and the hourly runner), so there
+    # is exactly one gate list, one lock and one log.
 
     # ── P&L Hero ─────────────────────────────────────────────────────────
     profit   = stats["profit"]
@@ -8183,6 +8143,11 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         with eg2:
             new_min_prob = st.slider("Min Prob Gate (%)", 10, 80,
                 int(settings["min_prob"] * 100), key="p2_minprob")
+            new_raw_floor2 = st.slider("Raw Draw Floor (%)", 0, 45,
+                int(round(float(settings.get("min_raw_draw_prob") or 0) * 100)),
+                key="p2_rawfloor",
+                help="Floor on the model's OWN draw probability, before the trailing "
+                     "calibrator touches it. 0 = off. See scripts/validate_raw_floor.py.")
 
         # ── Section: Markets ───────────────────────────────────────────
         _section_header("📊  Markets",
@@ -8443,6 +8408,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 port2["settings"]["min_ev"]            = new_min_ev / 100
                 port2["settings"]["kelly_fraction"]    = new_kelly
                 port2["settings"]["min_prob"]          = new_min_prob / 100
+                port2["settings"]["min_raw_draw_prob"] = (new_raw_floor2 / 100) if new_raw_floor2 else None
                 port2["settings"]["use_kn_model"]      = new_use_kn
                 port2["settings"]["use_uncertainty_kelly"]  = new_use_uncert
                 port2["settings"]["use_simultaneous_kelly"] = new_use_sim
@@ -8517,62 +8483,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     # ── Auto-bet (research-track stack) ────────────────────────────────────
     auto_enabled   = settings.get("auto_bet_enabled", False)
     auto_threshold = float(settings.get("auto_bet_threshold", 0.03))
-    if auto_enabled and api_key.strip():
-        _auto_odds = pf.fetch_live_odds(api_key)   # shares cache with main
-        if _auto_odds:
-            _auto_fixtures = cached_fixtures()
-            _candidates: list[dict] = []
-            for _fix in (_auto_fixtures or []):
-                _h, _a = _fix["home"], _fix["away"]
-                if _h not in teams or _a not in teams:
-                    continue
-                _api_o = _auto_odds.get((_h, _a), {})
-                if len(_api_o) < 3:
-                    continue
-                _hs   = get_current_stats(df, _h, elo_dict=elo_dict)
-                _as   = get_current_stats(df, _a, elo_dict=elo_dict)
-                # Use K-N model for Mock Two predictions
-                _, _, _res = full_predict_v2(
-                    _h, _a, dc_kn_r, dc_draw_r, xgb_m, feat_cols,
-                    draw_xgb_m, draw_fc, _hs, _as,
-                )
-                _ds = _fix["date"].isoformat()
-                _p_o25 = _res.get("over_25", 0.5)
-                _pinn  = _api_o.get("_pinnacle") if isinstance(_api_o, dict) else None
-                for _mkt, _prob, _lbl in [
-                    ("H",      _res["home_win"], f"Home Win ({_h})"),
-                    ("D",      _res["draw"],     "Draw"),
-                    ("A",      _res["away_win"], f"Away Win ({_a})"),
-                    ("over25", _p_o25,           "Over 2.5 Goals"),
-                    ("under25", 1 - _p_o25,      "Under 2.5 Goals"),
-                ]:
-                    _place_odds  = _api_o.get(_mkt)
-                    _detect_odds = _pinn.get(_mkt) if _pinn else None
-                    # EV reported on candidate row uses detect_odds when sharp ref is available
-                    _ev_ref = _detect_odds if (_detect_odds and _detect_odds > 1) else _place_odds
-                    _candidates.append({
-                        "home": _h, "away": _a, "date": _ds,
-                        "market": _mkt, "selection": _lbl,
-                        "model_prob": _prob,
-                        "odds": _place_odds,
-                        "detect_odds": _detect_odds,
-                        "home_elo": elo_dict.get(_h),
-                        "away_elo": elo_dict.get(_a),
-                        "ev": pf.compute_ev(_prob, _ev_ref) if _ev_ref else -1,
-                    })
-            _placed = pf.auto_place_value_bets_v2(
-                port2, _candidates, auto_threshold,
-                calibrators=calibrators, bin_variances=bin_vars,
-            )
-            if _placed:
-                pf.save_portfolio_two(port2)
-                st.success(
-                    f"🧪 Mock Two auto-placed {len(_placed)} bet"
-                    f"{'s' if len(_placed) > 1 else ''} "
-                    f"with EV ≥ +{int(auto_threshold*100)}%! "
-                    + " · ".join(f"{b['selection']} @ {b['odds']}" for b in _placed)
-                )
-                mt_stats = pf.portfolio_stats(port2)
+    # Auto-bet no longer fires from inside this tab either; see the note in
+    # tab_portfolio. Mock Two is placed by _session_auto_bet_run alongside Main.
 
     # ── Mock Two stats row ────────────────────────────────────────────────
     profit2   = mt_stats["profit"]
@@ -10382,6 +10294,8 @@ def _preflight_portfolio_card(port: dict, title: str, accent: str) -> str:
     gates = [
         ("EV gate",     f"{int(float(s.get('min_ev', 0.40)) * 100)}%"),
         ("Min prob",    f"{int(float(s.get('min_prob', 0.21)) * 100)}%"),
+        ("Raw draw floor", f"{int(round(float(s['min_raw_draw_prob']) * 100))}%"
+                           if s.get("min_raw_draw_prob") else "off"),
         ("Kelly",       f"{float(s.get('kelly_fraction', 1.0)):g}x"),
         ("Max stake",   f"{int(float(s.get('max_stake_pct', 0.25)) * 100)}%"),
         ("Elo floor",   str(s.get("main_min_team_elo") or s.get("v2_min_team_elo") or "off")),

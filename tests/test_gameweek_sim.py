@@ -98,6 +98,36 @@ def test_gameweek_cap_grows_with_the_bankroll_and_opening_cap_does_not():
     assert wk2_gw > wk2_open
 
 
+def test_prorata_cap_keeps_every_bet_and_scales_the_gameweek_to_fit():
+    # Three 20%-Kelly bets want 6,000 against a 3,000 cap. Truncate (live)
+    # gives the first two 2,000 and 1,000 and drops the third; pro-rata
+    # halves the sizing so all three are placed and the ratios survive.
+    bt, df = _frames(FIXTURES[:3])
+    common = dict(gameweek_mode=True, exposure_cap_pct=0.30,
+                  exposure_cap_basis="opening", **KW)
+    log_t, sum_t = pf.ev_backtest_simulate(bt, df, exposure_cap_mode="truncate", **common)
+    log_p, sum_p = pf.ev_backtest_simulate(bt, df, exposure_cap_mode="prorata", **common)
+
+    assert log_t["Stake"].tolist() == [2000.0, 1000.0]
+    assert sum_t["skipped_exposure_cap"] == 1
+    assert sum_t["capped_blocks"] == 1
+
+    assert log_p["Stake"].tolist() == [1000.0, 900.0, 810.0]
+    assert log_p["Stake"].sum() <= 3000.0
+    assert sum_p["skipped_exposure_cap"] == 0
+    assert sum_p["capped_blocks"] == 1
+
+
+def test_prorata_is_identical_to_truncate_when_the_cap_does_not_bind():
+    bt, df = _frames(FIXTURES[:3])
+    common = dict(gameweek_mode=True, exposure_cap_pct=0.90,
+                  exposure_cap_basis="opening", **KW)
+    log_t, sum_t = pf.ev_backtest_simulate(bt, df, exposure_cap_mode="truncate", **common)
+    log_p, sum_p = pf.ev_backtest_simulate(bt, df, exposure_cap_mode="prorata", **common)
+    assert log_p["Stake"].tolist() == log_t["Stake"].tolist() == [2000.0, 1600.0, 1280.0]
+    assert sum_t["capped_blocks"] == sum_p["capped_blocks"] == 0
+
+
 def test_caps_refuse_to_run_without_gameweek_mode():
     bt, df = _frames(FIXTURES)
     with pytest.raises(ValueError):
@@ -122,7 +152,9 @@ def test_default_day_settled_path_matches_the_committed_simulator(tmp_path):
     new_log, new_sum = pf.ev_backtest_simulate(bt, df, **KW)
     old_log, old_sum = old.ev_backtest_simulate(bt, df, **KW)
     pd.testing.assert_frame_equal(new_log, old_log)
-    new_sum.pop("skipped_exposure_cap")
+    # Summary keys added since the committed simulator; the numbers must match.
+    for added in ("skipped_exposure_cap", "capped_blocks", "skipped_raw_floor"):
+        new_sum.pop(added)
     assert new_sum == old_sum
 
 

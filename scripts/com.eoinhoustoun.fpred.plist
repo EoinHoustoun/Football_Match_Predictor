@@ -44,9 +44,14 @@
     <key>RunAtLoad</key>
     <true/>
 
+    <!-- Logs live OUTSIDE ~/Desktop: launchd opens these files itself before
+         spawning the job, and macOS privacy protection (TCC) refuses launchd
+         access to Desktop/Documents. That refusal surfaces only as
+         "last exit code = 78: EX_CONFIG" with nothing written anywhere.
+         Every hourly run from 12 Sep to 22 Sep 2026 died this way. -->
     <key>StandardOutPath</key>
-    <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED/data/autobet.stdout.log</string>
+    <string>/Users/eoinhoustoun/Library/Logs/fpred/autobet.stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED/data/autobet.stderr.log</string>
+    <string>/Users/eoinhoustoun/Library/Logs/fpred/autobet.stderr.log</string>
 </dict>
 </plist>

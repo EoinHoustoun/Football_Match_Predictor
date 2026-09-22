@@ -46,7 +46,7 @@ launchctl list | grep fpred
 launchctl unload ~/Library/LaunchAgents/com.eoinhoustoun.fpred.plist
 ```
 
-stdout goes to `data/autobet.stdout.log`, errors to `data/autobet.stderr.log`.
+stdout goes to `~/Library/Logs/fpred/autobet.stdout.log`, errors to `~/Library/Logs/fpred/autobet.stderr.log` (not under `data/`: launchd cannot open log files inside ~/Desktop because of macOS privacy protection, and the job then dies with exit 78 EX_CONFIG before it starts).
 The `data/activity.log` file (JSON Lines) is the canonical event stream — that
 is what the Streamlit home screen reads.
 

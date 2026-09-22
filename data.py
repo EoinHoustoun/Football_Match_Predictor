@@ -441,8 +441,11 @@ def load_data() -> pd.DataFrame:
                 "B365H", "B365D", "B365A",
                 "MaxH", "MaxD", "MaxA",
                 "B365>2.5", "B365<2.5",
-                # Closing-line columns for CLV (Pinnacle = sharp benchmark)
+                # Closing-line columns for CLV (Pinnacle = sharp benchmark).
+                # Betfair Exchange close (BFEC*) is the fallback sharp line:
+                # the 2026-27 file has no Pinnacle columns at all.
                 "PSH", "PSD", "PSA",
+                "BFECH", "BFECD", "BFECA",
                 "AvgH", "AvgD", "AvgA",
                 "P>2.5", "P<2.5",
                 "Avg>2.5", "Avg<2.5"]:

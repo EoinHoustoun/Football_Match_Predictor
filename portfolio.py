@@ -99,6 +99,9 @@ _DEFAULT: dict = {
         "auto_bet_threshold": 0.40,   # 40% EV gate (4-season validated)
         "auto_markets": ["D", "under25"],
         "min_prob":            0.21,  # reject longshots even if +EV — variance kills them
+        "min_raw_draw_prob":   0.30,  # raw-model floor on draws; the trailing calibrator
+                                      # cannot lift a 0.22 into a bet (validated 22 Sep 2026,
+                                      # scripts/validate_raw_floor.py)
         "use_calibrated_probs": True, # isotonic calibration (draw capped at 0.45)
         "use_simultaneous_kelly": True,
         "skip_late_season": True,     # Mar-Apr 0/7 across 2 seasons
@@ -563,6 +566,7 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
     use_cal       = bool(p["settings"].get("use_calibrated_probs", True))
     use_sim       = bool(p["settings"].get("use_simultaneous_kelly", False))
     market_gates  = p["settings"].get("market_gates")
+    min_raw_draw  = p["settings"].get("min_raw_draw_prob")   # None = off
 
     # ── Optional v2-style filters for Main (defaults all OFF) ──
     main_max_ev      = p["settings"].get("main_max_ev_pct")
@@ -659,6 +663,12 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
         if c["market"] not in allowed_mkts:
             continue
         if c["_eff_prob"] < _gate(market_gates, c["market"], "min_prob", min_prob):
+            continue
+        if (min_raw_draw is not None and c["market"] == "D"
+                and c["_raw_prob"] < float(min_raw_draw)):
+            _log_skip(skip_log, "raw_floor", c["home"], c["away"],
+                      f"raw draw {c['_raw_prob']:.3f} < {float(min_raw_draw):.2f} "
+                      f"(calibrated {c['_eff_prob']:.3f}, EV {c['_eff_ev']:+.1%})")
             continue
         if c["_eff_ev"] < _gate(market_gates, c["market"], "min_ev", threshold):
             continue
@@ -822,6 +832,12 @@ def ev_backtest_simulate(
     initial_bankroll: float = 1000.0,
     allowed_markets: set | None = None,
     min_prob: float = 0.0,
+    # Floor on the RAW (pre-calibration) draw probability. The live isotonic
+    # calibrator is refit on a trailing window, and in a draw-heavy window it
+    # lifts raw 0.22-0.30 draws to 0.34, a band with no edge over three
+    # seasons of out-of-sample history (data/diagnostics/gw5_review_2026-09-22.md).
+    # This gate sees the model's own number before any window can inflate it.
+    min_raw_draw_prob: float | None = None,
     skip_late_season: bool = False,
     skip_home_title_race: bool = False,
     odds_source: str = "B365",
@@ -853,6 +869,10 @@ def ev_backtest_simulate(
     # Cap on stake riding on unsettled bets within a gameweek (gameweek_mode).
     exposure_cap_pct: float | None = None,
     exposure_cap_basis: str = "opening",   # "opening" | "gameweek"
+    # How a binding cap is shared out. "truncate" = live today: best-EV first,
+    # whoever arrives last gets the headroom. "prorata" = every qualifying bet
+    # is scaled by cap / sum(stakes), so relative sizing survives the cap.
+    exposure_cap_mode: str = "truncate",   # "truncate" | "prorata"
     max_pending_bets: int | None = None,
     # Research: a calibrator per gameweek, fitted only on data before it.
     # Called with the gameweek's first match date; overrides `calibrators`.
@@ -958,6 +978,7 @@ def ev_backtest_simulate(
     bankroll = initial_bankroll
     rows = []
     skipped_min_prob = 0
+    skipped_raw_floor = 0
     skipped_late_season = 0
     skipped_home_title_race = 0
     skipped_calendar = 0
@@ -967,6 +988,7 @@ def ev_backtest_simulate(
     skipped_no_history = 0
     skipped_club_exposure = 0
     skipped_exposure_cap = 0
+    capped_blocks = 0   # gameweeks in which the pending cap changed a stake
     if (exposure_cap_pct is not None or max_pending_bets is not None) and not gameweek_mode:
         raise ValueError("exposure caps need gameweek_mode: day-settled bets never pend")
     if calibrator_fn is not None and not gameweek_mode:
@@ -1056,6 +1078,10 @@ def ev_backtest_simulate(
                 for mkt, prob, place_odds, detect_odds, outcome in market_list:
                     if allowed_markets and mkt not in allowed_markets:
                         continue
+                    if (min_raw_draw_prob is not None and mkt == "D"
+                            and prob < min_raw_draw_prob):
+                        skipped_raw_floor += 1
+                        continue
                     # Apply isotonic calibration if available (matches live behaviour)
                     if block_cal:
                         prob = calibrate_prob(prob, mkt, block_cal)
@@ -1137,6 +1163,18 @@ def ev_backtest_simulate(
             else:
                 cap = block_start_bankroll * exposure_cap_pct
             placed_now: list[tuple[dict, float]] = []
+            prorata = 1.0
+            block_capped = False
+            if exposure_cap_mode == "prorata" and cap != float("inf"):
+                # Size every candidate off the opening cash, as the truncate
+                # path does for the first bet, then shrink the whole gameweek
+                # to fit. Cash falls per stake below, so the sum is compared
+                # to the cap before any stake is deducted.
+                want = sum(round(cash * c["kelly_pct_final"], 2) for c in candidates
+                           if c["kelly_pct_final"] > 0)
+                if want > cap:
+                    prorata = cap / want
+                    block_capped = True
             for c in candidates:
                 if max_pending_bets is not None and len(placed_now) >= max_pending_bets:
                     skipped_exposure_cap += 1
@@ -1148,9 +1186,11 @@ def ev_backtest_simulate(
                                              max_bets_per_club):
                     skipped_club_exposure += 1
                     continue
-                stake = round(cash * c["kelly_pct_final"], 2)
+                stake = round(cash * c["kelly_pct_final"] * prorata, 2)
                 if stake <= 0 or stake > cash:
                     continue
+                if stake > cap - pending + 0.005:
+                    block_capped = True
                 stake = round(min(stake, cap - pending), 2)
                 if stake <= 0:
                     continue
@@ -1160,6 +1200,8 @@ def ev_backtest_simulate(
                 cash = round(cash - stake, 2)
                 pending += stake
                 placed_now.append((c, stake))
+            if block_capped:
+                capped_blocks += 1
             returns = sum(round(st_ * c["place_odds"], 2) for c, st_ in placed_now if c["won"])
             running = bankroll
             for c, stake in sorted(placed_now, key=lambda x: x[0]["Date"]):
@@ -1235,6 +1277,7 @@ def ev_backtest_simulate(
         "avg_odds":         round(float(log["Odds"].mean()), 2),
         "total_staked":     round(staked_total, 2),
         "skipped_min_prob": skipped_min_prob,
+        "skipped_raw_floor": skipped_raw_floor,
         "skipped_late_season": skipped_late_season,
         "skipped_home_title_race": skipped_home_title_race,
         "skipped_calendar": skipped_calendar,
@@ -1244,6 +1287,7 @@ def ev_backtest_simulate(
         "skipped_no_history": skipped_no_history,
         "skipped_club_exposure": skipped_club_exposure,
         "skipped_exposure_cap": skipped_exposure_cap,
+        "capped_blocks": capped_blocks,
         "odds_source": odds_source,
         "detect_source": detect_source,
         "mean_sim_factor": (round(float(np.mean(sim_factors_observed)), 3)
@@ -1261,6 +1305,7 @@ def ev_backtest_simulate_v2(
     initial_bankroll: float = 1000.0,
     allowed_markets: set | None = None,
     min_prob: float = 0.0,
+    min_raw_draw_prob: float | None = None,   # see ev_backtest_simulate
     enable_simultaneous_correction: bool = True,
     bin_variances: dict | None = None,
     skip_late_season: bool = False,
@@ -1382,6 +1427,7 @@ def ev_backtest_simulate_v2(
     peak_bankroll = initial_bankroll
     rows = []
     skipped_min_prob = 0
+    skipped_raw_floor = 0
     skipped_late_season = 0
     skipped_home_title_race = 0
     skipped_calendar    = 0
@@ -1483,6 +1529,10 @@ def ev_backtest_simulate_v2(
 
             for mkt, prob, place_odds, detect_odds, outcome in market_list:
                 if allowed_markets and mkt not in allowed_markets:
+                    continue
+                if (min_raw_draw_prob is not None and mkt == "D"
+                        and prob < min_raw_draw_prob):
+                    skipped_raw_floor += 1
                     continue
                 # Apply isotonic calibration if available (matches live behaviour)
                 if calibrators:
@@ -1633,6 +1683,7 @@ def ev_backtest_simulate_v2(
         "avg_odds":         round(float(log["Odds"].mean()), 2),
         "total_staked":     round(staked_total, 2),
         "skipped_min_prob": skipped_min_prob,
+        "skipped_raw_floor": skipped_raw_floor,
         "skipped_late_season": skipped_late_season,
         "skipped_home_title_race": skipped_home_title_race,
         "skipped_calendar":   skipped_calendar,
@@ -1849,13 +1900,16 @@ def fetch_live_odds(api_key: str) -> dict:
 # ── Closing-line value (CLV) ────────────────────────────────────────────────
 
 # Mapping of bet markets → ordered list of CSV columns to try for closing odds.
-# Pinnacle close (PSH/PSD/PSA) is the gold-standard sharp benchmark; industry
-# average (Avg*) is the fall-back when Pinnacle isn't recorded; B365 close is
-# last resort. Football-data.co.uk publishes all three for every PL match.
+# Pinnacle close (PSH/PSD/PSA) is the gold-standard sharp benchmark. When it is
+# missing the Betfair Exchange close (BFEC*) is the next sharpest thing on the
+# file; the industry average (Avg*) is a soft benchmark and B365 the last
+# resort. football-data.co.uk dropped the Pinnacle columns from the 2026-27
+# file, and against the panel average this season's CLV read +8.5% where the
+# exchange close said +3.9% (data/diagnostics/gw5_review_2026-09-22.md).
 _CLOSING_ODDS_COLUMNS = {
-    "H":       ["PSH", "AvgH", "B365H"],
-    "D":       ["PSD", "AvgD", "B365D"],
-    "A":       ["PSA", "AvgA", "B365A"],
+    "H":       ["PSH", "BFECH", "AvgH", "B365H"],
+    "D":       ["PSD", "BFECD", "AvgD", "B365D"],
+    "A":       ["PSA", "BFECA", "AvgA", "B365A"],
     "over25":  ["P>2.5", "Avg>2.5", "B365>2.5"],
     "under25": ["P<2.5", "Avg<2.5", "B365<2.5"],
 }
@@ -2611,6 +2665,7 @@ def auto_place_value_bets_v2(
     use_cal       = bool(p["settings"].get("use_calibrated_probs", True))
     use_uncert    = bool(p["settings"].get("use_uncertainty_kelly", True))
     use_sim       = bool(p["settings"].get("use_simultaneous_kelly", True))
+    min_raw_draw  = p["settings"].get("min_raw_draw_prob")   # None = off
 
     # ── Mock Two Phase 2 filters (defaults: all OFF until WF-validated) ──
     settings_v2 = p["settings"]
@@ -2778,6 +2833,13 @@ def auto_place_value_bets_v2(
         if c["market"] not in allowed_mkts:
             continue
         if c["_eff_prob"] < _gate(market_gates, c["market"], "min_prob", min_prob):
+            continue
+        if (min_raw_draw is not None and c["market"] == "D"
+                and c.get("_raw_prob") is not None
+                and c["_raw_prob"] < float(min_raw_draw)):
+            _log_skip(skip_log, "raw_floor", c["home"], c["away"],
+                      f"raw draw {c['_raw_prob']:.3f} < {float(min_raw_draw):.2f} "
+                      f"(calibrated {c['_eff_prob']:.3f}, EV {c['_eff_ev']:+.1%})")
             continue
         if c["_eff_ev"] < _gate(market_gates, c["market"], "min_ev", threshold):
             continue
