@@ -136,8 +136,8 @@ def tb(team: str, size: int = 20) -> str:
 # Page config
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="PL Predictor",
-    page_icon="⚽",
+    page_title="F_PRED",
+    page_icon="assets/icon-192.png",
     layout="wide",
     initial_sidebar_state="collapsed",
 )

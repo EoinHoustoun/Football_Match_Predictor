@@ -18,4 +18,4 @@ fi
 echo ""
 echo "  ⚽  Premier League Predictor · http://localhost:8501"
 echo ""
-exec .venv/bin/python -m streamlit run app.py --server.port 8501
+exec .venv/bin/python -m streamlit run server.py --server.port 8501
