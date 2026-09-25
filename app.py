@@ -422,6 +422,97 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
    lift the text Streamlit paints IN that colour on the dark page. */
 [data-testid="stSliderThumbValue"], [data-testid="stTickBarMin"], [data-testid="stTickBarMax"] { color: #eef1f5 !important; }
 [data-baseweb="tag"] span { color: #ffffff !important; }
+.fx-card { background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px;
+    padding: 1rem 1.2rem 0.9rem; margin: 0.6rem 0 0.1rem; animation: fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both; }
+.fx-card.fx-bet { border-color: rgba(0,230,118,0.55); }
+.fx-card.fx-placed { border-color: rgba(0,229,255,0.45); }
+.fx-top { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
+.fx-when { font-size: 0.82rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #c9d0dc; }
+.fx-row { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2.6fr) minmax(8rem, 1fr); gap: 1rem; align-items: center; }
+.fx-team { font-size: 1rem; font-weight: 800; color: #eef1f5; display: flex; }
+.fx-home { justify-content: flex-end; }
+.fx-bars { display: flex; flex-direction: column; gap: 0.3rem; }
+.fx-bar-row { display: grid; grid-template-columns: 3.6rem 1fr; gap: 0.5rem; align-items: center; }
+.fx-bar-lbl { font-size: 0.78rem; color: #c9d0dc; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.fx-bar { display: flex; border-radius: 8px; overflow: hidden; }
+.fx-bar-model { height: 32px; }
+.fx-bar-mkt { height: 22px; opacity: 0.78; }
+.fx-bar-mkt div { font-size: 0.78rem !important; }
+.fx-draw { margin-top: 0.7rem; font-size: 0.88rem; color: #eef1f5; line-height: 1.5; }
+.fx-draw b { color: #ffd600; }
+.fx-freq { display: block; font-size: 0.84rem; color: #c9d0dc; }
+.fx-verdicts { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; margin-top: 0.6rem; }
+.fx-verdict { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.fx-verdict-text { font-size: 0.84rem; color: #eef1f5; font-weight: 600; }
+html body div.stButton > button[kind="tertiary"], html body div.stButton > button[data-testid="stBaseButton-tertiary"] {
+    background: none !important; box-shadow: none !important; color: #7ea2ff !important;
+    padding: 0.1rem 0.2rem !important; letter-spacing: 0.3px !important; font-size: 0.86rem !important;
+    font-weight: 700 !important; min-height: 0 !important; text-transform: none !important; }
+div.stButton > button[kind="tertiary"]:hover { color: #b6caff !important; transform: none !important; }
+@media (max-width: 760px) { .fx-row { grid-template-columns: 1fr 1fr; }
+    .fx-bars { grid-column: 1 / -1; order: 3; } .fx-home { justify-content: flex-start; } }
+.md-summary { display: flex; flex-wrap: wrap; gap: 1rem 2.2rem; align-items: flex-end;
+    background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px;
+    padding: 1rem 1.3rem; margin: 0.6rem 0 0.4rem; }
+.md-sum-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #c9d0dc; }
+.md-sum-val { font-size: 1.35rem; font-weight: 900; color: #eef1f5; font-variant-numeric: tabular-nums; }
+.md-sum-note { flex-basis: 100%; font-size: 0.86rem; color: #c9d0dc; }
+.boot-card { max-width: 520px; margin: 12vh auto 0; text-align: center; background: #111627;
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 2rem 2rem 1.6rem; }
+.boot-card img { width: 64px !important; height: 64px !important; object-fit: cover; border-radius: 16px; margin-bottom: 0.8rem; }
+.boot-title { font-size: 1.5rem; font-weight: 900; color: #eef1f5; }
+.boot-sub { font-size: 0.9rem; color: #c9d0dc; margin: 0.4rem 0 1.2rem; line-height: 1.5; }
+.boot-step { display: flex; gap: 0.7rem; align-items: center; justify-content: flex-start;
+    font-size: 0.95rem; font-weight: 700; padding: 0.35rem 0.4rem; text-align: left; }
+.boot-step span { width: 1.2rem; text-align: center; }
+.boot-done { color: #00e676; } .boot-now { color: #eef1f5; } .boot-now span { color: #ffd600; animation: pulse 1.2s ease-in-out infinite; }
+.boot-todo { color: #c9d0dc; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.ch-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
+    margin: 0.2rem 0 1rem; }
+.ch-brand { display: flex; align-items: center; gap: 0.9rem; }
+.ch-brand img { width: 52px !important; height: 52px !important; object-fit: cover; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,230,118,0.25); }
+.ch-title { font-size: 1.9rem; font-weight: 900; letter-spacing: -0.5px; color: #eef1f5; line-height: 1; }
+.ch-sub { font-size: 0.86rem; color: #c9d0dc; margin-top: 0.25rem; }
+.ch-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; }
+.ch-tile { background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px;
+    padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.ch-lbl { font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: #c9d0dc; }
+.ch-val { font-size: 1.8rem; font-weight: 900; color: #eef1f5; font-variant-numeric: tabular-nums; }
+.ch-sub2 { font-size: 0.86rem; color: #c9d0dc; }
+.ch-spark { margin-top: 0.3rem; }
+.ch-board { background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px;
+    padding: 1rem 1.2rem 0.6rem; margin-top: 0.9rem; }
+.ch-board-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap;
+    margin-bottom: 0.5rem; }
+.ch-board-title { font-size: 1.2rem; font-weight: 900; color: #eef1f5; }
+.ch-board-note { font-size: 0.86rem; color: #c9d0dc; }
+.ch-row { display: grid; grid-template-columns: 5.2rem minmax(14rem, 2.4fr) 4.6rem 3.8rem 4.4rem 1fr 1fr;
+    gap: 0.6rem; align-items: center; padding: 0.42rem 0; border-top: 1px solid rgba(255,255,255,0.06); white-space: nowrap;
+    font-size: 0.9rem; color: #eef1f5; }
+.ch-row-h { font-size: 0.78rem; font-weight: 800; color: #c9d0dc; letter-spacing: 1px; text-transform: uppercase; border-top: 0; }
+.ch-t { color: #c9d0dc; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ch-fx { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-v { color: #c9d0dc; font-weight: 600; }
+.ch-num { font-weight: 800; font-variant-numeric: tabular-nums; }
+.ch-group { font-size: 0.82rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #c9d0dc;
+    margin: 1.3rem 0 0.35rem; }
+html body div[class*="st-key-navtile_"] button {
+    min-height: 64px !important; justify-content: flex-start !important; text-align: left !important;
+    background: #141a2e !important; border: 1px solid rgba(179,157,255,0.28) !important; border-radius: 14px !important;
+    color: #eef1f5 !important; font-size: 1.02rem !important; font-weight: 800 !important; letter-spacing: 0.2px !important;
+    text-transform: none !important; padding: 0.7rem 1rem !important; box-shadow: none !important; }
+html body div[class*="st-key-navtile_"] button p { font-size: 1.02rem !important; font-weight: 800 !important; }
+html body div[class*="st-key-navtile_"] button > div { justify-content: flex-start !important; width: 100%; }
+.ch-blurb { margin-top: -0.5rem !important; }
+html body div[class*="st-key-navtile_"] button:hover { border-color: #b39dff !important; transform: translateY(-2px) !important;
+    background: #1a2140 !important; }
+.ch-blurb { font-size: 0.84rem; color: #c9d0dc; margin: 0.25rem 0 0 0.2rem; }
+.ch-foot { text-align: center; font-size: 0.78rem; color: #c9d0dc; letter-spacing: 2px; margin-top: 2rem; }
+@media (max-width: 900px) { .ch-tiles { grid-template-columns: 1fr; }
+    .ch-row { grid-template-columns: 4rem minmax(0, 1fr) 2.8rem 5.6rem; white-space: normal; }
+    .ch-row > span:nth-child(4), .ch-row > span:nth-child(5), .ch-row > span:nth-child(7) { display: none; }
+    .ch-fx { white-space: normal; } .ch-spark { display: none; } }
 .hf-evt-rep { font-size: 0.82rem; color: #c9d0dc; font-weight: 600; margin-left: 0.3rem; }
 .pf-board-row { display: grid; grid-template-columns: 5.5rem minmax(12rem, 1.6fr) 6rem 1fr 1fr;
     gap: 0.8rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -2972,138 +3063,50 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
 # Tab 2 — This Weekend
 # ─────────────────────────────────────────────────────────────────────────────
 def tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict):
-    st.markdown('<p class="section-label" style="margin-top:1rem">Upcoming Fixtures</p>',
-                unsafe_allow_html=True)
+    """Next matchday: every fixture as the shared card, model against market.
 
-    with st.spinner("Fetching fixtures from ESPN..."):
-        fixtures = cached_fixtures()
-
-    # Optional live odds for edge badges (uses portfolio's API key + 6h cache)
-    live_odds_map: dict = {}
-    try:
-        port_settings = pf.load_portfolio().get("settings", {})
-        api_key = pf.resolve_odds_api_key(port_settings.get("odds_api_key", ""))
-        if api_key:
-            live_odds_map = pf.fetch_live_odds(api_key)
-    except Exception:
-        live_odds_map = {}
-
-    if not fixtures:
+    Rebuilt 25 Sep 2026 on matchday_state, so each card carries the same
+    verdicts the portfolios and Pre-Flight show, plus the market's
+    margin-free prices.
+    """
+    state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                           draw_fc, teams, elo_dict)
+    nm = state["next"]
+    if not nm or not state["preds"]:
         if _render_offseason_card(df, "Fixtures will appear here once the new "
                                   "season's schedule is released.", "weekend"):
             return
-        st.warning("Could not fetch fixtures automatically. Check back later or add them manually below.")
-        fixtures = []
+        st.info("No fixtures in the next 30 days.")
+        return
 
-    # ── Date header ───────────────────────────────────────────────────────
-    if fixtures:
-        dates = sorted({f["date"] for f in fixtures})
-        date_range_str = (
-            dates[0].strftime("%-d %b")
-            if len(dates) == 1
-            else f"{dates[0].strftime('%-d %b')} – {dates[-1].strftime('%-d %b %Y')}"
-        )
-        st.markdown(
-            f'<p style="font-size:0.82rem;color:#b8c0d0;margin-bottom:0.3rem;">'
-            f'Next gameweek · <b style="color:#c9d0dc">{date_range_str}</b>'
-            f' · {len(fixtures)} matches</p>',
-            unsafe_allow_html=True,
-        )
-        # Legend chips — vibrant gradients matching the bar colours, larger for visibility
-        st.markdown(
-            '<div style="display:flex;gap:0.7rem;flex-wrap:wrap;align-items:center;'
-            'margin-bottom:1.4rem;font-size:0.84rem">'
-            '<span style="display:inline-flex;align-items:center;gap:0.45rem;'
-            'padding:0.32rem 0.85rem;border-radius:999px;'
-            'background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.4);'
-            'color:#a5b4fc;font-weight:800;letter-spacing:0.3px">'
-            '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;'
-            'background:linear-gradient(135deg,#4f46e5,#22d3ee)"></span>Home Win</span>'
+    v_main = state["verdicts"]["main"]
+    n_bet = sum(1 for v in v_main.values() if v["status"] in ("bet", "placed"))
+    span = nm["start"].strftime("%a %-d %b")
+    if nm["end"] != nm["start"]:
+        span += " to " + nm["end"].strftime("%a %-d %b")
+    days = nm["days_away"]
+    opens = nm["start"] - timedelta(days=md.BETTING_WINDOW_DAYS)
+    window = ("inside the 14-day betting window" if days <= md.BETTING_WINDOW_DAYS
+              else f"betting opens {opens.strftime('%a %-d %b')}")
+    st.markdown(
+        f'<div class="md-summary"><div><div class="md-sum-lbl">Next matchday</div>'
+        f'<div class="md-sum-val">{span}</div></div>'
+        f'<div><div class="md-sum-lbl">Kick-off</div><div class="md-sum-val">'
+        f'{"today" if days == 0 else ("tomorrow" if days == 1 else f"in {days} days")}</div></div>'
+        f'<div><div class="md-sum-lbl">Fixtures</div><div class="md-sum-val">{nm["n"]}</div></div>'
+        f'<div><div class="md-sum-lbl">Main bets on it</div><div class="md-sum-val">{n_bet}</div></div>'
+        f'<div class="md-sum-note">Window: {window}. Top bar is the model, the thinner bar '
+        f'under it is the market with the bookmaker margin removed.</div></div>',
+        unsafe_allow_html=True)
 
-            '<span style="display:inline-flex;align-items:center;gap:0.45rem;'
-            'padding:0.32rem 0.85rem;border-radius:999px;'
-            'background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.4);'
-            'color:#fcd34d;font-weight:800;letter-spacing:0.3px">'
-            '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;'
-            'background:linear-gradient(135deg,#f59e0b,#fbbf24)"></span>Draw</span>'
-
-            '<span style="display:inline-flex;align-items:center;gap:0.45rem;'
-            'padding:0.32rem 0.85rem;border-radius:999px;'
-            'background:rgba(225,29,72,0.12);border:1px solid rgba(225,29,72,0.4);'
-            'color:#fda4af;font-weight:800;letter-spacing:0.3px">'
-            '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;'
-            'background:linear-gradient(135deg,#fb7185,#9f1239)"></span>Away Win</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        # Group cards by date
-        current_date = None
-        for fix in fixtures:
-            home, away = fix["home"], fix["away"]
-
-            # Skip if team not in our model (e.g. cup games slipping through)
-            if home not in teams or away not in teams:
-                continue
-
-            # Date subheader
-            if fix["date"] != current_date:
-                current_date = fix["date"]
-                st.markdown(
-                    f'<p style="font-size:0.78rem;font-weight:700;color:#b8c0d0;'
-                    f'text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 0.6rem;">'
-                    f'{current_date.strftime("%A %-d %B")}</p>',
-                    unsafe_allow_html=True,
-                )
-
-            hs      = get_current_stats(df, home, elo_dict=elo_dict)
-            as_     = get_current_stats(df, away, elo_dict=elo_dict)
-            dc_pred, _, result = full_predict(
-                home, away, dc_r, dc_draw_r, xgb_m, feat_cols,
-                draw_xgb_m, draw_fc, hs, as_,
-            )
-
-            fix_odds = live_odds_map.get((home, away))
-            st.markdown(
-                fixture_card_html(home, away, result,
-                                  dc_pred["lambda_home"], dc_pred["lambda_away"],
-                                  odds=fix_odds),
-                unsafe_allow_html=True,
-            )
-
-    # ── Manual add (for fixtures not yet in ESPN or future rounds) ────────
-    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-    with st.expander("➕ Add a fixture manually", expanded=False):
-        fa, fb, fc, fd = st.columns([4, 1, 4, 2])
-        with fa:
-            wk_home = st.selectbox("Home team", teams,
-                index=teams.index("Arsenal") if "Arsenal" in teams else 0,
-                key="wk_home", label_visibility="collapsed")
-        with fb:
-            st.markdown('<div style="text-align:center;padding-top:0.5rem;font-weight:800;color:#b8c0d0;font-size:1.2rem">vs</div>',
+    current = None
+    for q in state["preds"]:
+        d = q["fix_date"]
+        if d != current:
+            current = d
+            st.markdown(f'<p class="scan-day">{d.strftime("%A %-d %B")}</p>',
                         unsafe_allow_html=True)
-        with fc:
-            default_away_wk = "Chelsea" if "Chelsea" in teams else (teams[1] if len(teams) > 1 else teams[0])
-            wk_away = st.selectbox("Away team", teams,
-                index=teams.index(default_away_wk),
-                key="wk_away", label_visibility="collapsed")
-        with fd:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Predict", key="add_manual"):
-                if wk_home == wk_away:
-                    st.warning("Select two different teams.")
-                else:
-                    hs      = get_current_stats(df, wk_home, elo_dict=elo_dict)
-                    as_     = get_current_stats(df, wk_away, elo_dict=elo_dict)
-                    dc_pred, _, result = full_predict(
-                        wk_home, wk_away, dc_r, dc_draw_r, xgb_m, feat_cols,
-                        draw_xgb_m, draw_fc, hs, as_,
-                    )
-                    st.markdown(
-                        fixture_card_html(wk_home, wk_away, result,
-                                          dc_pred["lambda_home"], dc_pred["lambda_away"]),
-                        unsafe_allow_html=True,
-                    )
+        _fixture_card(q, state, key="wk")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3660,6 +3663,42 @@ def cached_season_sim(dc_hash: str, n_sims: int = 10_000, param_noise: float = 0
     return table_df, summary, len(remaining), sim_pts, fixtures_used, sim_positions
 
 
+_SIM_CACHE_DIR = Path("data/cache")
+
+
+def season_sim_result(df, dc_r, param_noise: float):
+    """10,000-season simulation, memoised on disk by match data and sigma.
+
+    The in-memory cache keyed on the home-advantage figure alone and read the
+    ratings from session_state, which the cache never sees: a refit that left
+    home advantage unchanged would serve an old simulation. The key here is
+    the data itself (row count, last match date, a ratings fingerprint).
+    """
+    import pickle, hashlib, time
+    fp = hashlib.md5(json.dumps({k: dc_r.get(k) for k in ("home_adv", "rho")},
+                                default=str, sort_keys=True).encode()
+                     + json.dumps(sorted((dc_r.get("attacks") or {}).items()),
+                                  default=str).encode()).hexdigest()[:10]
+    stamp = f"{len(df)}_{df['Date'].max().date()}_{fp}_{param_noise:.2f}"
+    path = _SIM_CACHE_DIR / f"season_sim_{stamp}.pkl"
+    if path.exists():
+        try:
+            return pickle.loads(path.read_bytes())
+        except Exception:
+            pass
+    with st.spinner("Simulating 10,000 seasons (about a minute, once per results update)…"):
+        result = cached_season_sim(dc_hash=stamp, param_noise=param_noise)
+    try:
+        _SIM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        for old in _SIM_CACHE_DIR.glob("season_sim_*.pkl"):
+            if old.stat().st_mtime < time.time() - 14 * 86400:
+                old.unlink()
+        path.write_bytes(pickle.dumps(result))
+    except Exception:
+        pass
+    return result
+
+
 def tab_season(df: pd.DataFrame, dc_r: dict):
     st.markdown('<p class="section-label" style="margin-top:1rem">Season Outlook · Monte Carlo Simulation</p>',
                 unsafe_allow_html=True)
@@ -3698,27 +3737,16 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
         unsafe_allow_html=True,
     )
 
-    _, btn_col, _ = st.columns([2, 3, 2])
-    with btn_col:
-        run_clicked = st.button("⚡  Run Season Simulation", key="run_sim")
-    if run_clicked:
-        st.session_state["_sim_has_run"] = True
-
-    if not st.session_state.get("_sim_has_run", False):
-        return
-
-    # Store dc_r in session state so the cached function can access it
+    # Opens straight onto the result: simulations are saved to disk per match
+    # data and sigma, so only the first visit after new results (or a new
+    # sigma) waits the ~75s the 10,000 seasons take.
     st.session_state["_dc_r_"] = dc_r
-
-    with st.spinner("Fetching remaining fixtures and simulating 10,000 seasons…"):
-        try:
-            table_df, sim_df, n_remaining, sim_pts, fixtures_used, sim_positions = cached_season_sim(
-                dc_hash=str(dc_r.get("home_adv", 0))[:8],
-                param_noise=param_noise,
-            )
-        except Exception as e:
-            st.error(f"Simulation failed: {e}")
-            return
+    try:
+        table_df, sim_df, n_remaining, sim_pts, fixtures_used, sim_positions = \
+            season_sim_result(df, dc_r, param_noise)
+    except Exception as e:
+        st.error(f"Simulation failed: {e}")
+        return
 
     if sim_df.empty:
         if _render_offseason_card(df, "Monte Carlo forecasts return when the "
@@ -3760,31 +3788,11 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
     _max_pts = 3.0 * len(fixtures_used)   # all decisive
     _min_pts = 2.0 * len(fixtures_used)   # all drawn
     _check_ok = (_min_pts - 1) <= _proj_gain_total <= (_max_pts + 1)
-    _check_col = "#00e676" if _check_ok else "#ffd600"
-    st.markdown(
-        f'<div class="sim-math-banner" style="border-left-color:{_check_col}">'
-        f'<span class="sim-math-icon">🧮</span>'
-        f'<div class="sim-math-block">'
-        f'<div class="sim-math-lbl">POINTS LEFT UP FOR GRABS</div>'
-        f'<div class="sim-math-val">{_min_pts:.0f} – {_max_pts:.0f}</div>'
-        f'<div class="sim-math-sub">expected ≈ <b>{_exp_remaining:.0f}</b> '
-        f'· {len(fixtures_used)} matches × 2-3 pts per match</div>'
-        f'</div>'
-        f'<div class="sim-math-block">'
-        f'<div class="sim-math-lbl">SUM OF PROJECTED GAINS</div>'
-        f'<div class="sim-math-val" style="color:{_check_col}">'
-        f'+{_proj_gain_total:.0f}</div>'
-        f'<div class="sim-math-sub">total points the simulator distributes</div>'
-        f'</div>'
-        f'<div class="sim-math-block sim-math-verdict">'
-        f'<div class="sim-math-lbl" style="color:{_check_col}">'
-        f'{"✅ MATHEMATICALLY CONSISTENT" if _check_ok else "⚠️ DIVERGENCE"}</div>'
-        f'<div class="sim-math-sub">Projected points distribute within '
-        f'the {_min_pts:.0f}–{_max_pts:.0f} bound of remaining fixtures.</div>'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    # A self-check, so it only speaks up when it fails.
+    if not _check_ok:
+        st.warning(f"Simulation check failed: projected gains total {_proj_gain_total:.0f} "
+                   f"points, outside the {_min_pts:.0f} to {_max_pts:.0f} the "
+                   f"{len(fixtures_used)} remaining matches can hand out.")
 
     # Pre-compute Elo + recent Elo trajectory per team (last 5 matches)
     from data import _compute_elo_series as _elo_fn
@@ -5314,8 +5322,21 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     unsafe_allow_html=True)
 
     # ── Upcoming fixtures with predictions ───────────────────────────────
+    # The next matchday uses the shared card (model v market, verdicts);
+    # fixtures beyond it keep the compact bar below.
+    _md_state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                               draw_fc, teams, elo_dict)
+    _next_q = [q for q in _md_state["preds"] if sel in (q["home"], q["away"])]
+    if _next_q:
+        st.markdown('<p class="section-label">📅 NEXT MATCH · MODEL AND MARKET</p>',
+                    unsafe_allow_html=True)
+        for q in _next_q:
+            _fixture_card(q, _md_state, key="td")
+        _shown = {(q["home"], q["away"]) for q in _next_q}
+        fixture_predictions = [fp for fp in fixture_predictions
+                               if (fp["home"], fp["away"]) not in _shown]
     if fixture_predictions:
-        st.markdown('<p class="section-label">📅 NEXT FIXTURES · MODEL PREDICTIONS</p>',
+        st.markdown('<p class="section-label">📅 LATER FIXTURES · MODEL PREDICTIONS</p>',
                     unsafe_allow_html=True)
         for fp in fixture_predictions:
             h, a = fp["home"], fp["away"]
@@ -5355,7 +5376,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
               </div>
             </div>
             """, unsafe_allow_html=True)
-    else:
+    elif not _next_q:
         st.markdown(
             '<div style="padding:1rem;color:#c9d0dc;text-align:center">'
             'No upcoming fixtures found in the next 45 days.</div>',
@@ -5929,49 +5950,99 @@ def _cancel_bet_control(bet: dict, port: dict, save, line: str, key: str) -> Non
             st.rerun()
 
 
-def _scan_card_html(home, away, p_h, p_d, p_a, p_o25, api_odds, v, show_all) -> str:
-    """One next-matchday fixture: model bar, strategy verdict, optional market grid.
+_VERDICT_CHIP = {
+    "bet": ("go", "WOULD BET"), "placed": ("info", "BACKED"), "held": ("hold", "HELD"),
+    "blocked": ("pass", "PASS"), "window": ("pass", "NOT YET"), "no_odds": ("pass", "NO PRICE"),
+}
 
-    Returned as ONE line: st.markdown stops passing raw HTML once a line is
-    whitespace-only, which is how the old card rendered empty boxes.
+
+def _verdict_chip(v: dict | None, line_label: str = "") -> str:
+    """Verdict pill plus its one-line reason, for one portfolio line."""
+    if not v:
+        return ""
+    tone, label = _VERDICT_CHIP.get(v["status"], ("pass", v["status"].upper()))
+    prefix = f"{line_label} · " if line_label else ""
+    return (f'<span class="fx-verdict">{_preflight_chip(prefix + label, tone)}'
+            f'<span class="fx-verdict-text">{v["text"]}</span></span>')
+
+
+def _fixture_card_html(q: dict, v_main: dict | None, v_mt: dict | None,
+                       api_o: dict | None, lines: tuple = ("main", "mt")) -> str:
+    """The one fixture card every page uses (Next Matchday, Portfolio, Team dossier).
+
+    Model bar on top, the margin-free market bar under it at the same scale, so
+    the eye compares lengths directly. The draw gets its own line because the
+    draw is the strategy. Returned as ONE line of HTML (see the markdown trap
+    in the Streamlit skill).
     """
-    hp, dp, ap = round(p_h * 100), round(p_d * 100), round(p_a * 100)
-    tone = {"bet": "go", "placed": "info", "held": "hold"}.get(v["status"], "pass")
-    label = {"bet": "WOULD BET", "placed": "BACKED", "held": "HELD",
-             "blocked": "PASS", "window": "NOT YET", "no_odds": "NO PRICE"}.get(v["status"], "PASS")
-    dnum = v.get("draw")
-    nums = ""
-    if dnum:
-        nums = (f'<span class="scan-v-nums">Draw raw {dnum["raw"]*100:.1f}% · calibrated '
-                f'{dnum["cal"]*100:.1f}% · @{dnum["odds"]:.2f} · EV {dnum["ev"]*100:+.1f}%</span>')
-    grid = ""
-    if show_all and api_odds:
-        cells = []
-        for code, prob, name in [("H", p_h, home), ("D", p_d, "Draw"), ("A", p_a, away),
-                                 ("over25", p_o25, "Over 2.5"), ("under25", 1 - p_o25, "Under 2.5")]:
-            o = api_odds.get(code)
-            if not o or o <= 1:
-                continue
-            edge = (prob - 1.0 / o) * 100
-            cells.append(f'<span class="scan-mkt"><b>{name}</b> @{o:.2f} · model {prob*100:.0f}% '
-                         f'vs {100/o:.0f}% ({edge:+.0f}pp)</span>')
-        grid = f'<div class="scan-mkts">{"".join(cells)}</div>'
-    html = f"""
-    <div class="scan-fixture-card scan-{v['status']}">
-      <div class="scan-fixture-row">
-        <div class="fixture-team-name fixture-team-home">{tb(home, 44)}</div>
-        <div class="fixture-prob-bar" style="height:40px">
-          <div class="bar-home" style="width:{hp}%">{hp}%</div>
-          <div class="bar-draw" style="width:{dp}%">{dp}%</div>
-          <div class="bar-away" style="width:{ap}%">{ap}%</div>
-        </div>
-        <div class="fixture-team-name fixture-team-away">{tb(away, 44)}</div>
-      </div>
-      <div class="scan-verdict">{_preflight_chip(label, tone)}
-        <span class="scan-v-text">{v['text']}</span>{nums}</div>
-      {grid}
-    </div>"""
-    return "".join(seg.strip() for seg in html.splitlines())
+    h, a = q["home"], q["away"]
+    res = q["main"]
+    ph, pd_, pa = res["home_win"], res["draw"], res["away_win"]
+    mkt = md.market_probs(api_o)
+    ko = md.kickoff_local(q.get("time_utc"))
+    fdate = q.get("fix_date")
+    when = (ko.strftime("%a %-d %b · %H:%M") if ko
+            else (fdate.strftime("%a %-d %b") if hasattr(fdate, "strftime") else str(q.get("date", ""))[:10]))
+
+    def bar(hp, dp, ap, cls):
+        H, D, A = round(hp * 100), round(dp * 100), round(ap * 100)
+        return (f'<div class="fx-bar {cls}"><div class="bar-home" style="width:{hp*100:.1f}%">{H}%</div>'
+                f'<div class="bar-draw" style="width:{dp*100:.1f}%">{D}%</div>'
+                f'<div class="bar-away" style="width:{ap*100:.1f}%">{A}%</div></div>')
+
+    market_html = ""
+    draw_line = f'Draw <b>{pd_*100:.1f}%</b> in the model'
+    if mkt:
+        market_html = (f'<div class="fx-bar-row"><span class="fx-bar-lbl">Market</span>'
+                       f'{bar(mkt["H"], mkt["D"], mkt["A"], "fx-bar-mkt")}</div>')
+        edge = (pd_ - mkt["D"]) * 100
+        ecol = "#00e676" if edge >= 3 else ("#ffd600" if edge >= 0 else "#ff6fa1")
+        draw_line = (f'Draw <b>{pd_*100:.1f}%</b> model · <b>{mkt["D"]*100:.1f}%</b> market '
+                     f'({mkt["source"]}) · <b style="color:{ecol}">{edge:+.1f}pp</b>'
+                     f'<span class="fx-freq">About {round(pd_*100)} in 100 matches like this '
+                     f'end level; the market expects {round(mkt["D"]*100)}.</span>')
+    verdicts = ""
+    if "main" in lines:
+        verdicts += _verdict_chip(v_main, "Main")
+    if "mt" in lines:
+        verdicts += _verdict_chip(v_mt, "Mock Two")
+    html = (f'<div class="fx-card fx-{(v_main or {}).get("status", "none")}">'
+            f'<div class="fx-top"><span class="fx-when">{when}</span></div>'
+            f'<div class="fx-row"><div class="fx-team fx-home">{tb(h, 40)}</div>'
+            f'<div class="fx-bars"><div class="fx-bar-row"><span class="fx-bar-lbl">Model</span>'
+            f'{bar(ph, pd_, pa, "fx-bar-model")}</div>{market_html}</div>'
+            f'<div class="fx-team fx-away">{tb(a, 40)}</div></div>'
+            f'<div class="fx-draw">{draw_line}</div>'
+            f'<div class="fx-verdicts">{verdicts}</div></div>')
+    return html
+
+
+def _fixture_card(q: dict, state: dict, key: str, lines: tuple = ("main", "mt")) -> None:
+    """Render one fixture card plus its Open-in-Predict link."""
+    k = (q["home"], q["away"])
+    st.markdown(_fixture_card_html(q, state["verdicts"]["main"].get(k),
+                                   state["verdicts"]["mt"].get(k),
+                                   state["odds"].get(k), lines),
+                unsafe_allow_html=True)
+    if st.button("Open in Predict →", key=f"fxp_{key}_{q['home']}_{q['away']}", type="tertiary"):
+        st.session_state["pred_home"] = q["home"]
+        st.session_state["pred_away"] = q["away"]
+        st.session_state["_active_view"] = "predict"
+        st.rerun()
+
+
+def _market_grid_html(home, away, p_h, p_d, p_a, p_o25, api_odds) -> str:
+    """Every priced market, model against best price, for information only."""
+    cells = []
+    for code, prob, name in [("H", p_h, home), ("D", p_d, "Draw"), ("A", p_a, away),
+                             ("over25", p_o25, "Over 2.5"), ("under25", 1 - p_o25, "Under 2.5")]:
+        o = api_odds.get(code)
+        if not o or o <= 1:
+            continue
+        edge = (prob - 1.0 / o) * 100
+        cells.append(f'<span class="scan-mkt"><b>{name}</b> @{o:.2f} · model {prob*100:.0f}% '
+                     f'vs {100/o:.0f}% ({edge:+.0f}pp)</span>')
+    return f'<div class="scan-mkts">{"".join(cells)}</div>'
 
 
 def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict):
@@ -6653,9 +6724,10 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 st.markdown(
                     f'<p class="scan-day">{current_date.strftime("%A %-d %B")}</p>',
                     unsafe_allow_html=True)
-            v = verdicts.get((home, away), {"status": "no_odds", "text": "No live price yet"})
-            st.markdown(_scan_card_html(home, away, p_h, p_d, p_a, p_o25, api_odds, v,
-                                        show_all), unsafe_allow_html=True)
+            _fixture_card(q, state, key="pf", lines=("main",))
+            if show_all and api_odds:
+                st.markdown(_market_grid_html(home, away, p_h, p_d, p_a, p_o25, api_odds),
+                            unsafe_allow_html=True)
 
             # Bet slip expander — bigger, more prominent label
             with st.expander(f"✍️  Manual bet · {home} v {away}", expanded=False):
@@ -9766,19 +9838,26 @@ def tab_season_review(df):
     """, unsafe_allow_html=True)
 
 
-TAB_REGISTRY = [
-    ("predict",     "🔮", "Predict Match",  "Pick any two teams"),
-    ("weekend",     "📅", "Next Matchday",  "Upcoming fixtures"),
-    ("results",     "📋", "Last Gameweek",  "How the model did"),
-    ("backtest",    "📊", "Backtesting",    "Accuracy & calibration"),
-    ("season",      "🏆", "Season Outlook", "Monte Carlo forecast"),
-    ("review",      "🏅", "Season Review",  "Wrap-up & lessons"),
-    ("elo",         "📈", "Team Elo",       "Live ratings + form"),
-    ("teamdeep",    "🔍", "Team Deep Dive", "All data on one team"),
-    ("portfolio",   "💰", "Mock Portfolio", "Paper-trade bets"),
-    ("portfolio2",  "🧪", "Mock Two",       "Research-track A/B"),
-    ("preflight",   "🛫", "Pre-Flight",     "Gates and verdicts"),
+# Eight pages in three groups (agreed 25 Sep 2026). Merged pages switch
+# between their old halves: Portfolio (Main / Mock Two), Teams (Ratings /
+# Team dossier), Model Check (Calibration / Season review).
+NAV_GROUPS = [
+    ("Betting", [
+        ("portfolio",  "💰", "Portfolio",      "Main and Mock Two, open bets, CLV"),
+        ("preflight",  "🛫", "Control Room",   "Gates, verdicts and the runner"),
+    ]),
+    ("Matches", [
+        ("weekend",    "📅", "Next Matchday",  "Model against the market"),
+        ("results",    "📋", "Last Matchday",  "How the bets and the model did"),
+        ("predict",    "🔮", "Predict",        "Any two teams"),
+    ]),
+    ("League and model", [
+        ("season",     "🏆", "Season Outlook", "10,000 simulated seasons"),
+        ("teams",      "🔍", "Teams",          "Ratings and team dossiers"),
+        ("modelcheck", "📐", "Model Check",    "Calibration and past seasons"),
+    ]),
 ]
+TAB_REGISTRY = [t for _, group in NAV_GROUPS for t in group]
 
 
 def _read_activity_log(max_events: int = 80) -> list[dict]:
@@ -9826,7 +9905,7 @@ def _humanize_age(ts_str: str) -> str:
         return ""
 
 
-def _render_home_activity() -> None:
+def _render_home_activity(show_tiles: bool = True) -> None:
     """4-tile snapshot row + recent-events feed above the home tile grid.
     Reads from both portfolios + data/activity.log."""
     # Pull state from both portfolios + activity log
@@ -9895,57 +9974,58 @@ def _render_home_activity() -> None:
     main_pl_sign = "+" if main_pl >= 0 else "−"
     mt_pl_sign   = "+" if mt_pl   >= 0 else "−"
 
-    st.markdown(
-        '<div class="home-feed-grid">'
+    if show_tiles:
+        st.markdown(
+                '<div class="home-feed-grid">'
 
-        # ── Tile 1: Auto-bet status ──
-        '<div class="hf-tile hf-auto">'
-        f'<div class="hf-tile-icon">🤖</div>'
-        f'<div class="hf-tile-lbl">AUTO-BET</div>'
-        f'<div class="hf-tile-val">{auto_24h}</div>'
-        f'<div class="hf-tile-sub">placed in last 24h<br>'
-        f'<span style="color:#a78bfa">last run {last_run_age}</span></div>'
-        '</div>'
+            # ── Tile 1: Auto-bet status ──
+            '<div class="hf-tile hf-auto">'
+            f'<div class="hf-tile-icon">🤖</div>'
+            f'<div class="hf-tile-lbl">AUTO-BET</div>'
+            f'<div class="hf-tile-val">{auto_24h}</div>'
+            f'<div class="hf-tile-sub">placed in last 24h<br>'
+            f'<span style="color:#a78bfa">last run {last_run_age}</span></div>'
+            '</div>'
 
-        # ── Tile 2: Portfolios at a glance ──
-        '<div class="hf-tile hf-portfolios">'
-        f'<div class="hf-tile-icon">💰</div>'
-        f'<div class="hf-tile-lbl">PORTFOLIOS</div>'
-        f'<div class="hf-portfolios-row">'
-            f'<span class="hf-port-line"><b>Main</b> '
-            f'<span style="color:{main_pl_col}">{md.fmt_money(main_pl)}</span></span>'
-            f'<span class="hf-port-line"><b>Mock 2</b> '
-            f'<span style="color:{mt_pl_col}">{md.fmt_money(mt_pl)}</span></span>'
-        f'</div>'
-        f'<div class="hf-tile-sub">'
-        f'{len(main_pending)} + {len(mt_pending)} pending · {settled_24h} settled 24h</div>'
-        '</div>'
+            # ── Tile 2: Portfolios at a glance ──
+            '<div class="hf-tile hf-portfolios">'
+            f'<div class="hf-tile-icon">💰</div>'
+            f'<div class="hf-tile-lbl">PORTFOLIOS</div>'
+            f'<div class="hf-portfolios-row">'
+                f'<span class="hf-port-line"><b>Main</b> '
+                f'<span style="color:{main_pl_col}">{md.fmt_money(main_pl)}</span></span>'
+                f'<span class="hf-port-line"><b>Mock 2</b> '
+                f'<span style="color:{mt_pl_col}">{md.fmt_money(mt_pl)}</span></span>'
+            f'</div>'
+            f'<div class="hf-tile-sub">'
+            f'{len(main_pending)} + {len(mt_pending)} pending · {settled_24h} settled 24h</div>'
+            '</div>'
 
-        # ── Tile 3: CLV health ──
-        '<div class="hf-tile hf-clv">'
-        f'<div class="hf-tile-icon">📐</div>'
-        f'<div class="hf-tile-lbl">EDGE HEALTH (CLV)</div>'
-        f'<div class="hf-portfolios-row">'
-            f'<span class="hf-port-line"><b>Main</b> '
-            f'<span style="color:{main_clv_col}">{main_clv_v:+.2f}%</span></span>'
-            f'<span class="hf-port-line"><b>Mock 2</b> '
-            f'<span style="color:{mt_clv_col}">{mt_clv_v:+.2f}%</span></span>'
-        f'</div>'
-        f'<div class="hf-tile-sub">'
-        f'{main_clv.get("n", 0)} + {mt_clv.get("n", 0)} tagged bets · '
-        f'{"sharp" if max(main_clv_v, mt_clv_v) >= 1 else "monitor"}</div>'
-        '</div>'
+            # ── Tile 3: CLV health ──
+            '<div class="hf-tile hf-clv">'
+            f'<div class="hf-tile-icon">📐</div>'
+            f'<div class="hf-tile-lbl">EDGE HEALTH (CLV)</div>'
+            f'<div class="hf-portfolios-row">'
+                f'<span class="hf-port-line"><b>Main</b> '
+                f'<span style="color:{main_clv_col}">{main_clv_v:+.2f}%</span></span>'
+                f'<span class="hf-port-line"><b>Mock 2</b> '
+                f'<span style="color:{mt_clv_col}">{mt_clv_v:+.2f}%</span></span>'
+            f'</div>'
+            f'<div class="hf-tile-sub">'
+            f'{main_clv.get("n", 0)} + {mt_clv.get("n", 0)} tagged bets · '
+            f'{"sharp" if max(main_clv_v, mt_clv_v) >= 1 else "monitor"}</div>'
+            '</div>'
 
-        # ── Tile 4: Next fixture ──
-        '<div class="hf-tile hf-next">'
-        f'<div class="hf-tile-icon">📅</div>'
-        f'<div class="hf-tile-lbl">NEXT MATCHDAY</div>'
-        f'{next_fix_html}'
-        '</div>'
+            # ── Tile 4: Next fixture ──
+            '<div class="hf-tile hf-next">'
+            f'<div class="hf-tile-icon">📅</div>'
+            f'<div class="hf-tile-lbl">NEXT MATCHDAY</div>'
+            f'{next_fix_html}'
+            '</div>'
 
-        '</div>',
-        unsafe_allow_html=True,
-    )
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Recent events feed ─────────────────────────────────────────────
     # Collapse repeats: the hourly runner logs the same "no fixtures" warning
@@ -10026,48 +10106,142 @@ def _render_home_activity() -> None:
     )
 
 
-def _render_home_screen() -> None:
-    """Large PL logo + title + 6-tile grid for tab entry."""
-    # Hero: big logo + title
-    logo_html = (f'<img src="{PL_SYMBOL_URI}" alt="Premier League" />'
-                 if PL_SYMBOL_URI else '<div style="font-size:9rem">⚽</div>')
-    st.markdown(f"""
-    <div class="home-hero">
-        {logo_html}
-        <div class="home-title">Premier League Match Predictor</div>
-        <div class="home-sub">Dixon-Coles · XGBoost · Draw Specialist · Calibrated</div>
-    </div>
-    """, unsafe_allow_html=True)
+def _series_from_bets(p: dict) -> list[float]:
+    """Bankroll after each settled bet, from the opening figure."""
+    chrono = sorted((b for b in p["bets"] if b["status"] in ("won", "lost")),
+                    key=lambda b: (b.get("settled_at") or b.get("date") or ""))
+    vals, run = [float(p["initial_bankroll"])], float(p["initial_bankroll"])
+    for b in chrono:
+        run += float(b.get("profit") or 0)
+        vals.append(run)
+    return vals
 
-    # Recent activity feed — appears between hero and tile grid
-    _render_home_activity()
 
-    st.markdown("<br>", unsafe_allow_html=True)
+def _home_health() -> tuple[str, str]:
+    """(tone, text) for the header pill: is the auto-bet machinery alive?"""
+    events = _read_activity_log(200)
+    last = next((e for e in events if e.get("type") == "run_completed"), None)
+    errs = [e for e in events[:60] if e.get("type") in ("error", "fatal")]
+    age_txt = _humanize_age(last["ts"]) if last else "never"
+    age_h = 99.0
+    if last:
+        try:
+            t = datetime.fromisoformat(last["ts"].rstrip("Z").split("+")[0])
+            age_h = (datetime.utcnow() - t).total_seconds() / 3600
+        except Exception:
+            pass
+    if errs:
+        return "stop", f"Auto-bet error logged · last run {age_txt}"
+    if age_h > 2:
+        return "hold", f"No auto-bet run for {age_txt.replace(' ago', '')}"
+    return "go", f"Auto-bet healthy · last run {age_txt}"
 
-    # Tile grid — 3 columns, as many rows as needed. Scope tile-look CSS to the container.
-    st.markdown('<div class="home-tile-mode">', unsafe_allow_html=True)
 
-    n_rows = (len(TAB_REGISTRY) + 2) // 3   # ceil division
-    cols = [st.columns(3, gap="medium") for _ in range(n_rows)]
-    for idx, (key, emoji, name, blurb) in enumerate(TAB_REGISTRY):
-        col = cols[idx // 3][idx % 3]
-        with col:
-            if st.button(f"{emoji}\n\n**{name}**\n\n{blurb}",
-                         key=f"home_tile_{key}",
-                         use_container_width=True):
-                st.session_state["_active_view"] = key
-                st.rerun()
+def _render_home_screen(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc,
+                        teams, elo_dict) -> None:
+    """Matchday control room: status, both lines, the next matchday, then pages.
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Minimal footer
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    Rebuilt 25 Sep 2026. The old home spent 500px on a logo and title, then an
+    activity log, and only then the navigation (1,300px down on desktop,
+    2,200px on a phone). Everything needed at a glance now sits on one screen.
+    """
+    main_p, mt_p = pf.load_portfolio(), pf.load_portfolio_two()
+    tone, health = _home_health()
+    logo = f'<img src="{PL_SYMBOL_URI}" alt="" />' if PL_SYMBOL_URI else ""
     st.markdown(
-        '<p style="text-align:center;font-size:0.78rem;color:#9aa6ba;letter-spacing:2px">'
-        'DATA: FOOTBALL-DATA.CO.UK · UNDERSTAT · ESPN · THE ODDS API · BETFAIR EXCHANGE CLOSE · PAPER TRADING ONLY</p>',
-        unsafe_allow_html=True,
-    )
+        f'<div class="ch-head"><div class="ch-brand">{logo}<div><div class="ch-title">F_PRED</div>'
+        f'<div class="ch-sub">Premier League draw model · paper trading</div></div></div>'
+        f'{_preflight_chip(health, tone)}</div>', unsafe_allow_html=True)
 
+    # ── Both lines + open risk ───────────────────────────────────────────
+    def line_tile(p, name, accent):
+        stats = pf.portfolio_stats(p)
+        pend = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
+        wealth = p["bankroll"] + pend
+        clv = pf.clv_summary(p)
+        clv_v = (clv.get("median_clv") or 0) * 100
+        spark = _elo_sparkline_svg(_series_from_bets(p), width=150, height=40)
+        pl = stats["profit"]
+        return (f'<div class="ch-tile"><div class="ch-lbl" style="color:{accent}">{name}</div>'
+                f'<div class="ch-val">{md.fmt_money(wealth, signed=False)}</div>'
+                f'<div class="ch-sub2"><b style="color:{"#00e676" if pl >= 0 else "#ff6fa1"}">'
+                f'{md.fmt_money(pl)}</b> this season · CLV '
+                f'<b style="color:{"#00e676" if clv_v >= 0 else "#ff6fa1"}">{clv_v:+.1f}%</b></div>'
+                f'<div class="ch-spark">{spark}</div></div>')
+    pend_all = [b for p in (main_p, mt_p) for b in p["bets"] if b["status"] == "pending"]
+    risk = sum(b["stake"] for b in pend_all)
+    nxt = min((b["date"] for b in pend_all if b.get("date")), default=None)
+    try:
+        nxt_txt = pd.Timestamp(nxt).strftime("%a %-d %b") if nxt else "–"
+    except Exception:
+        nxt_txt = "–"
+    open_tile = (f'<div class="ch-tile"><div class="ch-lbl">Open bets</div>'
+                 f'<div class="ch-val">{len(pend_all)}</div>'
+                 f'<div class="ch-sub2">{md.fmt_money(risk, signed=False)} at risk · first settles {nxt_txt}</div></div>')
+    st.markdown('<div class="ch-tiles">' + line_tile(main_p, "MAIN", "#7ea2ff")
+                + line_tile(mt_p, "MOCK TWO", "#b39dff") + open_tile + '</div>',
+                unsafe_allow_html=True)
+
+    # ── Next matchday board ─────────────────────────────────────────────
+    state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                           draw_fc, teams, elo_dict)
+    nm = state["next"]
+    if nm and state["preds"]:
+        span = nm["start"].strftime("%a %-d %b")
+        if nm["end"] != nm["start"]:
+            span += " to " + nm["end"].strftime("%a %-d %b")
+        days = nm["days_away"]
+        opens = nm["start"] - timedelta(days=md.BETTING_WINDOW_DAYS)
+        when = "today" if days == 0 else ("tomorrow" if days == 1 else f"in {days} days")
+        window = ("betting window open" if days <= md.BETTING_WINDOW_DAYS
+                  else f"betting opens {opens.strftime('%a %-d %b')}")
+        rows = []
+        for q in state["preds"]:
+            k = (q["home"], q["away"])
+            mk = md.market_probs(state["odds"].get(k))
+            ko = md.kickoff_local(q.get("time_utc"))
+            t = ko.strftime("%a %H:%M") if ko else q["fix_date"].strftime("%a %-d")
+            dm = q["main"]["draw"] * 100
+            edge = (q["main"]["draw"] - mk["D"]) * 100 if mk else None
+            ecol = "#00e676" if (edge or 0) >= 3 else ("#ffd600" if (edge or 0) >= 0 else "#ff6fa1")
+            vm, vt = state["verdicts"]["main"].get(k), state["verdicts"]["mt"].get(k)
+            def chip(v):
+                if not v:
+                    return ""
+                tn, lb = _VERDICT_CHIP.get(v["status"], ("pass", "PASS"))
+                return _preflight_chip(lb, tn)
+            rows.append(
+                f'<div class="ch-row"><span class="ch-t">{t}</span>'
+                f'<span class="ch-fx">{tb(q["home"], 20)} <span class="ch-v">v</span> {tb(q["away"], 20)}</span>'
+                f'<span class="ch-num" style="color:#ffd600">{dm:.0f}%</span>'
+                f'<span class="ch-num">{(mk["D"]*100 if mk else 0):.0f}%</span>'
+                f'<span class="ch-num" style="color:{ecol}">{"–" if edge is None else f"{edge:+.1f}"}</span>'
+                f'<span>{chip(vm)}</span><span>{chip(vt)}</span></div>')
+        st.markdown(
+            f'<div class="ch-board"><div class="ch-board-head"><div><span class="ch-lbl">Next matchday</span>'
+            f'<div class="ch-board-title">{span} · {when}</div></div>'
+            f'<span class="ch-board-note">{nm["n"]} fixtures · {window}</span></div>'
+            f'<div class="ch-row ch-row-h"><span>Kick-off</span><span>Fixture</span><span>Model draw</span>'
+            f'<span>Market</span><span>Edge pp</span><span>Main</span><span>Mock Two</span></div>'
+            + "".join(rows) + '</div>', unsafe_allow_html=True)
+
+    # ── Pages ────────────────────────────────────────────────────────────
+    for group, items in NAV_GROUPS:
+        st.markdown(f'<div class="ch-group">{group}</div>', unsafe_allow_html=True)
+        cols = st.columns(3, gap="small")
+        for i, (key, emoji, name, blurb) in enumerate(items):
+            with cols[i]:
+                if st.button(f"{emoji}  {name}", key=f"navtile_{key}", use_container_width=True):
+                    st.session_state["_active_view"] = key
+                    st.rerun()
+                st.markdown(f'<div class="ch-blurb">{blurb}</div>', unsafe_allow_html=True)
+
+    with st.expander("Recent activity", expanded=False):
+        _render_home_activity(show_tiles=False)
+
+    st.markdown(
+        '<p class="ch-foot">DATA: FOOTBALL-DATA.CO.UK · UNDERSTAT · ESPN · THE ODDS API · '
+        'BETFAIR EXCHANGE CLOSE · PAPER TRADING ONLY</p>', unsafe_allow_html=True)
 
 
 # ── Pre-Flight: is the season actually ready to trade? ─────────────────────────
@@ -10722,13 +10896,65 @@ def _session_auto_bet_run(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                         placed=placed_total)
 
 
+_BOOT_STEPS = ["Match data and xG", "Model training", "Settling bets and pricing the next matchday"]
+
+
+def _view_switch(key: str, options: list[str]) -> str:
+    """Segmented switch between the sub-views of a merged page."""
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = options[0]
+    choice = st.segmented_control("View", options, key=key, label_visibility="collapsed")
+    return choice or options[0]
+
+
+def _after_render_auto_bet(*args) -> None:
+    """The five-minute auto-bet refresh, run AFTER the page has drawn.
+
+    It used to run before anything rendered, so a slow run meant a blank page.
+    If it settles or places anything the page reruns to show it.
+    """
+    before = (_file_stamp(pf.PORTFOLIO_FILE), _file_stamp(pf.MOCK2_PORTFOLIO_FILE))
+    b_main = json.dumps(pf.load_portfolio().get("bets", []), sort_keys=True, default=str)
+    b_mt = json.dumps(pf.load_portfolio_two().get("bets", []), sort_keys=True, default=str)
+    try:
+        _session_auto_bet(*args)
+    except Exception as e:
+        _log_activity_event("error", stage="after_render_auto_bet", error=str(e))
+        return
+    if (_file_stamp(pf.PORTFOLIO_FILE), _file_stamp(pf.MOCK2_PORTFOLIO_FILE)) != before:
+        changed = (json.dumps(pf.load_portfolio().get("bets", []), sort_keys=True, default=str) != b_main
+                   or json.dumps(pf.load_portfolio_two().get("bets", []), sort_keys=True, default=str) != b_mt)
+        if changed:
+            st.session_state.pop("_matchday_state", None)
+            st.rerun()
+
+
+def _boot_html(done: int) -> str:
+    """The first-load card. A cold start takes about two minutes and used to be
+    a blank page: this says what is happening and how far along it is."""
+    rows = []
+    for i, name in enumerate(_BOOT_STEPS):
+        mark, cls = ("✓", "boot-done") if i < done else (("●", "boot-now") if i == done else ("○", "boot-todo"))
+        rows.append(f'<div class="boot-step {cls}"><span>{mark}</span>{name}</div>')
+    logo = f'<img src="{PL_SYMBOL_URI}" alt="" />' if PL_SYMBOL_URI else ""
+    return (f'<div class="boot-card">{logo}<div class="boot-title">Getting F_PRED ready</div>'
+            f'<div class="boot-sub">First load after a restart trains every model, so it takes '
+            f'a minute or two. Later pages open in seconds.</div>{"".join(rows)}</div>')
+
+
 def main():
-    with st.spinner("Loading match data..."):
-        try:
-            df, df_features = cached_data()
-        except Exception as e:
-            st.error(f"Failed to load data: {e}")
-            st.stop()
+    first_load = not st.session_state.get("_booted")
+    boot = st.empty()
+    if first_load:
+        boot.markdown(_boot_html(0), unsafe_allow_html=True)
+    try:
+        df, df_features = cached_data()
+    except Exception as e:
+        boot.empty()
+        st.error(f"Failed to load data: {e}")
+        st.stop()
+    if first_load:
+        boot.markdown(_boot_html(1), unsafe_allow_html=True)
 
     # Surface degraded xG state — Understat down means the model is silently
     # running on the shots-conversion proxy instead of real xG.
@@ -10747,7 +10973,7 @@ def main():
     except Exception:
         pass
 
-    with st.spinner("Training models (Dixon-Coles MLE + XGBoost)..."):
+    if True:  # was st.spinner; the boot card now shows progress
         cache_key = f"{len(df)}_{df['Date'].max().date()}"
         poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, elo_dict = cached_models(cache_key)
 
@@ -10775,17 +11001,34 @@ def main():
 
     teams = get_current_teams(df)
 
-    # Run auto-bet pipeline once per session (or every 5+ min on rerun).
-    # This replaces the launchd schedule for users who prefer the in-app
-    # trigger — opening the app or refreshing the page now settles + places.
-    _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
-                      draw_xgb_m, draw_fc, teams, elo_dict)
+    if first_load:
+        boot.markdown(_boot_html(2), unsafe_allow_html=True)
+        # Settle before the first paint so opening balances are current.
+        _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                          draw_xgb_m, draw_fc, teams, elo_dict)
+        matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                       draw_fc, teams, elo_dict)
+        boot.empty()
+        st.session_state["_booted"] = True
 
     active_view = st.session_state.get("_active_view")
+    # Old view keys from before the eight-tile grouping still route.
+    _alias = {"portfolio2": ("portfolio", "_pf_line", "Mock Two"),
+              "elo": ("teams", "_teams_view", "Ratings"),
+              "teamdeep": ("teams", "_teams_view", "Team dossier"),
+              "backtest": ("modelcheck", "_mc_view", "Calibration"),
+              "review": ("modelcheck", "_mc_view", "Season review")}
+    if active_view in _alias:
+        target, k, v = _alias[active_view]
+        st.session_state[k] = v
+        st.session_state["_active_view"] = active_view = target
 
     # ── Home screen ──────────────────────────────────────────────────────
     if active_view is None:
-        _render_home_screen()
+        _render_home_screen(df, dc_r, dc_draw_r, xgb_m, feat_cols,
+                            draw_xgb_m, draw_fc, teams, elo_dict)
+        _after_render_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                               draw_xgb_m, draw_fc, teams, elo_dict)
         return
 
     # ── In-tab view: compact top bar + routed content ────────────────────
@@ -10812,23 +11055,26 @@ def main():
     elif active_view == "results":
         tab_results(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                     draw_xgb_m, draw_fc, teams, elo_dict)
-    elif active_view == "backtest":
-        tab_backtest(len(df))
     elif active_view == "season":
         tab_season(df, dc_r)
-    elif active_view == "review":
-        tab_season_review(df)
-    elif active_view == "elo":
-        tab_elo(df, teams)
-    elif active_view == "teamdeep":
-        tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
-                          draw_xgb_m, draw_fc, teams, elo_dict)
+    elif active_view == "teams":
+        if _view_switch("_teams_view", ["Ratings", "Team dossier"]) == "Ratings":
+            tab_elo(df, teams)
+        else:
+            tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                              draw_xgb_m, draw_fc, teams, elo_dict)
+    elif active_view == "modelcheck":
+        if _view_switch("_mc_view", ["Calibration", "Season review"]) == "Calibration":
+            tab_backtest(len(df))
+        else:
+            tab_season_review(df)
     elif active_view == "portfolio":
-        tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
-                      draw_xgb_m, draw_fc, teams, elo_dict)
-    elif active_view == "portfolio2":
-        tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+        if _view_switch("_pf_line", ["Main", "Mock Two"]) == "Main":
+            tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                           draw_xgb_m, draw_fc, teams, elo_dict)
+        else:
+            tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                              draw_xgb_m, draw_fc, teams, elo_dict)
     elif active_view == "preflight":
         tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                       draw_xgb_m, draw_fc, teams, elo_dict)
@@ -10843,6 +11089,8 @@ def main():
         'MODEL: DIXON-COLES + XGBOOST + DRAW SPECIALIST, CALIBRATED · PAPER TRADING ONLY</p>',
         unsafe_allow_html=True,
     )
+    _after_render_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
+                           draw_xgb_m, draw_fc, teams, elo_dict)
 
 
 if __name__ == "__main__":

@@ -134,3 +134,25 @@ def test_next_matchday_and_money_format():
     assert md.fmt_money(-1703.33) == "−£1,703"
     assert md.fmt_money(15016) == "+£15,016"
     assert md.fmt_money(21994.69, signed=False, pence=True) == "£21,994.69"
+
+
+def test_market_probs_prefers_pinnacle_and_removes_margin():
+    api = {"H": 1.42, "D": 5.5, "A": 9.6,
+           "_pinnacle": {"H": 1.38, "D": 4.91, "A": 7.61},
+           "_books": {"x": {"H": 1.36, "D": 4.6, "A": 8.0}}}
+    m = md.market_probs(api)
+    assert m["source"] == "Pinnacle"
+    assert abs(m["H"] + m["D"] + m["A"] - 1) < 1e-9
+    assert 0.19 < m["D"] < 0.21          # 1/4.91 = 0.204 before the margin comes out
+    no_pin = md.market_probs({"H": 2.0, "D": 3.4, "A": 4.0,
+                              "_books": {"a": {"H": 2.0, "D": 3.3, "A": 4.0},
+                                         "b": {"H": 2.1, "D": 3.5, "A": 3.8},
+                                         "c": {"H": 1.9, "D": 3.4, "A": 4.2}}})
+    assert no_pin["source"] == "median of 3 books"
+    assert md.market_probs({}) is None
+
+
+def test_kickoff_local_is_uk_time():
+    k = md.kickoff_local("2026-10-10T14:00Z")
+    assert (k.hour, k.minute) == (15, 0)       # BST in October
+    assert md.kickoff_local(None) is None

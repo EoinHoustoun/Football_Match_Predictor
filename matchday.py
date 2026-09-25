@@ -300,6 +300,50 @@ def next_matchday(fixtures: list[dict], today: date | None = None) -> dict | Non
             "fixtures": [f for _, f in dated]}
 
 
+def market_probs(api_o: dict | None) -> dict | None:
+    """Margin-free H/D/A probabilities from a fixture's odds entry.
+
+    Pinnacle when it is quoted (the sharp reference the strategy measures edge
+    against); otherwise the median price across the listed books, which is a
+    fairer read of the market than the best-of-panel maximum. Normalised so the
+    three sum to 1. Returns {H, D, A, source} or None.
+    """
+    if not api_o:
+        return None
+    src, prices = None, None
+    pin = api_o.get("_pinnacle") or {}
+    if all(pin.get(k, 0) > 1 for k in ("H", "D", "A")):
+        src, prices = "Pinnacle", {k: float(pin[k]) for k in ("H", "D", "A")}
+    else:
+        books = [b for b in (api_o.get("_books") or {}).values()
+                 if all(b.get(k, 0) > 1 for k in ("H", "D", "A"))]
+        if books:
+            import statistics
+            src = f"median of {len(books)} books"
+            prices = {k: statistics.median(float(b[k]) for b in books) for k in ("H", "D", "A")}
+        elif all(api_o.get(k, 0) > 1 for k in ("H", "D", "A")):
+            src, prices = "best price", {k: float(api_o[k]) for k in ("H", "D", "A")}
+    if not prices:
+        return None
+    inv = {k: 1.0 / v for k, v in prices.items()}
+    tot = sum(inv.values())
+    return {**{k: v / tot for k, v in inv.items()}, "source": src}
+
+
+def kickoff_local(time_utc: str | None):
+    """ESPN's UTC kickoff as a UK-local datetime, or None."""
+    if not time_utc:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        ts = pd.Timestamp(time_utc)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        return ts.tz_convert(ZoneInfo("Europe/London")).to_pydatetime()
+    except Exception:
+        return None
+
+
 def fmt_money(x: float, signed: bool = True, pence: bool = False) -> str:
     """"+£1,703" / "−£1,703" (true minus sign). signed=False drops the plus."""
     x = float(x)
