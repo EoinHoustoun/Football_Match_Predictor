@@ -156,3 +156,18 @@ def test_kickoff_local_is_uk_time():
     k = md.kickoff_local("2026-10-10T14:00Z")
     assert (k.hour, k.minute) == (15, 0)       # BST in October
     assert md.kickoff_local(None) is None
+
+
+def test_prematch_log_keeps_only_before_kickoff(tmp_path):
+    path = str(tmp_path / "log.json")
+    q = {"home": "A", "away": "B", "date": "2026-10-10", "time_utc": "2026-10-10T14:00Z",
+         "main": {"home_win": 0.5, "draw": 0.3, "away_win": 0.2}, "p_o25": 0.55}
+    assert md.record_prematch([q], path, now="2026-10-09T12:00Z") == 1
+    first = md.load_prematch(path)["2026-10-10|A|B"]
+    # after kickoff a refit must not rewrite history
+    q2 = {**q, "main": {"home_win": 0.9, "draw": 0.05, "away_win": 0.05}}
+    assert md.record_prematch([q2], path, now="2026-10-10T16:00Z") == 0
+    assert md.load_prematch(path)["2026-10-10|A|B"] == first
+    # before kickoff the latest pre-match view replaces the older one
+    assert md.record_prematch([q2], path, now="2026-10-10T13:00Z") == 1
+    assert md.load_prematch(path)["2026-10-10|A|B"]["p_h"] == 0.9

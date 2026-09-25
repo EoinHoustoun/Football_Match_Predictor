@@ -344,6 +344,63 @@ def kickoff_local(time_utc: str | None):
         return None
 
 
+PREMATCH_LOG = "data/prediction_log.json"
+
+
+def record_prematch(preds: list[dict], path: str = PREMATCH_LOG, now=None) -> int:
+    """Keep the latest BEFORE-KICKOFF prediction for each fixture.
+
+    Last Matchday used to grade results with the current model, which has
+    already been refitted on those very results. This log is what the model
+    actually said beforehand. An entry is never overwritten once its kickoff
+    has passed. Returns the number of entries written or refreshed.
+    """
+    import json
+    from pathlib import Path as _P
+    now = pd.Timestamp(now or pd.Timestamp.utcnow())
+    if now.tzinfo is None:
+        now = now.tz_localize("UTC")
+    p = _P(path)
+    try:
+        log = json.loads(p.read_text()) if p.exists() else {}
+    except Exception:
+        log = {}
+    n = 0
+    for q in preds:
+        ko = q.get("time_utc")
+        try:
+            ko_ts = pd.Timestamp(ko) if ko else pd.Timestamp(str(q["date"])[:10]) + pd.Timedelta(hours=11)
+            if ko_ts.tzinfo is None:
+                ko_ts = ko_ts.tz_localize("UTC")
+        except Exception:
+            continue
+        if now >= ko_ts:
+            continue
+        key = f"{str(q['date'])[:10]}|{q['home']}|{q['away']}"
+        log[key] = {"p_h": round(float(q["main"]["home_win"]), 5),
+                    "p_d": round(float(q["main"]["draw"]), 5),
+                    "p_a": round(float(q["main"]["away_win"]), 5),
+                    "p_o25": round(float(q.get("p_o25", 0.5)), 5),
+                    "saved_at": now.isoformat(timespec="seconds"),
+                    "kickoff": ko_ts.isoformat()}
+        n += 1
+    if n:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(log, indent=1, sort_keys=True))
+        tmp.replace(p)
+    return n
+
+
+def load_prematch(path: str = PREMATCH_LOG) -> dict:
+    import json
+    from pathlib import Path as _P
+    try:
+        return json.loads(_P(path).read_text())
+    except Exception:
+        return {}
+
+
 def fmt_money(x: float, signed: bool = True, pence: bool = False) -> str:
     """"+£1,703" / "−£1,703" (true minus sign). signed=False drops the plus."""
     x = float(x)

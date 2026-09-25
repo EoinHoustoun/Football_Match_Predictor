@@ -513,6 +513,23 @@ html body div[class*="st-key-navtile_"] button:hover { border-color: #b39dff !im
     .ch-row { grid-template-columns: 4rem minmax(0, 1fr) 2.8rem 5.6rem; white-space: normal; }
     .ch-row > span:nth-child(4), .ch-row > span:nth-child(5), .ch-row > span:nth-child(7) { display: none; }
     .ch-fx { white-space: normal; } .ch-spark { display: none; } }
+.mc-table { overflow-x: auto; background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+.mc-table table { width: 100%; border-collapse: collapse; font-size: 0.9rem; color: #eef1f5; }
+.mc-table th { text-align: left; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; color: #c9d0dc;
+    padding: 0.6rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.mc-table td { padding: 0.5rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.mc-table td.num { font-variant-numeric: tabular-nums; }
+.gwb { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 0.8rem; margin-bottom: 1rem; }
+.gwb-card { background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 0.9rem 1.1rem; }
+.gwb-head { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; margin-bottom: 0.4rem; }
+.gwb-stat { font-size: 0.92rem; color: #eef1f5; }
+.gwb-row { display: grid; grid-template-columns: minmax(0, 2fr) 1fr 4rem 5.5rem; gap: 0.5rem; align-items: center;
+    padding: 0.35rem 0; border-top: 1px solid rgba(255,255,255,0.05); font-size: 0.86rem; color: #eef1f5; }
+.rk-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.6fr); gap: 0.7rem; margin-bottom: 1.2rem; }
+.rk-tile { background: #111627; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 0.8rem 1rem; }
+.rk-val { font-size: 1.5rem; font-weight: 900; color: #eef1f5; font-variant-numeric: tabular-nums; }
+.pend-v2-move { text-align: center; font-size: 0.84rem; color: #eef1f5; margin: -0.2rem 0 0.6rem; }
+@media (max-width: 900px) { .rk-strip { grid-template-columns: 1fr 1fr; } .rk-clv { grid-column: 1 / -1; } }
 .hf-evt-rep { font-size: 0.82rem; color: #c9d0dc; font-weight: 600; margin-left: 0.3rem; }
 .pf-board-row { display: grid; grid-template-columns: 5.5rem minmax(12rem, 1.6fr) 6rem 1fr 1fr;
     gap: 0.8rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -3112,13 +3129,165 @@ def tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
 # ─────────────────────────────────────────────────────────────────────────────
 # Tab 3 — Backtesting
 # ─────────────────────────────────────────────────────────────────────────────
+def _mc_layout(fig, height=360, ytitle="", xtitle="", pct_y=True):
+    """Chart styling for Model Check: legible axes, faint grid, no chrome."""
+    fig.update_layout(
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=height, margin=dict(l=10, r=10, t=10, b=10),
+        font=dict(family="Inter", color="#c9d0dc", size=13),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color="#eef1f5")),
+        hoverlabel=dict(bgcolor="#141a2e", font_color="#eef1f5"))
+    fig.update_xaxes(title=xtitle, gridcolor="rgba(255,255,255,0.06)", zeroline=False,
+                     tickfont=dict(color="#c9d0dc"))
+    fig.update_yaxes(title=ytitle, gridcolor="rgba(255,255,255,0.06)", zeroline=False,
+                     tickformat=".0%" if pct_y else None, tickfont=dict(color="#c9d0dc"))
+    return fig
+
+
+@st.cache_data(show_spinner=False)
+def _mc_pack(mtime: float):
+    import model_check as mc
+    f, t = mc.load_pack()
+    return f
+
+
+def tab_model_check_calibration(df) -> None:
+    """Is the live draw model honest, and where does its edge sit?
+
+    Rebuilt 25 Sep 2026. Pools the out-of-sample predictions from the
+    validation pack (every match of 2022-23 onward, the full live ensemble,
+    each season fitted only on data before it) instead of refitting two
+    intermediate models on the last 50 matches.
+    """
+    import model_check as mc
+    if not mc.PACK_PATH.exists():
+        st.info("No validation pack yet. Build it with `python3 scripts/validate_exposure_cap.py` "
+                "and this page fills in.")
+        tab_backtest(len(df))
+        return
+    mtime = mc.PACK_PATH.stat().st_mtime
+    f = _mc_pack(mtime)
+    built = datetime.fromtimestamp(mtime).strftime("%-d %b %Y")
+    seasons = sorted(f["Season"].unique())
+    rel = mc.reliability(f)
+    edge = mc.edge_by_bucket(f)
+    seas = mc.season_table(f)
+    full = seas[seas["n"] >= 300]
+    beat = int((full["brier_model"] < full["brier_market"]).sum())
+
+    st.markdown(
+        f'<div class="md-summary"><div><div class="md-sum-lbl">Out-of-sample matches</div>'
+        f'<div class="md-sum-val">{len(f):,}</div></div>'
+        f'<div><div class="md-sum-lbl">Seasons</div><div class="md-sum-val">{seasons[0]} to {seasons[-1]}</div></div>'
+        f'<div><div class="md-sum-lbl">Draws: model v actual</div><div class="md-sum-val">'
+        f'{f["p_d"].mean():.1%} v {f["drew"].mean():.1%}</div></div>'
+        f'<div><div class="md-sum-lbl">Seasons beating the close</div><div class="md-sum-val">{beat} of {len(full)}</div></div>'
+        f'<div class="md-sum-note">Every probability here is the full live model before calibration '
+        f'(the raw number the 30% floor gates), fitted only on matches before each season. '
+        f'Pack built {built}; rebuild with scripts/validate_exposure_cap.py to add recent matches.</div></div>',
+        unsafe_allow_html=True)
+
+    _section_header("When the model says X% draw, how often is it a draw?",
+                    "Each dot is one band of raw draw probability. The bar is the 90% range the "
+                    "true rate could sit in, given how many matches fell in that band. On the "
+                    "dashed line the model is exactly right.")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[0.15, 0.42], y=[0.15, 0.42], mode="lines", name="Perfectly calibrated",
+                             line=dict(color="#c9d0dc", dash="dash", width=1)))
+    fig.add_trace(go.Scatter(
+        x=rel["predicted"], y=rel["actual"], mode="markers+text", name="Model (raw)",
+        text=[f"n={n}" for n in rel["n"]], textposition="middle right",
+        textfont=dict(color="#c9d0dc", size=12),
+        error_y=dict(type="data", symmetric=False, array=rel["hi"] - rel["actual"],
+                     arrayminus=rel["actual"] - rel["lo"], color="#ffd600", thickness=2, width=6),
+        marker=dict(size=13, color="#ffd600", line=dict(color="#0a0e1a", width=2)),
+        hovertemplate="Model %{x:.1%} · actual %{y:.1%}<extra></extra>"))
+    fig.add_trace(go.Scatter(x=rel["predicted"], y=rel["market"], mode="markers", name="Market close, same matches",
+                             marker=dict(size=9, color="#7ea2ff", symbol="diamond"),
+                             hovertemplate="Market %{y:.1%}<extra></extra>"))
+    _mc_layout(fig, 380, "Actual draw rate", "Model's raw draw probability")
+    fig.update_xaxes(tickformat=".0%", range=[0.15, 0.42])
+    fig.update_yaxes(range=[0.1, 0.42])
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    worst = rel.loc[(rel["predicted"] - rel["actual"]).idxmax()]
+    st.markdown(
+        f'<div class="scan-explainer">Read it this way: in the <b>{worst["bin"]}</b> band the model '
+        f'averaged <b>{worst["predicted"]:.0%}</b> and <b>{worst["actual"]:.0%}</b> of those matches were '
+        f'draws (90% range {worst["lo"]:.0%} to {worst["hi"]:.0%}). Where the dot sits below the line the '
+        f'raw model is too keen on the draw; the live calibrator and the gates exist to absorb that.</div>',
+        unsafe_allow_html=True)
+
+    _section_header("Where the edge sits",
+                    "£1 on every draw in each band, settled at the Pinnacle closing price. The close "
+                    "is harder than the price actually taken, so read the pattern, not the size.")
+    e = edge.copy()
+    fig2 = go.Figure(go.Bar(
+        x=e["bin"], y=e["roi"],
+        marker_color=["#00e676" if v >= 0 else "#ff6fa1" for v in e["roi"]],
+        text=[f"{v:+.1%}<br>n={n}" for v, n in zip(e["roi"], e["n"])], textposition="outside",
+        textfont=dict(color="#eef1f5", size=12),
+        hovertemplate="%{x}: %{y:+.1%} per £1<extra></extra>"))
+    _mc_layout(fig2, 320, "Return per £1 at the close", "Model's raw draw probability")
+    lo, hi = float(e["roi"].min()), float(e["roi"].max())
+    fig2.update_yaxes(range=[min(lo, 0) - 0.06, max(hi, 0) + 0.08])
+    fig2.add_vrect(x0=2.5, x1=4.5, fillcolor="rgba(255,214,0,0.06)", line_width=0,
+                   annotation_text="Raw floor 30%: only these bands can be bet",
+                   annotation_position="bottom left", annotation_font_color="#ffd600")
+    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+
+    def _sharper(r) -> str:
+        if pd.isna(r.brier_market):
+            return ""
+        if r.brier_model < r.brier_market:
+            return '<b style="color:#00e676">model</b>'
+        return '<b style="color:#7ea2ff">market</b>'
+
+    _section_header("Season by season",
+                    "Draw Brier score: lower is better. The market column is the Pinnacle close, "
+                    "missing for 2026-27 because football-data stopped publishing it.")
+    rows = "".join(
+        f'<tr><td>{r.season}</td><td class="num">{r.n}</td><td class="num">{r.draw_rate:.1%}</td>'
+        f'<td class="num">{r.model_mean:.1%}</td><td class="num">{r.brier_model:.3f}</td>'
+        f'<td class="num">{"–" if pd.isna(r.brier_market) else f"{r.brier_market:.3f}"}</td>'
+        f'<td>{_sharper(r)}</td></tr>'
+        for r in seas.itertuples())
+    st.markdown(
+        '<div class="mc-table"><table><thead><tr><th>Season</th><th>Matches</th><th>Draw rate</th>'
+        '<th>Model mean</th><th>Brier model</th><th>Brier market</th><th>Sharper</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table></div>', unsafe_allow_html=True)
+
+    _section_header("Draw rate over the last 76 matches",
+                    "The live calibrator refits on a trailing 40-week window, so when this line runs "
+                    "hot it lifts every draw probability. The dotted line is the long-run 22%.")
+    rr = mc.rolling_draw_rate(f)
+    # Break the lines over each summer instead of drawing a flat bridge.
+    gap = rr["Date"].diff().dt.days > 30
+    if gap.any():
+        breaks = rr.loc[gap, ["Date"]].copy()
+        breaks["Date"] = breaks["Date"] - pd.Timedelta(days=1)
+        breaks[["actual", "model"]] = np.nan
+        rr = pd.concat([rr, breaks]).sort_values("Date")
+    fig3 = go.Figure()
+    fig3.add_trace(go.Scatter(x=rr["Date"], y=rr["actual"], name="Actual draw rate", mode="lines",
+                              line=dict(color="#ffd600", width=2.5)))
+    fig3.add_trace(go.Scatter(x=rr["Date"], y=rr["model"], name="Model's mean raw draw", mode="lines",
+                              line=dict(color="#7ea2ff", width=2)))
+    fig3.add_hline(y=mc.LONG_RUN_DRAW_RATE, line=dict(color="#c9d0dc", dash="dot", width=1))
+    _mc_layout(fig3, 300, "Draw rate", "")
+    st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
+
+    with st.expander("Recent-window backtest, all three outcomes (last 4 to 20 weeks)", expanded=False):
+        tab_backtest(len(df))
+
+
 def tab_backtest(df_hash: int):
     st.markdown('<p class="section-label" style="margin-top:1rem">Model Backtesting</p>',
                 unsafe_allow_html=True)
     st.markdown(
         '<p style="font-size:0.8rem;color:#b8c0d0;margin-bottom:1.5rem;">'
         'Train each model on historical data, test on recent matches. '
-        'Compares Poisson+XGBoost (baseline) vs Dixon-Coles+XGBoost (enhanced).</p>',
+        'Compares the old Poisson + XGBoost baseline with the full live model (Dixon-Coles + XGBoost + draw specialist), before calibration.</p>',
         unsafe_allow_html=True,
     )
 
@@ -3160,7 +3329,7 @@ def tab_backtest(df_hash: int):
         (cols[1], "33.3%",   "Random Baseline",         None),
         (cols[2], f"{ta}%",  "Table Position Baseline", ta > 33.3),
         (cols[3], f"{pa}%",  "Poisson + XGB",           pa > ta),
-        (cols[4], f"{da}%",  "DC + XGB",                da > ta),
+        (cols[4], f"{da}%",  "Full model",              da > ta),
         (cols[5], f"{rb}",   "Random Brier ↓",          None),
     ]
     for col, val, label, good in metrics:
@@ -3224,7 +3393,7 @@ def tab_backtest(df_hash: int):
             <th style="text-align:center">Score</th>
             <th>Away</th><th>Actual</th>
             <th>Table Baseline</th>
-            <th>Poisson+XGB</th><th>DC+XGB</th>
+            <th>Poisson+XGB</th><th>Full model</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
     </table></div>""", unsafe_allow_html=True)
@@ -3247,7 +3416,7 @@ def tab_backtest(df_hash: int):
     cal_pairs = []
     for _, row in bt.iterrows():
         for prefix, col_h, col_d, col_a in [
-            ("DC+XGB",      "_dc_h", "_dc_d", "_dc_a"),
+            ("Full model",      "_dc_h", "_dc_d", "_dc_a"),
             ("Poisson+XGB", "_p_h",  "_p_d",  "_p_a"),
         ]:
             cal_pairs += [
@@ -3271,13 +3440,13 @@ def tab_backtest(df_hash: int):
         gap = (grp["mean_pred"] - grp["mean_act"]).abs()
         return float((gap * grp["count"]).sum() / grp["count"].sum())
 
-    ece_dc  = _ece(cal_df[cal_df["Model"] == "DC+XGB"])
+    ece_dc  = _ece(cal_df[cal_df["Model"] == "Full model"])
     ece_p   = _ece(cal_df[cal_df["Model"] == "Poisson+XGB"])
 
     cal_cols = st.columns(4)
     cal_metrics = [
-        (cal_cols[0], f"{ece_dc*100:.1f}%",  "DC+XGB · ECE ↓",       ece_dc < ece_p),
-        (cal_cols[1], f"{db:.3f}",            "DC+XGB · Brier ↓",     db < pb),
+        (cal_cols[0], f"{ece_dc*100:.1f}%",  "Full model · ECE ↓",       ece_dc < ece_p),
+        (cal_cols[1], f"{db:.3f}",            "Full model · Brier ↓",     db < pb),
         (cal_cols[2], f"{ece_p*100:.1f}%",   "Poisson+XGB · ECE ↓",  ece_p < ece_dc),
         (cal_cols[3], f"{pb:.3f}",            "Poisson+XGB · Brier ↓", pb < db),
     ]
@@ -3307,9 +3476,9 @@ def tab_backtest(df_hash: int):
     ))
 
     style_map = {
-        ("DC+XGB",      "Home Win"):  ("#3d6eff", "circle",  "solid"),
-        ("DC+XGB",      "Draw"):      ("#ffd600", "diamond", "solid"),
-        ("DC+XGB",      "Away Win"):  ("#ff4081", "square",  "solid"),
+        ("Full model",      "Home Win"):  ("#3d6eff", "circle",  "solid"),
+        ("Full model",      "Draw"):      ("#ffd600", "diamond", "solid"),
+        ("Full model",      "Away Win"):  ("#ff4081", "square",  "solid"),
         ("Poisson+XGB", "Home Win"):  ("#3d6eff", "circle",  "dot"),
         ("Poisson+XGB", "Draw"):      ("#ffd600", "diamond", "dot"),
         ("Poisson+XGB", "Away Win"):  ("#ff4081", "square",  "dot"),
@@ -3357,7 +3526,7 @@ def tab_backtest(df_hash: int):
     st.plotly_chart(fig_cal, use_container_width=True, config={"displayModeBar": False})
     st.markdown(
         '<p style="font-size:0.82rem;color:#b8c0d0;text-align:center">'
-        'Solid lines = DC+XGB · Dashed = Poisson+XGB · '
+        'Solid lines = full model · Dashed = Poisson+XGB · '
         '🔵 Home Win &nbsp;🟡 Draw &nbsp;🔴 Away Win</p>',
         unsafe_allow_html=True,
     )
@@ -4315,9 +4484,13 @@ def _render_gw_records(records: list, date_label: str):
                 unsafe_allow_html=True,
             )
 
-        card_cls  = "res-correct" if r["correct"] else "res-wrong"
-        badge_cls = "res-win"     if r["correct"] else "res-loss"
-        badge_txt = "✓ Correct"   if r["correct"] else "✗ Wrong"
+        # Graded by the probability given to what happened, not by whether the
+        # top pick won: a 36% draw that lands was a good forecast, and a draw
+        # model would otherwise read "wrong" on nearly every correct draw call.
+        _pa = r["prob_actual"]
+        card_cls  = "res-correct" if _pa >= 0.40 else ("res-wrong" if _pa < 0.25 else "")
+        badge_cls = "res-win" if _pa >= 0.40 else ("res-loss" if _pa < 0.25 else "")
+        badge_txt = f"{_pa*100:.0f}% on the result"
         pred_col  = mkt_colors[r["pred_ftr"]]
         act_label = pred_labels[r["actual_ftr"]]
 
@@ -4410,6 +4583,7 @@ def tab_results(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
         return
 
     # ── Run predictions for the latest gameweek ───────────────────────────
+    prematch = md.load_prematch()
     records = []
     for _, row in last_gw.iterrows():
         home, away = row["HomeTeam"], row["AwayTeam"]
@@ -4424,6 +4598,13 @@ def tab_results(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
         )
 
         p_h, p_d, p_a = blended["home_win"], blended["draw"], blended["away_win"]
+        # Grade with what the model said BEFORE kickoff when it was logged.
+        # The current model has been refitted on these very results, so
+        # grading with it flatters the model ("hindsight").
+        _pm = prematch.get(f"{row['Date'].strftime('%Y-%m-%d')}|{home}|{away}")
+        source = "pre-match" if _pm else "hindsight"
+        if _pm:
+            p_h, p_d, p_a = _pm["p_h"], _pm["p_d"], _pm["p_a"]
         pred_ftr = "H" if p_h >= p_d and p_h >= p_a else ("A" if p_a >= p_h and p_a >= p_d else "D")
         actual_ftr = row["FTR"]
         correct = pred_ftr == actual_ftr
@@ -4434,7 +4615,7 @@ def tab_results(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
         lam_a  = dc_pred["lambda_away"]
         exp_total = lam_h + lam_a
 
-        p_o25 = dc_pred.get("over_25", 0.5)
+        p_o25 = _pm["p_o25"] if _pm else dc_pred.get("over_25", 0.5)
         ou_correct = (total > 2) == (p_o25 > 0.5)
 
         top1 = dc_pred["top5"][0] if dc_pred.get("top5") else None
@@ -4455,6 +4636,7 @@ def tab_results(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
             "pred_score": pred_score,
             "ou_correct": bool(ou_correct),
             "xg_h": xg_h, "xg_a": xg_a,
+            "source": source,
         })
 
     if not records:
@@ -4487,10 +4669,57 @@ def tab_results(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
         unsafe_allow_html=True,
     )
 
+    # ── The bets come first: the strategy is draws, not top-pick accuracy ──
+    _render_gw_bets(display_records)
+    n_hind = sum(1 for r in display_records if r.get("source", "hindsight") == "hindsight")
+    if n_hind:
+        st.markdown(
+            f'<div class="scan-explainer">{n_hind} of {len(display_records)} matches are graded '
+            f'with <b>today\'s model</b>, which has already been refitted on these results, so it '
+            f'looks better than it was. From the next matchday the app logs every pre-kickoff '
+            f'prediction and grades against that. The bets above always use the price and '
+            f'probability recorded when they were placed.</div>', unsafe_allow_html=True)
+
     # ── Model recap header — story summary above the per-match rows ───────
     _render_gw_recap(display_records)
 
     _render_gw_records(display_records, display_label)
+
+
+def _render_gw_bets(records: list[dict]) -> None:
+    """Both lines' bets on this gameweek: wins against expected, P&L, CLV."""
+    if not records:
+        return
+    dates = {r["date"] for r in records}
+    lines = []
+    for name, p, accent in (("Main", pf.load_portfolio(), "#7ea2ff"),
+                            ("Mock Two", pf.load_portfolio_two(), "#b39dff")):
+        bets = [b for b in p["bets"] if b.get("type") != "acca"
+                and str(b.get("date"))[:10] in dates and b["status"] in ("won", "lost")]
+        if not bets:
+            continue
+        won = sum(1 for b in bets if b["status"] == "won")
+        exp = sum(float(b.get("model_prob") or 0) for b in bets)
+        pl = sum(float(b.get("profit") or 0) for b in bets)
+        clvs = [b["clv"] for b in bets if b.get("clv") is not None]
+        med = float(np.median(clvs)) * 100 if clvs else None
+        rows = "".join(
+            f'<div class="gwb-row"><span>{tb(b["home"], 18)} v {tb(b["away"], 18)}</span>'
+            f'<span>{md.MARKET_LABELS.get(b["market"], b["market"])} @{b["odds"]:.2f}</span>'
+            f'<span>raw {float(b.get("model_prob") or 0)*100:.0f}%</span>'
+            f'<span style="color:{"#00e676" if b["status"] == "won" else "#ff6fa1"};font-weight:800">'
+            f'{md.fmt_money(b.get("profit") or 0)}</span></div>' for b in bets)
+        lines.append(
+            f'<div class="gwb-card"><div class="gwb-head"><span class="ch-lbl" style="color:{accent}">{name}</span>'
+            f'<span class="gwb-stat"><b>{won}</b> of {len(bets)} won · model expected <b>{exp:.1f}</b></span>'
+            f'<span class="gwb-stat" style="color:{"#00e676" if pl >= 0 else "#ff6fa1"}"><b>{md.fmt_money(pl)}</b></span>'
+            f'<span class="gwb-stat">CLV {"–" if med is None else f"{med:+.1f}%"}</span></div>{rows}</div>')
+    st.markdown('<p class="section-label">💰 Bets on this gameweek</p>', unsafe_allow_html=True)
+    if not lines:
+        st.markdown('<div class="scan-explainer">No bets settled on this gameweek.</div>',
+                    unsafe_allow_html=True)
+        return
+    st.markdown('<div class="gwb">' + "".join(lines) + '</div>', unsafe_allow_html=True)
 
 
 def _render_gw_recap(records: list[dict]) -> None:
@@ -5893,6 +6122,62 @@ def _bankroll_chart_scopes(port: dict, pending_bets: list, bankroll: float) -> N
 _RETIRED_LOOP_WINDOW = ("2026-09-22T12:08:40", "2026-09-22T12:08:55")
 
 
+def _risk_numbers(p: dict) -> dict:
+    """Drawdown, losing streak and CLV trend for one portfolio's settled bets."""
+    chrono = sorted((b for b in p["bets"] if b.get("type") != "acca" and b["status"] in ("won", "lost")),
+                    key=lambda b: (b.get("settled_at") or b.get("date") or ""))
+    run, peak, max_dd = float(p["initial_bankroll"]), float(p["initial_bankroll"]), 0.0
+    streak = best = 0
+    for b in chrono:
+        run += float(b.get("profit") or 0)
+        peak = max(peak, run)
+        max_dd = max(max_dd, (peak - run) / peak if peak else 0)
+        streak = streak + 1 if b["status"] == "lost" else 0
+        best = max(best, streak)
+    pend = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
+    clv = [float(b["clv"]) for b in chrono if b.get("clv") is not None]
+    cum = list(np.cumsum(clv) / np.arange(1, len(clv) + 1)) if clv else []
+    return {"max_dd": max_dd, "cur_dd": (peak - run) / peak if peak else 0, "streak": streak,
+            "longest": best, "exposure": pend / (p["bankroll"] + pend) if (p["bankroll"] + pend) else 0,
+            "clv_n": len(clv), "clv_pos": (sum(1 for c in clv if c > 0) / len(clv)) if clv else 0,
+            "clv_cum": cum}
+
+
+def _render_risk_edge_strip(p: dict) -> None:
+    """Risk beside reward: drawdown, streaks, exposure, and CLV, which settles
+    long before P&L does. Paper money, but the same cues a real book needs."""
+    r = _risk_numbers(p)
+    spark = _elo_sparkline_svg([c * 100 for c in r["clv_cum"]], width=220, height=44) if len(r["clv_cum"]) > 1 else ""
+    tiles = [
+        ("Max drawdown", f"{r['max_dd']:.0%}", "peak to trough this season"),
+        ("From peak now", f"{r['cur_dd']:.0%}", "below the season high"),
+        ("Losing run", f"{r['streak']}", f"longest {r['longest']}"),
+        ("Riding on open bets", f"{r['exposure']:.0%}", "of wealth, cap 50%"),
+    ]
+    html = "".join(f'<div class="rk-tile"><div class="ch-lbl">{a}</div><div class="rk-val">{b}</div>'
+                   f'<div class="ch-sub2">{c}</div></div>' for a, b, c in tiles)
+    clv_tile = (f'<div class="rk-tile rk-clv"><div class="ch-lbl">CLV, running average</div>'
+                f'<div class="rk-val">{(r["clv_cum"][-1] * 100 if r["clv_cum"] else 0):+.1f}%</div>'
+                f'<div class="ch-sub2">{r["clv_pos"]:.0%} of {r["clv_n"]} bets beat the close</div>'
+                f'<div>{spark}</div></div>')
+    st.markdown('<p class="section-label">📏  RISK AND EDGE</p><div class="rk-strip">'
+                + html + clv_tile + '</div>', unsafe_allow_html=True)
+
+
+def _odds_move_html(bet: dict) -> str:
+    """Price taken against the best price now: a CLV preview before kickoff."""
+    state = st.session_state.get("_matchday_state") or {}
+    api = (state.get("odds") or {}).get((bet["home"], bet["away"])) or {}
+    now = api.get(bet.get("market"))
+    if not now or now <= 1:
+        return '<div class="pend-v2-tags" hidden></div>'
+    move = float(bet["odds"]) / float(now) - 1
+    col = "#00e676" if move > 0.005 else ("#ff6fa1" if move < -0.005 else "#c9d0dc")
+    word = "beating" if move > 0.005 else ("behind" if move < -0.005 else "level with")
+    return (f'<div class="pend-v2-move">Now @{float(now):.2f} · taken @{float(bet["odds"]):.2f} · '
+            f'<b style="color:{col}">{word} the market {move:+.1%}</b></div>')
+
+
 def _mt_sizing_blurb(p2: dict) -> str:
     """What actually differs in Mock Two's live sizing, read from its settings."""
     s2 = p2.get("settings", {})
@@ -6576,6 +6861,8 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
     st.markdown('<p class="section-label">📈  BANKROLL HISTORY</p>', unsafe_allow_html=True)
     _bankroll_chart_scopes(port, pending_bets, bankroll)
 
+    _render_risk_edge_strip(port)
+
     # ── Pending bets — singles only; accas live in their own section below ──
     pending_singles = [b for b in pending_bets if b.get("type") != "acca"]
     pending_accas   = [b for b in pending_bets if b.get("type") == "acca"]
@@ -6640,6 +6927,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span>
                     </div>
                     {_bet_tags_html(bet, port)}
+                    {_odds_move_html(bet)}
                     <div class="pend-v2-stats">
                         <div class="pend-v2-stat">
                             <div class="pend-v2-stat-lbl">STAKE</div>
@@ -8683,6 +8971,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                         config={"displayModeBar": False})
         st.markdown('<div class="divider" style="margin:1rem 0"></div>', unsafe_allow_html=True)
 
+    _render_risk_edge_strip(port2)
+
     # ── Mock Two CLV diagnostics ──────────────────────────────────────────
     if mt_clv["n"] > 0:
         st.markdown('<p class="section-label">📐  CLV vs the closing price · Mock Two</p>',
@@ -8752,6 +9042,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span>
                 </div>
                 {_bet_tags_html(bet, port2)}
+                {_odds_move_html(bet)}
                 <div class="pend-v2-stats">
                     <div class="pend-v2-stat">
                         <div class="pend-v2-stat-lbl">STAKE</div>
@@ -9611,8 +9902,14 @@ def tab_season_review(df):
         f'{"How the portfolios are doing" if in_progress else "How the portfolios finished"}'
         '</p>', unsafe_allow_html=True)
 
-    def _scorecard(title, accent, stats, clv, start):
+    def _scorecard(title, accent, stats, clv, start, port=None):
         profit = stats["profit"]
+        # Wealth, not cash: pending stakes have left the cash balance but are
+        # still the portfolio's money until they settle.
+        pend = sum(b["stake"] for b in (port or {}).get("bets", []) if b["status"] == "pending")
+        wealth = stats["bankroll"] + pend
+        pend_txt = (f'<div style="font-size:0.84rem;color:#c9d0dc">{md.fmt_money(stats["bankroll"], signed=False)} cash + '
+                    f'{md.fmt_money(pend, signed=False)} pending</div>') if pend else ""
         pcol = "#00e676" if profit >= 0 else "#ff6fa1"
         clv_v = (clv.get("median_clv") or 0) * 100
         clv_col = "#00e676" if clv_v >= 1.0 else ("#ffd600" if clv_v >= 0 else "#ff6fa1")
@@ -9624,7 +9921,8 @@ def tab_season_review(df):
              padding:1.4rem 1.5rem;background:#11162a;border:1px solid #1c2440;
              border-left:4px solid {accent};border-radius:16px;height:100%">
             <div style="font-size:0.78rem;letter-spacing:2px;font-weight:800;color:{accent}">{title}</div>
-            <div style="font-size:2rem;font-weight:900;color:#e8eaf0;margin:0.25rem 0 0">£{stats['bankroll']:,.0f}</div>
+            <div style="font-size:2rem;font-weight:900;color:#e8eaf0;margin:0.25rem 0 0">{md.fmt_money(wealth, signed=False)}</div>
+            {pend_txt}
             <div style="font-size:0.95rem;font-weight:800;color:{pcol}">
                 {md.fmt_money(profit)} from £{start:,.0f}</div>
             <div style="margin-top:0.8rem">
@@ -9637,11 +9935,11 @@ def tab_season_review(df):
 
     sc1, sc2 = st.columns(2, gap="medium")
     with sc1:
-        st.markdown(_scorecard("MAIN PORTFOLIO", "#3d6eff", main_s, main_clv,
-                               main_p["initial_bankroll"]), unsafe_allow_html=True)
+        st.markdown(_scorecard("MAIN PORTFOLIO", "#7ea2ff", main_s, main_clv,
+                               main_p["initial_bankroll"], main_p), unsafe_allow_html=True)
     with sc2:
-        st.markdown(_scorecard("MOCK TWO · RESEARCH TRACK", "#7c4dff", mt_s, mt_clv,
-                               mt_p["initial_bankroll"]), unsafe_allow_html=True)
+        st.markdown(_scorecard("MOCK TWO · RESEARCH TRACK", "#b39dff", mt_s, mt_clv,
+                               mt_p["initial_bankroll"], mt_p), unsafe_allow_html=True)
 
     # ── Bankroll journey ──────────────────────────────────────────────────
     st.markdown('<p class="section-label" style="margin-top:1.6rem">Bankroll journey</p>',
@@ -9780,39 +10078,47 @@ def tab_season_review(df):
         """, unsafe_allow_html=True)
 
     # ── What the season taught the model ──────────────────────────────────
-    st.markdown('<p class="section-label" style="margin-top:1.6rem">What this season taught the model</p>',
-                unsafe_allow_html=True)
-    lessons = [
-        ("🎯", "The edge is EPL-specific", "#3d6eff",
-         "The same gates lose money on La Liga, Bundesliga and Serie A — "
-         "bookmakers there price draws more accurately. Validated on 9,871 "
-         "matches across 5 leagues. No expansion."),
-        ("🧪", "Honest calibration is non-negotiable", "#ff4081",
-         "A calibration-leakage bug inflated one backtest from a £3.5k loss "
-         "to +£97k. Every result now uses calibrators fitted strictly before "
-         "the evaluation window."),
-        ("✂️", "Simple gates beat complex ones", "#00e676",
-         "ELO floors, EV caps and day-of-week bans looked great in leaky "
-         "backtests and mostly vanished under honest evaluation. The deployed "
-         "config is a probability gate, an EV gate and Kelly."),
-        ("📉", "Volume and ROI trade off structurally", "#ffd600",
-         "Under honest calibration this model finds 3–15 genuinely mispriced "
-         "draws per season — not 30+. Forcing more volume destroys the ROI."),
-        ("📅", "Per-season variance is huge", "#7c4dff",
-         "2023-24 was a bad year for nearly every config; 2025-26 suited the "
-         "model unusually well. One season proves little — the multi-season "
-         "grid is the referee."),
-    ]
-    lc1, lc2 = st.columns(2, gap="medium")
-    for i, (icon, title, accent, body) in enumerate(lessons):
-        with (lc1 if i % 2 == 0 else lc2):
-            st.markdown(f"""
-            <div style="padding:1rem 1.2rem;background:#11162a;border:1px solid #1c2440;
-                 border-left:4px solid {accent};border-radius:14px;margin-bottom:0.8rem;
-                 animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
-                <div style="font-size:0.9rem;font-weight:800;color:#e8eaf0">{icon} {title}</div>
-                <div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.3rem;line-height:1.5">{body}</div>
-            </div>""", unsafe_allow_html=True)
+    # These lessons were written at the close of 2025-26. They used to show
+    # under every season, including the live one they contradict.
+    if season != "2025-26":
+        st.markdown(
+            '<div class="scan-explainer" style="margin-top:1.6rem">Lessons are written when a '
+            'season closes. Switch the season selector to 2025-26 for the last set.</div>',
+            unsafe_allow_html=True)
+    else:
+        st.markdown('<p class="section-label" style="margin-top:1.6rem">What 2025-26 taught the model</p>',
+                    unsafe_allow_html=True)
+        lessons = [
+            ("🎯", "The edge is EPL-specific", "#3d6eff",
+             "The same gates lose money on La Liga, Bundesliga and Serie A — "
+             "bookmakers there price draws more accurately. Validated on 9,871 "
+             "matches across 5 leagues. No expansion."),
+            ("🧪", "Honest calibration is non-negotiable", "#ff4081",
+             "A calibration-leakage bug inflated one backtest from a £3.5k loss "
+             "to +£97k. Every result now uses calibrators fitted strictly before "
+             "the evaluation window."),
+            ("✂️", "Simple gates beat complex ones", "#00e676",
+             "ELO floors, EV caps and day-of-week bans looked great in leaky "
+             "backtests and mostly vanished under honest evaluation. The deployed "
+             "config is a probability gate, an EV gate and Kelly."),
+            ("📉", "Volume and ROI trade off structurally", "#ffd600",
+             "Under honest calibration this model finds 3–15 genuinely mispriced "
+             "draws per season — not 30+. Forcing more volume destroys the ROI."),
+            ("📅", "Per-season variance is huge", "#7c4dff",
+             "2023-24 was a bad year for nearly every config; 2025-26 suited the "
+             "model unusually well. One season proves little — the multi-season "
+             "grid is the referee."),
+        ]
+        lc1, lc2 = st.columns(2, gap="medium")
+        for i, (icon, title, accent, body) in enumerate(lessons):
+            with (lc1 if i % 2 == 0 else lc2):
+                st.markdown(f"""
+                <div style="padding:1rem 1.2rem;background:#11162a;border:1px solid #1c2440;
+                     border-left:4px solid {accent};border-radius:14px;margin-bottom:0.8rem;
+                     animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
+                    <div style="font-size:0.9rem;font-weight:800;color:#e8eaf0">{icon} {title}</div>
+                    <div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.3rem;line-height:1.5">{body}</div>
+                </div>""", unsafe_allow_html=True)
 
     # ── Next season ───────────────────────────────────────────────────────
     # Only meaningful while the live season is still to start. Once it is under
@@ -10709,6 +11015,10 @@ def matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc,
         counts = team_match_counts(df)
         state["preds"] = preds
         state["odds"] = odds_map
+        try:
+            md.record_prematch(preds)   # what the model said BEFORE kickoff
+        except Exception:
+            pass
         state["verdicts"]["main"] = md.fixture_verdicts(
             main_port, fixtures, main_c,
             float(main_port["settings"].get("auto_bet_threshold", 0.40)),
@@ -11065,7 +11375,7 @@ def main():
                               draw_xgb_m, draw_fc, teams, elo_dict)
     elif active_view == "modelcheck":
         if _view_switch("_mc_view", ["Calibration", "Season review"]) == "Calibration":
-            tab_backtest(len(df))
+            tab_model_check_calibration(df)
         else:
             tab_season_review(df)
     elif active_view == "portfolio":
