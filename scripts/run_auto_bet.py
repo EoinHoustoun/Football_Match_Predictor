@@ -58,6 +58,11 @@ def log_event(event_type: str, **kwargs) -> None:
     entry = {"ts": _now_iso(), "type": event_type, **kwargs}
     with ACTIVITY_LOG.open("a") as f:
         f.write(json.dumps(entry, default=str) + "\n")
+    try:
+        import notify   # phone push for bets, settlements, errors; never raises
+        notify.notify_event(entry)
+    except Exception:
+        pass
 
 
 def _full_predict(home, away, dc_r, dc_draw_r, xgb_m, feat_cols,
@@ -171,23 +176,17 @@ def main() -> int:
     main_port = pf.load_portfolio()
     mt_port   = pf.load_portfolio_two()
 
-    # Auto-settle prior pendings
+    # Auto-settle prior pendings. Log only the bets THIS run settled: the old
+    # rule (anything settled today) re-logged earlier settlements every time a
+    # later one landed the same day.
+    pend_before = {("main", b["id"]) for b in main_port["bets"] if b["status"] == "pending"} | \
+                  {("mt", b["id"]) for b in mt_port["bets"] if b["status"] == "pending"}
     n_settled_main = pf.auto_settle(main_port, df)
     n_settled_mt   = pf.auto_settle(mt_port, df)
-    if n_settled_main:
-        # Per-bet detail for the activity feed
-        for b in main_port["bets"]:
-            if (b.get("settled_at", "")[:10] == datetime.now().date().isoformat()
-                    and b["status"] in ("won", "lost")):
-                log_event("settled", portfolio="main",
-                          match=f"{b.get('home','?')} vs {b.get('away','?')}",
-                          market=b.get("market"), result=b["status"],
-                          profit=b.get("profit") or 0)
-    if n_settled_mt:
-        for b in mt_port["bets"]:
-            if (b.get("settled_at", "")[:10] == datetime.now().date().isoformat()
-                    and b["status"] in ("won", "lost")):
-                log_event("settled", portfolio="mt",
+    for line, port in (("main", main_port), ("mt", mt_port)):
+        for b in port["bets"]:
+            if (line, b.get("id")) in pend_before and b["status"] in ("won", "lost"):
+                log_event("settled", portfolio=line,
                           match=f"{b.get('home','?')} vs {b.get('away','?')}",
                           market=b.get("market"), result=b["status"],
                           profit=b.get("profit") or 0)

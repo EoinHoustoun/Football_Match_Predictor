@@ -48,3 +48,5 @@ Thumbs.db
 data/autobet.lock
 data/prediction_log.json
 data/cache/
+data/notify.json
+data/notify_sent.json

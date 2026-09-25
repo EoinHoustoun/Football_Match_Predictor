@@ -18,6 +18,7 @@ import streamlit as st
 
 import portfolio as pf
 import matchday as md
+import notify
 from chart_labels import now_badge_offset, spread_label_shifts
 import season_archive as sa
 from data import (
@@ -535,6 +536,81 @@ html body div[class*="st-key-navtile_"] button:hover { border-color: #b39dff !im
     background: #2a1f63 !important; border-color: #b39dff !important; color: #ffffff !important; }
 [data-testid="stButtonGroup"] button p { color: inherit !important; font-weight: 700; }
 button[role="tab"] p { color: #eef1f5 !important; font-weight: 700; }
+/* ── Phone layout (under 640px, where Streamlit stacks columns) ── */
+@media (max-width: 640px) {
+  /* Header stays one compact row instead of logo, title and a full-width button stacked */
+  .st-key-topbar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; align-items: center; gap: 0.5rem !important; }
+  .st-key-topbar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 0 0 auto !important; }
+  .st-key-topbar [data-testid="stColumn"]:nth-child(2) { flex: 1 1 auto !important; }
+  .st-key-topbar .top-bar img { width: 34px !important; height: 34px !important; }
+  .st-key-topbar .top-bar-title { font-size: 1.15rem !important; }
+  .st-key-topbar .top-bar-sub { display: none; }
+  .st-key-topbar button { padding: 0.35rem 0.8rem !important; letter-spacing: 1px !important;
+      font-size: 0.8rem !important; min-height: 0 !important; }
+  /* Rows of small stat tiles go two-up rather than one per screen-width row */
+  [data-testid="stHorizontalBlock"]:has(.pstat-card) { flex-wrap: wrap !important; gap: 0.5rem !important; }
+  [data-testid="stHorizontalBlock"]:has(.pstat-card) > [data-testid="stColumn"] {
+      min-width: calc(50% - 0.5rem) !important; flex: 1 1 calc(50% - 0.5rem) !important; width: auto !important; }
+  .pstat-card { padding: 0.7rem 0.4rem !important; }
+  .pstat-val { font-size: 1.35rem !important; }
+  .pend-v2-stats { display: grid !important; grid-template-columns: 1fr 1fr; }
+  .fx-card { padding: 0.8rem 0.8rem 0.7rem; }
+  .fx-team { font-size: 0.92rem; }
+  .md-summary { gap: 0.6rem 1.4rem; }
+  .md-sum-val { font-size: 1.1rem; }
+  .ch-title { font-size: 1.5rem; }
+  .rk-val { font-size: 1.25rem; }
+  .mc-table table { font-size: 0.82rem; }
+  .gwb-row { grid-template-columns: minmax(0, 1fr) 4.2rem 5rem; }
+  .gwb-row > span:nth-child(3) { display: none; }
+}
+@media (max-width: 640px) {
+  [data-testid="stHorizontalBlock"]:has(.bbc), .st-key-predpick [data-testid="stHorizontalBlock"] {
+      flex-wrap: nowrap !important; gap: 0.4rem !important; align-items: center; }
+  [data-testid="stHorizontalBlock"]:has(.bbc) > [data-testid="stColumn"],
+  .st-key-predpick [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+  [data-testid="stHorizontalBlock"]:has(.bbc) > [data-testid="stColumn"]:has(.vs-wrap),
+  .st-key-predpick [data-testid="stColumn"]:nth-child(2) { flex: 0 0 1.6rem !important; }
+  .vs-wrap { height: auto !important; } .vs-wrap .vs-badge { font-size: 1rem !important; padding: 0 !important; }
+  .bbc { padding: 1.6rem 0.2rem 0.5rem !important; }
+  .bbc > div:first-child { font-size: 0.72rem !important; letter-spacing: 1.2px !important; left: 0.5rem !important; }
+  .bbc-img { width: 84px !important; height: 84px !important; }
+  .bbc > div:last-child { font-size: 0.95rem !important; }
+  .prob-stack-bar .team-badge, .seg-draw-word { display: none !important; }
+  .prob-stack-seg { padding: 0 0.35rem !important; justify-content: center !important; }
+  .prob-stack-bar .seg-pct { font-size: 1rem !important; }
+  [data-testid="stHorizontalBlock"]:has(.mkt-tile) { flex-wrap: wrap !important; gap: 0.5rem !important; }
+  [data-testid="stHorizontalBlock"]:has(.mkt-tile) > [data-testid="stColumn"] {
+      min-width: calc(50% - 0.5rem) !important; flex: 1 1 calc(50% - 0.5rem) !important; width: auto !important; }
+  .mkt-tile div:last-child { font-size: 0.78rem !important; letter-spacing: 1px !important; }
+}
+@media (max-width: 640px) {
+  /* Season table: one compact row per club (rank, club, points now, projected,
+     80% range), scenario pills underneath. Played, Elo and form are on Teams. */
+  html body .sim-row { grid-template-columns: 1.9rem minmax(0, 1fr) 2.2rem 2.9rem 4.4rem !important;
+      padding: 0.55rem 0.6rem !important; gap: 0.3rem 0.45rem !important; align-items: center; }
+  html body .sim-row.sim-header { display: grid !important; font-size: 0.72rem; }
+  html body .sim-row.sim-header .sim-pills, html body .sim-row.sim-header .sim-elo,
+  html body .sim-row.sim-header .sim-spark, html body .sim-row.sim-header .sim-played { display: none !important; }
+  html body .sim-team { grid-column: auto !important; gap: 0.4rem; }
+  html body .sim-team img.team-badge { width: 26px !important; height: 26px !important; }
+  html body .sim-team > span { font-size: 0.9rem !important; }
+  html body .sim-rank { font-size: 1rem !important; }
+  html body .sim-zone-emoji { display: none; }
+  html body .sim-played, html body .sim-elo, html body .sim-spark { display: none !important; }
+  html body .sim-pts-now { font-size: 1.05rem !important; text-align: center; }
+  html body .sim-pts-proj { font-size: 0.98rem !important; text-align: center; }
+  html body .sim-pts-ml { font-size: 0.86rem !important; text-align: center; }
+  html body .sim-pills { grid-column: 1 / -1 !important; }
+  html body .sim-pill { font-size: 0.78rem !important; padding: 0.12rem 0.45rem !important; }
+}
+@media (max-width: 640px) {
+  html body .pf-board-row { grid-template-columns: 0.8fr 1.1fr 1.1fr !important; gap: 0.35rem 0.5rem !important; }
+  html body .pf-board-row > span:nth-child(1) { grid-column: 1 / -1; font-size: 0.78rem; }
+  html body .pf-board-row > span:nth-child(2) { grid-column: 1 / -1; margin-top: -0.2rem; }
+  html body .pf-board-head { display: none !important; }
+  html body .pf-board-row > span:nth-child(3) { font-size: 0.9rem !important; }
+}
 .hf-evt-rep { font-size: 0.82rem; color: #c9d0dc; font-weight: 600; margin-left: 0.3rem; }
 .pf-board-row { display: grid; grid-template-columns: 5.5rem minmax(12rem, 1.6fr) 6rem 1fr 1fr;
     gap: 0.8rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -2681,7 +2757,7 @@ def win_prob_bar_html(final, home_team, away_team) -> str:
         f'    {h_badge}<span class="seg-pct">{h}%</span>'
         f'  </div>'
         f'  <div class="prob-stack-seg seg-draw" style="flex:{d}">'
-        f'    <span class="seg-pct seg-pct-dark">DRAW</span>'
+        f'    <span class="seg-pct seg-pct-dark seg-draw-word">DRAW</span>'
         f'    <span class="seg-pct seg-pct-dark">{d}%</span>'
         f'  </div>'
         f'  <div class="prob-stack-seg seg-away" style="flex:{a}">'
@@ -2801,7 +2877,7 @@ def fixture_card_html(home_team, away_team, result, lam_h, lam_a, odds: dict | N
 def _big_badge_card(team: str, label: str, accent: str) -> str:
     """Big-badge card for the team picker. 200px badge + team name + corner label."""
     url = _BADGE_URL.get(team, "")
-    badge_html = (f'<img class="team-badge" width="200" src="{url}" alt="{team}" '
+    badge_html = (f'<img class="team-badge bbc-img" width="200" src="{url}" alt="{team}" '
                   f'style="width:200px;height:200px;object-fit:contain;'
                   f'filter:drop-shadow(0 8px 24px rgba(0,0,0,0.5));'
                   f'transition:transform 0.25s ease">'
@@ -2809,7 +2885,7 @@ def _big_badge_card(team: str, label: str, accent: str) -> str:
                   '<div style="width:200px;height:200px;display:flex;align-items:center;'
                   'justify-content:center;color:#b8c0d0;font-size:0.9rem">no badge</div>')
     return (
-        f'<div style="position:relative;text-align:center;padding:1.2rem 0.5rem 0.8rem;'
+        f'<div class="bbc" style="position:relative;text-align:center;padding:1.2rem 0.5rem 0.8rem;'
         f'background:linear-gradient(180deg,rgba({accent},0.06),transparent);'
         f'border-radius:14px;'
         f'border:1px solid rgba({accent},0.18)">'
@@ -2840,7 +2916,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
                     unsafe_allow_html=True)
     with col_vs:
         st.markdown(
-            '<div style="display:flex;align-items:center;justify-content:center;'
+            '<div class="vs-wrap" style="display:flex;align-items:center;justify-content:center;'
             'height:280px"><div class="vs-badge" style="font-size:1.6rem">VS</div></div>',
             unsafe_allow_html=True,
         )
@@ -2849,7 +2925,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
                     unsafe_allow_html=True)
 
     # ── Dropdowns underneath — secondary "change team" controls ─────────
-    sl_l, _, sl_r = st.columns([5, 1, 5])
+    sl_l, _, sl_r = st.container(key="predpick").columns([5, 1, 5])
     with sl_l:
         home_team = st.selectbox("Change home team", teams,
             index=teams.index(_home_pick),
@@ -3004,7 +3080,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
     for col, (label, prob, color) in zip(mkt_cols, markets):
         pct = round(prob * 100, 1)
         with col:
-            st.markdown(f"""<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            st.markdown(f"""<div class="mkt-tile" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
                 border-radius:14px;padding:0.9rem 0.5rem;text-align:center;">
                 <div style="font-size:1.5rem;font-weight:900;color:{color}">{pct}%</div>
                 <div style="font-size:0.88rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:2px;
@@ -7440,7 +7516,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     f'<div class="pstat-lbl">{lbl}</div></div>')
 
         roi_col  = "#00e676" if roi >= 0 else "#ff6fa1"
-        ev_col   = "#7c4dff"
+        ev_col   = "#b39dff"
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1: st.markdown(_stat(f"£{bankroll:,.0f}", "BANKROLL"), unsafe_allow_html=True)
         with c2: st.markdown(_stat(str(stats["n_settled"]), "SETTLED"), unsafe_allow_html=True)
@@ -10780,7 +10856,8 @@ def _render_top_bar(active_key: str) -> None:
     meta = next(((e, n, b) for k, e, n, b in TAB_REGISTRY if k == active_key), ("⚽", "—", ""))
     emoji, name, blurb = meta
 
-    logo_col, title_col, btn_col = st.columns([1, 8, 2])
+    _tb = st.container(key="topbar")
+    logo_col, title_col, btn_col = _tb.columns([1, 8, 2])
     with logo_col:
         if PL_SYMBOL_URI:
             st.markdown(
@@ -10801,7 +10878,7 @@ def _render_top_bar(active_key: str) -> None:
         """, unsafe_allow_html=True)
     with btn_col:
         st.markdown('<div style="padding-top:0.45rem">', unsafe_allow_html=True)
-        if st.button("← Home", key="home_back", use_container_width=True):
+        if st.button("← Home", key="home_back", use_container_width=True, help="Back to the control room"):
             st.session_state["_active_view"] = None
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -10823,6 +10900,7 @@ def _log_activity_event(event_type: str, **kwargs) -> None:
             f.write(json.dumps(entry, default=str) + "\n")
     except OSError:
         pass  # Activity log is best-effort; never crash the app
+    notify.notify_event(entry)   # phone push for bets, settlements, errors; never raises
 
 
 def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
@@ -10978,8 +11056,19 @@ def _session_auto_bet_run(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
     # Auto-settle both BEFORE we look at auto-betting (so closed bets don't
     # block fresh ones via exposure caps)
+    _pend_before = {("main", b["id"]) for b in main_port["bets"] if b["status"] == "pending"} | \
+                   {("mt", b["id"]) for b in mt_port["bets"] if b["status"] == "pending"}
     n_settled_main = pf.auto_settle(main_port, df)
     n_settled_mt   = pf.auto_settle(mt_port, df)
+    # The runner logged settlements; the app-load path settled silently, so a
+    # bet settled here never reached the feed (or, now, the phone).
+    for _line, _p in (("main", main_port), ("mt", mt_port)):
+        for b in _p["bets"]:
+            if (_line, b.get("id")) in _pend_before and b["status"] in ("won", "lost"):
+                _log_activity_event("settled", portfolio=_line,
+                                    match=f"{b.get('home', '?')} vs {b.get('away', '?')}",
+                                    market=b.get("market"), result=b["status"],
+                                    profit=b.get("profit") or 0)
     pf.backfill_clv_for_settled_bets(main_port, df)
     pf.backfill_clv_for_settled_bets(mt_port, df)
 

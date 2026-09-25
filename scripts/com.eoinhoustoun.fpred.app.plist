@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Keeps the F_PRED app up so the phone link always works.
+         Install:   cp scripts/com.eoinhoustoun.fpred.app.plist ~/Library/LaunchAgents/
+                    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.eoinhoustoun.fpred.app.plist
+         Restart:   launchctl kickstart -k gui/$(id -u)/com.eoinhoustoun.fpred.app
+         Remove:    launchctl bootout gui/$(id -u)/com.eoinhoustoun.fpred.app
+         Starting the server places no bets on its own: the app-load auto-bet
+         runs only when a browser session opens, exactly as with ./run.sh. -->
+    <key>Label</key>
+    <string>com.eoinhoustoun.fpred.app</string>
+
+    <!-- caffeinate -s holds off system sleep while on mains power for as long
+         as the app runs (closing the lid without an external display still
+         sleeps the Mac). The venv interpreter is pinned: launchd has no PATH. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+        <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED/.venv/bin/python</string>
+        <string>-m</string>
+        <string>streamlit</string>
+        <string>run</string>
+        <string>server.py</string>
+        <string>--server.port</string>
+        <string>8501</string>
+        <string>--server.headless</string>
+        <string>true</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/eoinhoustoun/Desktop/Projects/Football Analytics/Claude/F_PRED</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Restart after a crash, not in a tight loop. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Standard</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <!-- Outside ~/Desktop: TCC refuses launchd access there (see the autobet plist). -->
+    <key>StandardOutPath</key>
+    <string>/Users/eoinhoustoun/Library/Logs/fpred/app.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/eoinhoustoun/Library/Logs/fpred/app.stderr.log</string>
+</dict>
+</plist>
