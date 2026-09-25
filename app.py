@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import portfolio as pf
+import matchday as md
 from chart_labels import now_badge_offset, spread_label_shifts
 import season_archive as sa
 from data import (
@@ -249,7 +250,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     line-height: 1.1; margin-bottom: 0.2rem;
 }
 .hero-stat-sub {
-    font-size: 0.82rem; color: #8892a4; font-weight: 600;
+    font-size: 0.82rem; color: #c9d0dc; font-weight: 600;
 }
 
 /* ── Insight cards (Why this prediction) — larger, more visual weight ── */
@@ -280,7 +281,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     letter-spacing: -0.1px;
 }
 .insight-sub {
-    font-size: 0.94rem; color: #8892a4; margin-top: 0.4rem;
+    font-size: 0.94rem; color: #c9d0dc; margin-top: 0.4rem;
     line-height: 1.5;
 }
 
@@ -342,7 +343,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     font-size: 2.4rem; font-weight: 900; color: #e8eaf0;
     line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums;
 }
-.hf-tile-sub  { font-size: 0.86rem; color: #8892a4; line-height: 1.45; }
+.hf-tile-sub  { font-size: 0.86rem; color: #c9d0dc; line-height: 1.45; }
 
 .hf-portfolios-row {
     display: flex; flex-direction: column; gap: 0.25rem;
@@ -352,7 +353,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     font-size: 1.1rem; color: #cdd; font-weight: 800;
     display: flex; justify-content: space-between; gap: 0.5rem;
 }
-.hf-port-line b { color: #8892a4; font-weight: 700; }
+.hf-port-line b { color: #c9d0dc; font-weight: 700; }
 
 /* Next fixture variant — different feel from numeric tiles */
 .hf-next .hf-next-when {
@@ -398,9 +399,39 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .hf-evt-warn  { border-left-color: #ffd600;
                 background: linear-gradient(90deg, rgba(255,214,0,0.06), transparent); }
 
-.hf-evt-time { font-size: 0.86rem; color: #8892a4; font-weight: 700; }
+.hf-evt-time { font-size: 0.86rem; color: #c9d0dc; font-weight: 700; }
+.scan-explainer { background: rgba(124,77,255,0.07); border: 1px solid rgba(124,77,255,0.25);
+    border-radius: 12px; padding: 0.8rem 1.1rem; margin-bottom: 0.8rem; font-size: 0.86rem;
+    color: #e8eaf0; line-height: 1.5; }
+.scan-day { font-size: 0.82rem; font-weight: 800; color: #c9d0dc; text-transform: uppercase;
+    letter-spacing: 2px; margin: 1.2rem 0 0.4rem; }
+.scan-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem;
+    margin-top: 0.8rem; padding-top: 0.7rem; border-top: 1px dashed rgba(255,255,255,0.08); }
+.scan-v-text { font-size: 0.9rem; color: #eef1f5; font-weight: 700; }
+.scan-v-nums { font-size: 0.82rem; color: #c9d0dc; font-variant-numeric: tabular-nums; }
+.scan-mkts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.scan-mkt { font-size: 0.82rem; color: #c9d0dc; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.25rem 0.55rem; }
+.scan-mkt b { color: #eef1f5; }
+.scan-fixture-card.scan-bet { border-color: rgba(0,230,118,0.55); }
+.scan-fixture-card.scan-placed { border-color: rgba(0,229,255,0.45); }
+.pend-v2-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; margin: 0.2rem 0 0.6rem; }
+.pend-v2-tag { font-size: 0.78rem; font-weight: 700; color: #ffd600; background: rgba(255,214,0,0.10);
+    border: 1px solid rgba(255,214,0,0.40); border-radius: 999px; padding: 0.15rem 0.6rem; }
+/* Streamlit widgets take primaryColor (#5b36d6, dark enough for white tag text);
+   lift the text Streamlit paints IN that colour on the dark page. */
+[data-testid="stSliderThumbValue"], [data-testid="stTickBarMin"], [data-testid="stTickBarMax"] { color: #eef1f5 !important; }
+[data-baseweb="tag"] span { color: #ffffff !important; }
+.hf-evt-rep { font-size: 0.82rem; color: #c9d0dc; font-weight: 600; margin-left: 0.3rem; }
+.pf-board-row { display: grid; grid-template-columns: 5.5rem minmax(12rem, 1.6fr) 6rem 1fr 1fr;
+    gap: 0.8rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.pf-board-head { font-size: 0.78rem; color: #c9d0dc; font-weight: 800; letter-spacing: 1px;
+    text-transform: uppercase; padding-top: 0; }
+.pf-board-row:last-child { border-bottom: 0; }
+@media (max-width: 760px) { .pf-board-row { grid-template-columns: 1fr 1fr; }
+    .pf-board-head { display: none; } }
 .hf-evt-body { font-size: 0.96rem; color: #e8eaf0; line-height: 1.45; }
-.hf-evt-body .hf-evt-match { color: #8892a4; font-weight: 600; margin-left: 0.4rem; }
+.hf-evt-body .hf-evt-match { color: #c9d0dc; font-weight: 600; margin-left: 0.4rem; }
 .hf-evt-port-cell { text-align: right; }
 .hf-evt-port {
     display: inline-block; padding: 0.2rem 0.55rem;
@@ -462,7 +493,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     letter-spacing: -0.6px; line-height: 1.1;
 }
 .top-bar-sub {
-    font-size: 0.94rem; color: #8892a4; letter-spacing: 2px;
+    font-size: 0.94rem; color: #c9d0dc; letter-spacing: 2px;
     text-transform: uppercase; font-weight: 800; margin-top: 0.2rem;
 }
 
@@ -480,7 +511,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .edge-badge.edge-neg {
     background: linear-gradient(135deg, rgba(255,64,129,0.15), rgba(124,77,255,0.08));
     border-color: rgba(255,64,129,0.35);
-    color: #ff4081;
+    color: #ff6fa1;
     animation: none;
 }
 
@@ -610,12 +641,12 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
     background: linear-gradient(135deg, rgba(124,77,255,0.15), rgba(0,229,255,0.08));
     border: 1px solid rgba(124,77,255,0.35); border-radius: 24px; padding: 2.5rem 2rem; text-align: center;
 }
-.score-hero-label { font-size: 0.92rem; font-weight: 800; color: #8892a4; letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 1rem; }
+.score-hero-label { font-size: 0.92rem; font-weight: 800; color: #c9d0dc; letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 1rem; }
 .score-digits { font-size: clamp(3.5rem, 8vw, 5.5rem); font-weight: 900; color: #e8eaf0; letter-spacing: -2px; line-height: 1; }
 .score-dash { color: #9aa6ba; margin: 0 0.5rem; }
 .score-prob { margin-top: 0.9rem; font-size: 1rem; color: #00e5ff; font-weight: 700; letter-spacing: 0.3px; }
 .score-ci { margin-top: 1.2rem; display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap; }
-.ci-item { font-size: 0.92rem; color: #8892a4; line-height: 1.4; }
+.ci-item { font-size: 0.92rem; color: #c9d0dc; line-height: 1.4; }
 .ci-range { font-weight: 800; color: #cdd; }
 
 /* ── Top scorelines table ── */
@@ -627,7 +658,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .score-table tr:first-child td { font-weight: 700; color: #e8eaf0; }
 .badge-H { background: rgba(61,110,255,0.15); color: #7fa3ff; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
 .badge-D { background: rgba(255,214,0,0.15);  color: #ffd600; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
-.badge-A { background: rgba(255,64,129,0.15); color: #ff4081; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+.badge-A { background: rgba(255,64,129,0.15); color: #ff6fa1; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
 
 /* ── Form badges ── */
 .form-row { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
@@ -635,7 +666,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .form-badge { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800; }
 .form-W { background: #00e676; color: #003; }
 .form-D { background: #ffd600; color: #332200; }
-.form-L { background: #ff4081; color: #2a0012; }
+.form-L { background: #ff7aa8; color: #2a0012; }
 .form-score { font-size: 0.78rem; color: #b8c0d0; font-weight: 700; }
 .form-opp   { font-size: 0.78rem;  color: #b8c0d0; max-width: 56px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 
@@ -643,7 +674,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .form-card { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 1.4rem 1.6rem; }
 .form-team-name { font-size: 1rem; font-weight: 700; color: #ccd; margin-bottom: 0.4rem; }
 .form-stats { font-size: 0.82rem; color: #b8c0d0; margin-bottom: 1rem; }
-.form-stats span { color: #8892a4; font-weight: 600; margin-right: 0.8rem; }
+.form-stats span { color: #c9d0dc; font-weight: 600; margin-right: 0.8rem; }
 
 /* ── H2H section ── */
 .h2h-summary { display: flex; justify-content: center; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
@@ -653,7 +684,7 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 
 /* ── Predict button ── */
 div.stButton > button {
-    background: linear-gradient(135deg, #7c4dff, #00e5ff) !important; color: #fff !important;
+    background: linear-gradient(135deg, #5b36d6, #1e40af) !important; color: #fff !important;
     border: none !important; border-radius: 50px !important; padding: 0.85rem 2.5rem !important;
     font-size: 1rem !important; font-weight: 800 !important; letter-spacing: 3px !important;
     text-transform: uppercase !important; width: 100% !important;
@@ -686,7 +717,7 @@ div[data-baseweb="select"] > div {
     display: flex; border-radius: 10px; overflow: hidden; height: 36px;
     box-shadow: 0 3px 12px rgba(0,0,0,0.35);
 }
-.bar-home { background: linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #22d3ee 100%);
+.bar-home { background: linear-gradient(135deg, #3730a3 0%, #4338ca 50%, #1e40af 100%);
             display: flex; align-items: center; justify-content: center;
             font-size: 0.86rem; font-weight: 900; color: #fff; min-width: 26px;
             text-shadow: 0 1px 2px rgba(0,0,0,0.4);
@@ -696,7 +727,7 @@ div[data-baseweb="select"] > div {
             font-size: 0.86rem; font-weight: 900; color: #1a1d27; min-width: 26px;
             text-shadow: 0 1px 2px rgba(255,255,255,0.18);
             font-variant-numeric: tabular-nums; letter-spacing: -0.2px; }
-.bar-away { background: linear-gradient(135deg, #d1123c 0%, #b30f34 50%, #9f1239 100%);
+.bar-away { background: linear-gradient(135deg, #a50e30 0%, #9f1239 50%, #881337 100%);
             display: flex; align-items: center; justify-content: center;
             font-size: 0.86rem; font-weight: 900; color: #fff; min-width: 26px;
             text-shadow: 0 1px 2px rgba(0,0,0,0.4);
@@ -761,7 +792,7 @@ div[data-baseweb="select"] > div {
 
 /* ── Backtest table ── */
 .bt-correct   { color: #00e676; font-weight: 700; }
-.bt-incorrect { color: #ff4081; }
+.bt-incorrect { color: #ff6fa1; }
 .metric-card {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
     border-radius: 16px; padding: 1.2rem; text-align: center;
@@ -769,10 +800,10 @@ div[data-baseweb="select"] > div {
 .metric-value { font-size: 2.2rem; font-weight: 900; color: #e8eaf0;
                 line-height: 1.05; letter-spacing: -0.7px;
                 font-variant-numeric: tabular-nums; }
-.metric-label { font-size: 0.86rem; color: #8892a4; font-weight: 800;
+.metric-label { font-size: 0.86rem; color: #c9d0dc; font-weight: 800;
                 text-transform: uppercase; letter-spacing: 1.6px; margin-top: 0.4rem; }
 .metric-better { color: #00e676; }
-.metric-worse  { color: #ff4081; }
+.metric-worse  { color: #ff6fa1; }
 
 .stSpinner > div { border-top-color: #a78bfa !important; }
 
@@ -817,7 +848,7 @@ div[data-baseweb="select"] > div {
 
 .pj-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .pj-val {
     font-size: 2.2rem; font-weight: 900; color: #e8eaf0;
@@ -825,7 +856,7 @@ div[data-baseweb="select"] > div {
     margin-top: 0.15rem;
 }
 .pj-sub {
-    font-size: 0.92rem; color: #8892a4; line-height: 1.4;
+    font-size: 0.92rem; color: #c9d0dc; line-height: 1.4;
     margin-top: 0.3rem;
 }
 
@@ -857,14 +888,14 @@ div[data-baseweb="select"] > div {
                   background: linear-gradient(180deg, rgba(255,64,129,0.08), rgba(255,64,129,0.02)); }
 .pj-future-lbl-small {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.2px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .pj-future-val {
     font-size: 1.55rem; font-weight: 900; line-height: 1;
     margin-top: 0.25rem; font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
 }
 .pj-future-win-val  { color: #00e676; }
-.pj-future-lose-val { color: #ff4081; }
+.pj-future-lose-val { color: #ff6fa1; }
 
 @media (max-width: 900px) {
     .pnl-journey { grid-template-columns: 1fr; }
@@ -872,7 +903,7 @@ div[data-baseweb="select"] > div {
     .pj-arrow-sub { margin-top: 0; }
 }
 .pnl-profit .pnl-amount { color: #00e676; }
-.pnl-loss   .pnl-amount { color: #ff4081; }
+.pnl-loss   .pnl-amount { color: #ff6fa1; }
 .pnl-neutral .pnl-amount { color: #e8eaf0; }
 .pnl-subtitle { font-size: 0.9rem; color: #b8c0d0; font-weight: 500; }
 
@@ -930,7 +961,7 @@ div[data-baseweb="select"] > div {
     margin-bottom: 0.85rem;
 }
 .pend-v2-date {
-    font-size: 0.92rem; font-weight: 800; color: #8892a4;
+    font-size: 0.92rem; font-weight: 800; color: #c9d0dc;
     letter-spacing: 0.3px;
 }
 .pend-v2-badge {
@@ -980,7 +1011,7 @@ div[data-baseweb="select"] > div {
 }
 .pend-v2-stat-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .pend-v2-stat-val {
     font-size: 1.15rem; font-weight: 900; color: #e8eaf0;
@@ -1000,7 +1031,7 @@ div[data-baseweb="select"] > div {
 .pend-v2-return-block { flex: 1; min-width: 0; }
 .pend-v2-return-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .pend-v2-return-val {
     font-size: 1.5rem; font-weight: 900; color: #e8eaf0;
@@ -1091,7 +1122,7 @@ div[data-baseweb="select"] > div {
 }
 .clv-hero-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .clv-hero-val {
     font-size: 1.85rem; font-weight: 900; color: #e8eaf0;
@@ -1105,7 +1136,7 @@ div[data-baseweb="select"] > div {
 }
 .clv-hero-status b { font-size: 1rem; }
 .clv-hero-note {
-    font-size: 0.86rem; color: #8892a4; margin-top: 0.3rem;
+    font-size: 0.86rem; color: #c9d0dc; margin-top: 0.3rem;
 }
 
 /* Per-window mini blocks inside the Recent panel */
@@ -1119,7 +1150,7 @@ div[data-baseweb="select"] > div {
 }
 .clv-win-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .clv-win-val {
     font-size: 1.4rem; font-weight: 900; color: #e8eaf0;
@@ -1128,7 +1159,7 @@ div[data-baseweb="select"] > div {
 }
 .clv-win-val.clv-win-na { color: #b8c0d0; }
 .clv-win-pos {
-    font-size: 0.78rem; color: #8892a4; margin-top: 0.2rem; font-weight: 600;
+    font-size: 0.78rem; color: #c9d0dc; margin-top: 0.2rem; font-weight: 600;
 }
 
 @media (max-width: 900px) {
@@ -1191,7 +1222,7 @@ div[data-baseweb="select"] > div {
 }
 .clv-guide-eg-lbl {
     font-size: 0.8rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .clv-guide-eg-val {
     font-size: 1.5rem; font-weight: 900; color: #e8eaf0;
@@ -1199,7 +1230,7 @@ div[data-baseweb="select"] > div {
     line-height: 1; letter-spacing: -0.3px;
 }
 .clv-guide-eg-took   { color: #00e5ff; }
-.clv-guide-eg-close  { color: #8892a4; }
+.clv-guide-eg-close  { color: #c9d0dc; }
 .clv-guide-eg-result { color: #00e676; }
 .clv-guide-example-note {
     font-size: 0.96rem; color: #cdd; line-height: 1.5;
@@ -1268,7 +1299,7 @@ div[data-baseweb="select"] > div {
 .clv-band-sharp { background: rgba(0,229,255,0.10);  border: 1px solid rgba(0,229,255,0.35); color: #00e5ff; }
 .clv-band-good  { background: rgba(0,230,118,0.10);  border: 1px solid rgba(0,230,118,0.35); color: #00e676; }
 .clv-band-warn  { background: rgba(255,214,0,0.10);  border: 1px solid rgba(255,214,0,0.35); color: #ffd600; }
-.clv-band-bad   { background: rgba(255,64,129,0.10); border: 1px solid rgba(255,64,129,0.35); color: #ff4081; }
+.clv-band-bad   { background: rgba(255,64,129,0.10); border: 1px solid rgba(255,64,129,0.35); color: #ff6fa1; }
 
 /* Target / what success looks like */
 .clv-guide-target {
@@ -1305,7 +1336,7 @@ div[data-baseweb="select"] > div {
         46px        /* played */
         62px        /* pts now */
         72px        /* proj μ */
-        82px        /* most likely */
+        104px       /* 80% points range */
         108px       /* elo */
         90px        /* form sparkline */
         2.0fr;      /* scenarios */
@@ -1353,7 +1384,7 @@ div[data-baseweb="select"] > div {
     letter-spacing: -0.2px;
 }
 
-.sim-played   { font-size: 1rem;   color: #8892a4; font-weight: 700; text-align: center; }
+.sim-played   { font-size: 1rem;   color: #c9d0dc; font-weight: 700; text-align: center; }
 .sim-pts-now  { font-size: 1.4rem; font-weight: 900; color: #e8eaf0;
                 text-align: center; line-height: 1.05; letter-spacing: -0.5px; }
 .sim-pts-proj { font-size: 1.2rem; font-weight: 800; color: #a78bfa;
@@ -1411,7 +1442,7 @@ div[data-baseweb="select"] > div {
 .sim-math-block.sim-math-verdict { flex: 1; min-width: 200px; }
 .sim-math-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .sim-math-val {
     font-size: 1.6rem; font-weight: 900; color: #e8eaf0;
@@ -1419,7 +1450,7 @@ div[data-baseweb="select"] > div {
     letter-spacing: -0.4px;
 }
 .sim-math-sub {
-    font-size: 0.86rem; color: #8892a4; line-height: 1.4;
+    font-size: 0.86rem; color: #c9d0dc; line-height: 1.4;
 }
 .bh-row {
     display: grid;
@@ -1500,7 +1531,7 @@ div[data-baseweb="select"] > div {
 }
 .bh-edge-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.2px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .bh-edge-num {
     font-size: 0.95rem; font-weight: 900; color: #cdd;
@@ -1522,7 +1553,7 @@ div[data-baseweb="select"] > div {
 }
 .bh-result.bh-won  { background: rgba(0,230,118,0.15); color: #00e676;
                      border: 1px solid rgba(0,230,118,0.35); }
-.bh-result.bh-lost { background: rgba(255,64,129,0.15); color: #ff4081;
+.bh-result.bh-lost { background: rgba(255,64,129,0.15); color: #ff6fa1;
                      border: 1px solid rgba(255,64,129,0.35); }
 
 /* P&L chip — large & loud */
@@ -1537,12 +1568,12 @@ div[data-baseweb="select"] > div {
     border: 1px solid rgba(0,230,118,0.4);
 }
 .bh-pnl.bh-pnl-neg {
-    color: #ff4081;
+    color: #ff6fa1;
     background: linear-gradient(135deg, rgba(255,64,129,0.16), rgba(159,18,57,0.05));
     border: 1px solid rgba(255,64,129,0.35);
 }
 .bh-pnl.bh-pnl-flat {
-    color: #8892a4; background: rgba(255,255,255,0.04);
+    color: #c9d0dc; background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
 }
 .bh-cell-result, .bh-cell-pnl { text-align: right; }
@@ -1563,7 +1594,7 @@ div[data-baseweb="select"] > div {
 .scan-prob-item { text-align: center; }
 .scan-pct  { font-size: 1.3rem; font-weight: 800; line-height: 1; }
 .scan-lbl  { font-size: 0.84rem; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase; color: #b8c0d0; }
-.scan-odds-source { font-size: 0.86rem; color: #8892a4; }
+.scan-odds-source { font-size: 0.86rem; color: #c9d0dc; }
 
 /* ── New scanner fixture card — fixture-tab style, big badges + gradient bar ── */
 .scan-fixture-card {
@@ -1597,7 +1628,7 @@ div[data-baseweb="select"] > div {
     flex: 1; display: flex; height: 26px; border-radius: 8px;
     overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
-.scan-ou-over  { background: linear-gradient(135deg, #7c4dff, #00e5ff);
+.scan-ou-over  { background: linear-gradient(135deg, #5b36d6, #1e40af);
                  display: flex; align-items: center; justify-content: center;
                  font-size: 0.84rem; font-weight: 900; color: #fff;
                  font-variant-numeric: tabular-nums; }
@@ -1608,7 +1639,7 @@ div[data-baseweb="select"] > div {
 .scan-src-chip {
     font-size: 0.8rem; font-weight: 700; padding: 0.3rem 0.7rem;
     border-radius: 999px; background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08); color: #8892a4;
+    border: 1px solid rgba(255,255,255,0.08); color: #c9d0dc;
     white-space: nowrap;
 }
 .scan-src-live {
@@ -1636,7 +1667,7 @@ div[data-baseweb="select"] > div {
 }
 .scan-value-banner .svb-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .scan-value-banner .svb-val {
     font-size: 1.35rem; font-weight: 900; color: #e8eaf0;
@@ -1652,7 +1683,7 @@ div[data-baseweb="select"] > div {
 .ev-strong  { background: rgba(0,230,118,0.18); color: #00e676; }
 .ev-mild    { background: rgba(105,240,174,0.15); color: #69f0ae; }
 .ev-neutral { background: rgba(255,255,255,0.06); color: #b8c0d0; }
-.ev-neg     { background: rgba(255,64,129,0.12); color: #ff4081; }
+.ev-neg     { background: rgba(255,64,129,0.12); color: #ff6fa1; }
 
 /* ── Last Gameweek result cards ── */
 .res-card {
@@ -1671,7 +1702,7 @@ div[data-baseweb="select"] > div {
 .res-badge   { font-size: 0.78rem; font-weight: 800; padding: 4px 12px; border-radius: 20px;
                margin-left: auto; letter-spacing: 0.4px; }
 .res-win  { background: rgba(0,230,118,0.15); color: #00e676; border: 1px solid rgba(0,230,118,0.3); }
-.res-loss { background: rgba(255,64,129,0.15); color: #ff4081; border: 1px solid rgba(255,64,129,0.3); }
+.res-loss { background: rgba(255,64,129,0.15); color: #ff6fa1; border: 1px solid rgba(255,64,129,0.3); }
 
 /* Predicted vs Actual headline row — bigger, clearer */
 .res-headline {
@@ -1707,7 +1738,7 @@ div[data-baseweb="select"] > div {
 
 .res-meta  { font-size: 0.84rem; color: #b8c0d0; display: flex; gap: 1rem; flex-wrap: wrap;
              align-items: center; }
-.res-meta b { color: #8892a4; }
+.res-meta b { color: #c9d0dc; }
 
 /* Per-team xG chip in the meta row */
 .res-xg-chip {
@@ -1759,7 +1790,7 @@ div[data-baseweb="select"] > div {
 }
 .td-stat-lbl {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .td-stat-val {
     font-size: 1.7rem; font-weight: 900; color: #e8eaf0;
@@ -1800,7 +1831,7 @@ div[data-baseweb="select"] > div {
 }
 .td-result-opp  { font-size: 0.84rem; color: #cdd; font-weight: 600;
                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.td-result-date { font-size: 0.78rem; color: #8892a4; }
+.td-result-date { font-size: 0.78rem; color: #c9d0dc; }
 .td-result-chip img.team-badge {
     width: 34px !important; height: 34px !important; flex-shrink: 0;
 }
@@ -1817,7 +1848,7 @@ div[data-baseweb="select"] > div {
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 0.7rem;
 }
-.td-fix-date { font-size: 0.92rem; color: #8892a4; font-weight: 800; letter-spacing: 0.3px; }
+.td-fix-date { font-size: 0.92rem; color: #c9d0dc; font-weight: 800; letter-spacing: 0.3px; }
 .td-fix-verdict {
     font-size: 0.84rem; font-weight: 800; letter-spacing: 1.2px;
     padding: 0.3rem 0.8rem; border-radius: 999px;
@@ -1844,9 +1875,9 @@ div[data-baseweb="select"] > div {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(124,77,255,0.10);
 }
-.td-stat-card .td-stat-lbl { color: #8892a4; }
+.td-stat-card .td-stat-lbl { color: #c9d0dc; }
 .td-stat-card .td-stat-val { font-size: 1.85rem; margin-top: 0.3rem; }
-.td-stat-card .td-stat-sub { font-size: 0.86rem; color: #8892a4; margin-top: 0.25rem;
+.td-stat-card .td-stat-sub { font-size: 0.86rem; color: #c9d0dc; margin-top: 0.25rem;
                               line-height: 1.4; }
 
 /* Per-bet rows */
@@ -1891,7 +1922,7 @@ div[data-baseweb="select"] > div {
     letter-spacing: 0.3px;
 }
 .td-bet-status.td-won  { background: rgba(0,230,118,0.15); color: #00e676; border: 1px solid rgba(0,230,118,0.35); }
-.td-bet-status.td-lost { background: rgba(255,64,129,0.15); color: #ff4081; border: 1px solid rgba(255,64,129,0.35); }
+.td-bet-status.td-lost { background: rgba(255,64,129,0.15); color: #ff6fa1; border: 1px solid rgba(255,64,129,0.35); }
 .td-bet-status.td-pend { background: rgba(255,214,0,0.10);  color: #ffd600; border: 1px solid rgba(255,214,0,0.35); }
 
 @media (max-width: 1100px) {
@@ -1931,7 +1962,7 @@ div[data-baseweb="select"] > div {
 .gw-recap-icon { font-size: 1.6rem; line-height: 1; }
 .gw-recap-lbl  {
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.6px;
-    text-transform: uppercase; color: #8892a4;
+    text-transform: uppercase; color: #c9d0dc;
 }
 .gw-recap-val  {
     font-size: 1.7rem; font-weight: 900; color: #e8eaf0;
@@ -2176,7 +2207,7 @@ def render_hero_strip(dc_r: dict) -> None:
         br, init, pending, delta, roi = 10_000.0, 10_000.0, [], 0.0, 0.0
 
     delta_sign  = "+" if delta >= 0 else "−"
-    delta_color = "#00e676" if delta >= 0 else "#ff4081"
+    delta_color = "#00e676" if delta >= 0 else "#ff6fa1"
     roi_color   = delta_color
 
     # ── Top weekend pick ───────────────────────────────────────────────
@@ -2215,7 +2246,7 @@ def render_hero_strip(dc_r: dict) -> None:
             <div class="hero-stat-label">💰 BANKROLL</div>
             <div class="hero-stat-value">£{br:,.0f}</div>
             <div class="hero-stat-sub" style="color:{delta_color}">
-                {delta_sign}£{abs(delta):,.0f} &nbsp;·&nbsp; ROI {delta_sign}{abs(roi):.1f}%
+                {md.fmt_money(delta)} &nbsp;·&nbsp; ROI {delta_sign}{abs(roi):.1f}%
             </div>
         </div>
         <div class="hero-stat">
@@ -2242,7 +2273,7 @@ def _prediction_insights(hs: dict, as_: dict, home_team: str, away_team: str) ->
         hx, ax = hs["avg_xg"], as_["avg_xg"]
         diff = hx - ax
         leader = home_team if hx > ax else away_team
-        leader_color = "#3d6eff" if hx > ax else "#ff4081"
+        leader_color = "#3d6eff" if hx > ax else "#ff6fa1"
         insights.append((abs(diff), "⚡",
             f'<b style="color:{leader_color}">{leader}</b> averaging '
             f'<b style="color:#e8eaf0">{max(hx,ax):.2f} xG</b> vs '
@@ -2254,7 +2285,7 @@ def _prediction_insights(hs: dict, as_: dict, home_team: str, away_team: str) ->
         hx, ax = hs["avg_xga"], as_["avg_xga"]
         diff = ax - hx  # lower xGA is better, so home leads if hx < ax
         leader = home_team if hx < ax else away_team
-        leader_color = "#3d6eff" if hx < ax else "#ff4081"
+        leader_color = "#3d6eff" if hx < ax else "#ff6fa1"
         insights.append((abs(diff), "🛡️",
             f'<b style="color:{leader_color}">{leader}</b> defence conceding just '
             f'<b style="color:#e8eaf0">{min(hx,ax):.2f} xGA</b> vs '
@@ -2266,7 +2297,7 @@ def _prediction_insights(hs: dict, as_: dict, home_team: str, away_team: str) ->
         hp, ap = hs["avg_pts"], as_["avg_pts"]
         diff = hp - ap
         leader = home_team if hp > ap else away_team
-        leader_color = "#3d6eff" if hp > ap else "#ff4081"
+        leader_color = "#3d6eff" if hp > ap else "#ff6fa1"
         insights.append((abs(diff) * 1.5, "📈",
             f'<b style="color:{leader_color}">{leader}</b> earning '
             f'<b style="color:#e8eaf0">{max(hp,ap):.1f} pts/game</b> vs '
@@ -2281,7 +2312,7 @@ def _prediction_insights(hs: dict, as_: dict, home_team: str, away_team: str) ->
         insights.append((abs(diff) * 1.2, "🏟️",
             f'<b style="color:#7fa3ff">{home_team}</b> averaging '
             f'<b style="color:#e8eaf0">{h_home:.1f} pts at home</b> · '
-            f'<b style="color:#ff4081">{away_team}</b> '
+            f'<b style="color:#ff6fa1">{away_team}</b> '
             f'<b style="color:#e8eaf0">{a_away:.1f} pts away</b>',
             f'Venue-specific gap of {abs(diff):.2f} pts/game'))
 
@@ -2291,7 +2322,7 @@ def _prediction_insights(hs: dict, as_: dict, home_team: str, away_team: str) ->
         diff = he - ae
         if abs(diff) > 20:  # only show if the gap is meaningful
             leader = home_team if he > ae else away_team
-            leader_color = "#3d6eff" if he > ae else "#ff4081"
+            leader_color = "#3d6eff" if he > ae else "#ff6fa1"
             insights.append((abs(diff) / 30.0, "📊",
                 f'<b style="color:{leader_color}">{leader}</b> carries a '
                 f'<b style="color:#e8eaf0">{abs(diff):.0f}-point Elo advantage</b> '
@@ -2443,7 +2474,7 @@ def cached_honest_bin_variances(df_hash: int, exclude_weeks: int):
 DARK = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Inter", color="#8892a4", size=11),
+    font=dict(family="Inter", color="#c9d0dc", size=11),
     margin=dict(l=10, r=10, t=40, b=10),
 )
 
@@ -2467,7 +2498,7 @@ def heatmap_fig(matrix, home_team, away_team, most_likely):
         fig.add_shape(type="rect", x0=ml_c-0.5, x1=ml_c+0.5, y0=ml_r-0.5, y1=ml_r+0.5,
                       line=dict(color="#ffd600", width=2.5))
     fig.update_layout(**DARK, height=380,
-        title=dict(text="Score Probability Matrix", font=dict(size=13, color="#8892a4"), x=0.5),
+        title=dict(text="Score Probability Matrix", font=dict(size=13, color="#c9d0dc"), x=0.5),
         xaxis=dict(title=f"{away_team} goals", gridcolor="rgba(255,255,255,0.04)", title_font=dict(size=11)),
         yaxis=dict(title=f"{home_team} goals", gridcolor="rgba(255,255,255,0.04)", title_font=dict(size=11)))
     return fig
@@ -2487,7 +2518,7 @@ def goal_dist_fig(home_pmf, away_pmf, home_team, away_team, lam_h, lam_a, home_c
             annotation_text=f"xG {name[:3]}: {lam:.2f}", annotation_position="top",
             annotation_font=dict(size=9, color=color))
     fig.update_layout(**DARK, height=380, barmode="group", bargap=0.15, bargroupgap=0.05,
-        title=dict(text="Goal Probability Distribution", font=dict(size=13, color="#8892a4"), x=0.5),
+        title=dict(text="Goal Probability Distribution", font=dict(size=13, color="#c9d0dc"), x=0.5),
         xaxis=dict(title="Goals Scored", tickvals=goals, gridcolor="rgba(255,255,255,0.04)"),
         yaxis=dict(title="Probability (%)", gridcolor="rgba(255,255,255,0.04)"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
@@ -2511,7 +2542,7 @@ def h2h_fig(h2h_df, home_team, away_team):
             text=[str(val)], textposition="outside", textfont=dict(size=13, color="#e8eaf0"),
             showlegend=False, hovertemplate=f"{cat}: {val}<extra></extra>"))
     fig.update_layout(**DARK, height=280, barmode="group",
-        title=dict(text=f"Head-to-Head (Last {len(h2h_df)} meetings)", font=dict(size=13, color="#8892a4"), x=0.5),
+        title=dict(text=f"Head-to-Head (Last {len(h2h_df)} meetings)", font=dict(size=13, color="#c9d0dc"), x=0.5),
         xaxis=dict(gridcolor="rgba(0,0,0,0)"), yaxis=dict(gridcolor="rgba(255,255,255,0.04)", dtick=1))
     return fig
 
@@ -2557,7 +2588,7 @@ def form_badges_html(form_data):
         <div class="form-item">
             <div class="form-badge form-{m['result']}">{m['result']}</div>
             <div class="form-score">{m['gf']}–{m['ga']}</div>
-            <div class="form-opp" title="{m['opponent']}">{m['opponent'][:6]}</div>
+            <div class="form-opp" title="{m['opponent']}">{badge(m['opponent'], 22) or m['opponent'][:6]}</div>
         </div>"""
     return f'<div class="form-row">{items}</div>'
 
@@ -2641,8 +2672,8 @@ def fixture_card_html(home_team, away_team, result, lam_h, lam_a, odds: dict | N
         </div>
         <div class="fixture-footer">
             <span class="fixture-xg-chip"
-                  title="Expected Goals — the model's predicted goals for each team based on Dixon-Coles attack/defence ratings. {home_team}: {lam_h:.2f} · {away_team}: {lam_a:.2f}">
-                <span class="xg-label">xG</span>
+                  title="Model goals: the Dixon-Coles forecast of each side's goals from attack and defence ratings. {home_team}: {lam_h:.2f} · {away_team}: {lam_a:.2f}">
+                <span class="xg-label">Model goals</span>
                 <span class="xg-home">{lam_h:.1f}</span>
                 <span class="xg-dash">–</span>
                 <span class="xg-away">{lam_a:.1f}</span>
@@ -2720,13 +2751,8 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
         st.warning("Please select two different teams.")
         return
 
-    _, btn_col, _ = st.columns([2, 3, 2])
-    with btn_col:
-        predict = st.button("⚡  Predict Match", key="predict_btn")
-
-    if not predict:
-        return
-
+    # Predicts as soon as both teams are picked (about 3s); the extra
+    # "Predict Match" press added nothing.
     with st.spinner(f"Analysing {home_team} vs {away_team}..."):
         # Models
         p_pred   = predict_poisson(home_team, away_team, poisson_r)
@@ -2743,53 +2769,6 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
         away_form = get_team_form(df, away_team, n=5)
         h2h_df    = get_head_to_head(df, home_team, away_team, n=10)
 
-    # ── Model comparison ──────────────────────────────────────────────────
-    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-    st.markdown('<p class="section-label" style="text-align:center">Model Comparison</p>',
-                unsafe_allow_html=True)
-
-    # Pull accuracy scores from the cached 10-week walk-forward backtest
-    try:
-        _, _bt_summary = cached_backtest(len(df), test_weeks=10)
-    except Exception:
-        _bt_summary = {}
-    _acc_pois = _bt_summary.get("pois_accuracy")
-    _acc_dcb  = _bt_summary.get("dcb_accuracy")
-    _acc_full = _bt_summary.get("dc_accuracy")
-
-    def _acc_badge(acc: float | None) -> str:
-        if acc is None:
-            return ('<span class="model-acc-badge model-acc-na">'
-                    'accuracy n/a</span>')
-        col = "#00e676" if acc >= 55 else ("#ffd600" if acc >= 50 else "#ff4081")
-        return (f'<span class="model-acc-badge" style="color:{col};'
-                f'border-color:{col}55;background:rgba({_hex_to_rgb(col)},0.10)">'
-                f'<span class="model-acc-num">{acc:.1f}%</span>'
-                f'<span class="model-acc-lbl">10-wk accuracy</span></span>')
-
-    cA, cB, cC = st.columns(3)
-    for col, title, result, tag_color, acc in [
-        (cA, "Poisson + XGB",                p_blend,  "#7c4dff", _acc_pois),
-        (cB, "DC + XGB",                     dc_blend, "#00e5ff", _acc_dcb),
-        (cC, "DC + XGB + Draw Specialist",   final,    "#00e676", _acc_full),
-    ]:
-        with col:
-            h_p = round(result["home_win"] * 100, 1)
-            d_p = round(result["draw"]     * 100, 1)
-            a_p = round(result["away_win"] * 100, 1)
-            st.markdown(f"""
-            <div class="model-card">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.6rem;margin-bottom:0.6rem">
-                    <div class="model-title" style="color:{tag_color};margin:0">{title}</div>
-                    {_acc_badge(acc)}
-                </div>
-                <div class="fixture-prob-bar" style="height:34px;margin-bottom:0.6rem">
-                    <div class="bar-home bar-sm" style="width:{h_p}%">{h_p}%</div>
-                    <div class="bar-draw bar-sm" style="width:{d_p}%">{d_p}%</div>
-                    <div class="bar-away bar-sm" style="width:{a_p}%">{a_p}%</div>
-                </div>
-            </div>""", unsafe_allow_html=True)
-
     # Use DC+XGB+Draw Specialist as the primary for the detailed breakdown below
     # (final already set by full_predict above)
     dc_lam_h = dc_pred["lambda_home"]
@@ -2798,10 +2777,56 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
     # ── Stacked probability bar — primary outcome view (full ensemble) ───
-    st.markdown('<p class="section-label" style="text-align:center">Dixon-Coles · Overall Probability</p>',
+    st.markdown('<p class="section-label" style="text-align:center">F_PRED model · Dixon-Coles + XGBoost + draw specialist</p>',
                 unsafe_allow_html=True)
     st.markdown(win_prob_bar_html(final, home_team, away_team),
                 unsafe_allow_html=True)
+
+    with st.expander("Compare the component models", expanded=False):
+        # ── Model comparison ──────────────────────────────────────────────────
+
+        # Pull accuracy scores from the cached 10-week walk-forward backtest
+        try:
+            _, _bt_summary = cached_backtest(len(df), test_weeks=10)
+        except Exception:
+            _bt_summary = {}
+        _acc_pois = _bt_summary.get("pois_accuracy")
+        _acc_dcb  = _bt_summary.get("dcb_accuracy")
+        _acc_full = _bt_summary.get("dc_accuracy")
+
+        def _acc_badge(acc: float | None) -> str:
+            if acc is None:
+                return ('<span class="model-acc-badge model-acc-na">'
+                        'accuracy n/a</span>')
+            col = "#00e676" if acc >= 55 else ("#ffd600" if acc >= 50 else "#ff6fa1")
+            return (f'<span class="model-acc-badge" style="color:{col};'
+                    f'border-color:{col}55;background:rgba({_hex_to_rgb(col)},0.10)">'
+                    f'<span class="model-acc-num">{acc:.1f}%</span>'
+                    f'<span class="model-acc-lbl">10-wk accuracy</span></span>')
+
+        cA, cB, cC = st.columns(3)
+        for col, title, result, tag_color, acc in [
+            (cA, "Poisson + XGB",                p_blend,  "#7c4dff", _acc_pois),
+            (cB, "DC + XGB",                     dc_blend, "#00e5ff", _acc_dcb),
+            (cC, "DC + XGB + Draw Specialist",   final,    "#00e676", _acc_full),
+        ]:
+            with col:
+                h_p = round(result["home_win"] * 100, 1)
+                d_p = round(result["draw"]     * 100, 1)
+                a_p = round(result["away_win"] * 100, 1)
+                st.markdown(f"""
+                <div class="model-card">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.6rem;margin-bottom:0.6rem">
+                        <div class="model-title" style="color:{tag_color};margin:0">{title}</div>
+                        {_acc_badge(acc)}
+                    </div>
+                    <div class="fixture-prob-bar" style="height:34px;margin-bottom:0.6rem">
+                        <div class="bar-home bar-sm" style="width:{h_p}%">{h_p}%</div>
+                        <div class="bar-draw bar-sm" style="width:{d_p}%">{d_p}%</div>
+                        <div class="bar-away bar-sm" style="width:{a_p}%">{a_p}%</div>
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
 
     # ── Why this prediction — key drivers from rolling stats ──────────────
     insights = _prediction_insights(hs, as_, home_team, away_team)
@@ -2810,7 +2835,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
         st.markdown('<p class="section-label" style="text-align:center;font-size:1rem">🧠  Why this prediction</p>',
                     unsafe_allow_html=True)
         st.markdown(
-            '<p style="font-size:0.95rem;color:#8892a4;text-align:center;margin-bottom:1.2rem">'
+            '<p style="font-size:0.95rem;color:#c9d0dc;text-align:center;margin-bottom:1.2rem">'
             'Top factors driving the model — ranked by how much they favour one side.</p>',
             unsafe_allow_html=True,
         )
@@ -2855,12 +2880,12 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
                 unsafe_allow_html=True)
 
     markets = [
-        ("Over 1.5 Goals",   dc_pred["over_15"],   "#7c4dff"),
-        ("Over 2.5 Goals",   dc_pred["over_25"],   "#00e5ff"),
-        ("Over 3.5 Goals",   dc_pred["over_35"],   "#00ff87"),
-        ("Both Teams Score", dc_pred["btts"],       "#ffd600"),
-        (f"{home_team} Clean Sheet", dc_pred["home_cs"], "#3d6eff"),
-        (f"{away_team} Clean Sheet", dc_pred["away_cs"], "#ff4081"),
+        ("Over 1.5 Goals",   dc_pred["over_15"],   "#eef1f5"),
+        ("Over 2.5 Goals",   dc_pred["over_25"],   "#eef1f5"),
+        ("Over 3.5 Goals",   dc_pred["over_35"],   "#eef1f5"),
+        ("Both Teams Score", dc_pred["btts"],       "#eef1f5"),
+        (f"{home_team} Clean Sheet", dc_pred["home_cs"], "#7ea2ff"),
+        (f"{away_team} Clean Sheet", dc_pred["away_cs"], "#ff6fa1"),
     ]
     mkt_cols = st.columns(len(markets))
     for col, (label, prob, color) in zip(mkt_cols, markets):
@@ -2980,7 +3005,7 @@ def tab_weekend(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, team
         )
         st.markdown(
             f'<p style="font-size:0.82rem;color:#b8c0d0;margin-bottom:0.3rem;">'
-            f'Next gameweek · <b style="color:#8892a4">{date_range_str}</b>'
+            f'Next gameweek · <b style="color:#c9d0dc">{date_range_str}</b>'
             f' · {len(fixtures)} matches</p>',
             unsafe_allow_html=True,
         )
@@ -3118,6 +3143,11 @@ def tab_backtest(df_hash: int):
 
     n  = summary["n_matches"]
     pa, da, ta = summary["pois_accuracy"], summary["dc_accuracy"], summary["table_accuracy"]
+    # Before matchday 1 there is no table; those rows used to count as table
+    # misses under a placeholder rank of 999.
+    _ranked = bt[(bt["HomePos"] != 999) & (bt["AwayPos"] != 999)]
+    if len(_ranked):
+        ta = round(_ranked["Table_Correct"].mean() * 100, 1)
     pb, db     = summary["pois_brier"],    summary["dc_brier"]
     rb         = summary["rand_brier"]
 
@@ -3160,7 +3190,10 @@ def tab_backtest(df_hash: int):
         t_icon  = "✓" if row["Table_Correct"] else "✗"
         p_icon  = "✓" if row["Pois_Correct"]  else "✗"
         dc_icon = "✓" if row["DC_Correct"]    else "✗"
-        pos_str = f"#{row['HomePos']} vs #{row['AwayPos']}"
+        _no_table = 999 in (row["HomePos"], row["AwayPos"])
+        pos_str = "No table yet" if _no_table else f"#{row['HomePos']} vs #{row['AwayPos']}"
+        if _no_table:
+            t_cls, t_icon = "bt-na", ""
         rows_html += f"""<tr>
             <td style="color:#b8c0d0;white-space:nowrap">{row['Date'].strftime('%d %b')}</td>
             <td style="font-weight:700">{row['Home']}</td>
@@ -3169,7 +3202,7 @@ def tab_backtest(df_hash: int):
             <td style="color:#aab">{row['Actual']}</td>
             <td>
                 <span style="color:#b8c0d0;font-size:0.78rem">{pos_str}</span><br>
-                <span class="{t_cls}">{t_icon} {row['Table_Pred']}</span>
+                <span class="{t_cls}">{t_icon} {"–" if _no_table else row['Table_Pred']}</span>
             </td>
             <td>
                 <span style="color:#b8c0d0;font-size:0.82rem">{row['Pois_H']}·{row['Pois_D']}·{row['Pois_A']}</span><br>
@@ -3202,7 +3235,7 @@ def tab_backtest(df_hash: int):
         '<p style="font-size:0.8rem;color:#b8c0d0;margin-bottom:1.2rem">'
         'A well-calibrated model sits on the diagonal. '
         'Points <b style="color:#00e676">above the line</b> = model under-estimates that outcome. '
-        'Points <b style="color:#ff4081">below</b> = model over-estimates it. '
+        'Points <b style="color:#ff6fa1">below</b> = model over-estimates it. '
         'Marker size = number of samples in that probability bin.</p>',
         unsafe_allow_html=True,
     )
@@ -3582,13 +3615,13 @@ def tab_backtest(df_hash: int):
                 if ratio > 1.0 else
                 f"Trailing teams equalise {ratio:.2f}× the rate of late winners — hypothesis NOT supported."
             )
-            verdict_col = "#00e676" if ratio > 1.05 else ("#ffd600" if ratio > 0.95 else "#ff4081")
+            verdict_col = "#00e676" if ratio > 1.05 else ("#ffd600" if ratio > 0.95 else "#ff6fa1")
             st.markdown(
                 f'<div style="padding:0.7rem 1rem;margin-top:0.6rem;'
                 f'background:rgba(124,77,255,0.06);border-left:3px solid {verdict_col};'
                 f'border-radius:6px;font-size:0.84rem;color:#e8eaf0">'
                 f'<b style="color:{verdict_col}">{ratio_msg}</b> '
-                f'&nbsp;·&nbsp; <span style="color:#8892a4">Sample: '
+                f'&nbsp;·&nbsp; <span style="color:#c9d0dc">Sample: '
                 f'{trail_n} trailing-by-1 matches, {level_n} level-at-HT matches '
                 f'across {df_eq["Season"].nunique()} seasons. '
                 f'2nd-half avg goals when level: {level_avg_sh_goals:.2f}.</span></div>',
@@ -3631,7 +3664,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
     st.markdown('<p class="section-label" style="margin-top:1rem">Season Outlook · Monte Carlo Simulation</p>',
                 unsafe_allow_html=True)
     st.markdown(
-        '<p style="font-size:1rem;color:#8892a4;margin-bottom:1.5rem;line-height:1.55">'
+        '<p style="font-size:1rem;color:#c9d0dc;margin-bottom:1.5rem;line-height:1.55">'
         'Simulates the remaining season <b>10,000 times</b> using Dixon-Coles match probabilities '
         '(with parametric-bootstrap noise on attack/defence ratings) to estimate each team\'s '
         'final position distribution. Elo and 5-game form trend shown alongside as supporting context.</p>',
@@ -3640,7 +3673,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
 
     # ── Rating-uncertainty slider ─────────────────────────────────────────
     st.markdown(
-        '<p style="font-size:0.78rem;color:#8892a4;margin-bottom:0.3rem;font-weight:600">'
+        '<p style="font-size:0.78rem;color:#c9d0dc;margin-bottom:0.3rem;font-weight:600">'
         '⚙️  Rating uncertainty (σ)</p>',
         unsafe_allow_html=True,
     )
@@ -3658,7 +3691,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
         ),
     )
     st.markdown(
-        f'<p style="font-size:0.92rem;color:#8892a4;margin:-0.4rem 0 1rem 0;">'
+        f'<p style="font-size:0.92rem;color:#c9d0dc;margin:-0.4rem 0 1rem 0;">'
         f'σ = <b style="color:#a78bfa;font-size:1.05rem">{param_noise:.2f}</b> '
         f'&nbsp;·&nbsp; <b>0.05</b> ≈ very confident favourites &nbsp;·&nbsp; '
         f'<b>0.12</b> ≈ balanced default &nbsp;·&nbsp; <b>0.25</b> ≈ wide open race</p>',
@@ -3779,31 +3812,15 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
     n_total = len(sim_df)
     _no_pill = '<span class="sim-pill-none">—</span>'
 
-    # ── Most-Likely Points: pick the modal outcome of each remaining match
-    # (whichever H/D/A has highest probability) and add the resulting points
-    # for each team. This is a single deterministic scenario — useful as a
-    # "path of least resistance" finish next to the probabilistic mean.
-    most_likely_gain = {t: 0 for t in sim_df["Team"]}
-    for _fix in fixtures_used:
-        h, a = _fix["home"], _fix["away"]
-        try:
-            _pred = predict_dixon_coles(h, a, dc_r)
-        except Exception:
-            continue
-        # Find the modal outcome
-        outcomes = {
-            "H": _pred["home_win"],
-            "D": _pred["draw"],
-            "A": _pred["away_win"],
-        }
-        modal = max(outcomes, key=outcomes.get)
-        if modal == "H":
-            most_likely_gain[h] = most_likely_gain.get(h, 0) + 3
-        elif modal == "A":
-            most_likely_gain[a] = most_likely_gain.get(a, 0) + 3
-        else:  # draw
-            most_likely_gain[h] = most_likely_gain.get(h, 0) + 1
-            most_likely_gain[a] = most_likely_gain.get(a, 0) + 1
+    # 80% range of final points (10th to 90th percentile of the simulations).
+    # Replaced a "most likely" column that summed each match's single likeliest
+    # result, so every favourite won every game (Arsenal 111 against a mean of 77).
+    _order = list(table_df["Team"])
+    pts_range = {}
+    for _t in sim_df["Team"]:
+        if _t in _order:
+            _lo, _hi = np.percentile(sim_pts[:, _order.index(_t)], [10, 90])
+            pts_range[_t] = (int(round(_lo)), int(round(_hi)))
 
     rows_html_parts = []
     for pos, row in sim_df.iterrows():
@@ -3838,7 +3855,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
         elo_d    = elo_data.get("delta", 0)
         spark_svg = _elo_sparkline_svg(elo_data.get("form", []), width=80, height=28) \
             if len(elo_data.get("form", [])) >= 2 else ""
-        delta_col = "#00e676" if elo_d > 5 else ("#ff4081" if elo_d < -5 else "#8892a4")
+        delta_col = "#00e676" if elo_d > 5 else ("#ff6fa1" if elo_d < -5 else "#c9d0dc")
         delta_arrow = "▲" if elo_d > 0 else ("▼" if elo_d < 0 else "→")
 
         # Team badge (bigger 44px)
@@ -3846,8 +3863,8 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
         badge_html = (f'<img class="team-badge" src="{badge_url}" alt="{team}" />'
                       if badge_url else '')
 
-        # Most-likely deterministic finish (current + modal-outcome wins/draws)
-        ml_pts = pts + most_likely_gain.get(team, 0)
+        _lo, _hi = pts_range.get(team, (None, None))
+        ml_pts = f"{_lo} to {_hi}" if _lo is not None else "–"
 
         rows_html_parts.append(
             f'<div class="sim-row {zone_cls}">'
@@ -3856,9 +3873,8 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
               f'<div class="sim-played">{played}</div>'
               f'<div class="sim-pts-now">{pts}</div>'
               f'<div class="sim-pts-proj">{mean_pts}</div>'
-              f'<div class="sim-pts-ml" title="Most-likely deterministic finish — '
-                f'each remaining match scored at its highest-probability outcome '
-                f'(W/D/L), summed onto current points.">{ml_pts}</div>'
+              f'<div class="sim-pts-ml" title="Eight in ten simulated seasons end '
+                f'inside this points range.">{ml_pts}</div>'
               f'<div class="sim-elo">'
                 f'<div class="sim-elo-num">{elo_now:.0f}</div>'
                 f'<div class="sim-elo-delta" style="color:{delta_col}">'
@@ -3876,8 +3892,8 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
         '<div class="sim-played">P</div>'
         '<div class="sim-pts-now">PTS</div>'
         '<div class="sim-pts-proj" title="Mean projected points across 10,000 sims">PROJ μ</div>'
-        '<div class="sim-pts-ml" title="Most likely deterministic finish — pick modal '
-        'W/D/L outcome of every remaining match">MOST LIKELY</div>'
+        '<div class="sim-pts-ml" title="10th to 90th percentile of final points">'
+        '80% RANGE</div>'
         '<div class="sim-elo">ELO · 5-GAME Δ</div>'
         '<div class="sim-spark">FORM</div>'
         '<div class="sim-pills">SCENARIOS</div>'
@@ -3894,7 +3910,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
     # ── Position probability heatmap ──────────────────────────────────────
     st.markdown('<p class="section-label">Position Probability Heatmap</p>', unsafe_allow_html=True)
     st.markdown(
-        '<p style="font-size:0.92rem;color:#8892a4;margin-bottom:0.6rem">'
+        '<p style="font-size:0.92rem;color:#c9d0dc;margin-bottom:0.6rem">'
         'How often each team finishes at each rank across 10,000 simulations. '
         'Brighter cells = more likely outcome. Hover for exact % per cell.</p>',
         unsafe_allow_html=True,
@@ -4069,7 +4085,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
             mode_pos = int(np.argmax(pos_counts)) + 1
             mode_pct = float(pos_counts[mode_pos - 1]) / len(team_pos_samples) * 100
             st.markdown(f"""<div class="metric-card">
-                <div class="metric-value">#{mode_pos} <span style="font-size:0.82rem;color:#8892a4">({mode_pct:.0f}%)</span></div>
+                <div class="metric-value">#{mode_pos} <span style="font-size:0.82rem;color:#c9d0dc">({mode_pct:.0f}%)</span></div>
                 <div class="metric-label">Most Likely Finish</div>
             </div>""", unsafe_allow_html=True)
 
@@ -4174,7 +4190,7 @@ def tab_season(df: pd.DataFrame, dc_r: dict):
                         tag_color, tag_text = "#ff4081", "UNDERDOG"
                     else:
                         tag_color, tag_text = "#ffd600", "EVEN"
-                    venue_color = "#3d6eff" if f["Venue"] == "H" else "#ff4081"
+                    venue_color = "#3d6eff" if f["Venue"] == "H" else "#ff6fa1"
                     rows_html += f"""<tr>
                         <td style="color:{venue_color};font-weight:700;width:2rem">{f['Venue']}</td>
                         <td style="font-weight:700;color:#e8eaf0">{tb(f['Opp'], 18)}</td>
@@ -4235,8 +4251,8 @@ def _render_gw_records(records: list, date_label: str):
     exp_goals   = sum(r["exp_total"] for r in records)
     goals_err   = np.mean([abs(r["total"] - r["exp_total"]) for r in records])
 
-    acc_col = "#00e676" if n_correct / n >= 0.5 else ("#ffd600" if n_correct / n >= 0.33 else "#ff4081")
-    ou_col  = "#00e676" if n_ou / n >= 0.5 else "#ff4081"
+    acc_col = "#00e676" if n_correct / n >= 0.5 else ("#ffd600" if n_correct / n >= 0.33 else "#ff6fa1")
+    ou_col  = "#00e676" if n_ou / n >= 0.5 else "#ff6fa1"
 
     def _gw_stat(val, lbl, color="#e8eaf0"):
         return (f'<div class="gw-stat">'
@@ -4270,7 +4286,7 @@ def _render_gw_records(records: list, date_label: str):
         st.markdown(
             f'<div style="background:rgba(255,64,129,0.07);border:1px solid rgba(255,64,129,0.2);'
             f'border-radius:12px;padding:0.8rem 1.1rem;margin:1rem 0 0.3rem;font-size:0.82rem;color:#aab">'
-            f'😱 <b style="color:#ff4081">Biggest surprise:</b> {tb(upset["home"], 24)} vs {tb(upset["away"], 24)} — '
+            f'😱 <b style="color:#ff6fa1">Biggest surprise:</b> {tb(upset["home"], 24)} vs {tb(upset["away"], 24)} — '
             f'only gave the actual result <b style="color:#e8eaf0">{upset["prob_actual"]*100:.0f}% probability</b> · '
             f'Actual: {upset["hg"]}–{upset["ag"]}</div>',
             unsafe_allow_html=True,
@@ -4308,7 +4324,7 @@ def _render_gw_records(records: list, date_label: str):
                 '<span class="res-xg-chip" '
                 f'title="Per-team Expected Goals based on shot quality from Understat. '
                 f'{r["home"]}: {r["xg_h"]:.2f} · {r["away"]}: {r["xg_a"]:.2f}">'
-                '<span class="res-xg-lbl">xG</span>'
+                '<span class="res-xg-lbl">Match xG</span>'
                 f'<span class="res-xg-val res-xg-h">{r["xg_h"]:.1f}</span>'
                 '<span class="res-xg-dash">–</span>'
                 f'<span class="res-xg-val res-xg-a">{r["xg_a"]:.1f}</span>'
@@ -4348,12 +4364,12 @@ def _render_gw_records(records: list, date_label: str):
                 </div>
                 <div class="res-goals">
                     <div class="res-goals-block">
-                        <span class="res-goals-lbl">Total Expected Goals</span>
+                        <span class="res-goals-lbl">Model goals</span>
                         <span class="res-goals-val">{r['exp_total']:.1f}</span>
                     </div>
                     <span class="res-goals-vs">vs</span>
                     <div class="res-goals-block">
-                        <span class="res-goals-lbl">Total Actual Goals</span>
+                        <span class="res-goals-lbl">Actual goals</span>
                         <span class="res-goals-val">{r['total']}</span>
                     </div>
                     <span style="color:{diff_col};font-weight:800;font-size:0.86rem;
@@ -4481,13 +4497,13 @@ def _render_gw_recap(records: list[dict]) -> None:
     n_correct = sum(1 for r in records if r["correct"])
     win_pct   = (n_correct / n_total * 100) if n_total else 0
     record_col = ("#00e676" if win_pct >= 50 else
-                  "#ffd600" if win_pct >= 33 else "#ff4081")
+                  "#ffd600" if win_pct >= 33 else "#ff6fa1")
 
     # Average model probability assigned to the outcome that actually occurred
     # — a quick calibration / confidence read for the week.
     avg_conf = sum(r["prob_actual"] for r in records) / n_total
     conf_col = ("#00e676" if avg_conf >= 0.45 else
-                "#ffd600" if avg_conf >= 0.34 else "#ff4081")
+                "#ffd600" if avg_conf >= 0.34 else "#ff6fa1")
 
     # Biggest hit — correct prediction with the highest model conviction
     correct_hits = [r for r in records if r["correct"]]
@@ -4540,7 +4556,7 @@ def _render_gw_recap(records: list[dict]) -> None:
             f'<span style="font-size:1.18rem">{tb(h, 28)} <span style="color:#b8c0d0">vs</span> {tb(a, 28)}</span>'
         )
         sub_html = (f'model picked <b>{_miss_pred}</b>, actual was '
-                    f'<b style="color:#ff4081">{_miss_actual}</b> · '
+                    f'<b style="color:#ff6fa1">{_miss_actual}</b> · '
                     f'model only had <b>{biggest_miss["prob_actual"]*100:.0f}%</b> on it')
         miss_block = _block("💥", "BIGGEST MISS", miss_html, sub_html, "#ff4081")
     else:
@@ -4551,7 +4567,7 @@ def _render_gw_recap(records: list[dict]) -> None:
     conf_block = _block(
         "📊", "AVG CONFIDENCE",
         f'<span style="color:{conf_col}">{avg_conf*100:.0f}%</span>',
-        f'mean prob the model assigned to the<br>actual outcome — higher = more calibrated',
+        f'mean probability the model gave the<br>result that happened. Higher is sharper',
         conf_col,
     )
 
@@ -4625,18 +4641,30 @@ def _render_settings_chip(port: dict, label_prefix: str = "port") -> None:
     auto_chip = (chip("🤖 Auto-Bet ON", "#00e676", "rgba(0,230,118,0.14)")
                  if auto_on else chip("🤖 Auto-Bet OFF", "#445", "rgba(0,0,0,0.18)"))
 
-    chips = [
-        chip(f"📊 {mkt_str}", "#7c4dff", "rgba(124,77,255,0.10)"),
-        chip(f"🎯 mp ≥ {mp}%"),
-        chip(f"💎 EV ≥ {mev}%"),
-        chip(f"💰 Kelly {kel}%"),
-        chip(f"🚦 max {maxs}%"),
-        on_chip("⏭ Skip Mar-May ✓") if skip_l else off_chip("⏭ Skip Mar-May ✗"),
-        on_chip("⏭ Skip title-race ✓") if skip_t else off_chip("⏭ Skip title-race ✗"),
-        on_chip("🔗 Sim corr ✓") if sim else off_chip("🔗 Sim corr ✗"),
-        on_chip("🎚 U2.5 sep gates ✓") if has_u25 else off_chip("🎚 U2.5 sep gates ✗"),
-        auto_chip,
-    ]
+    # Only gates that are ON, in plain words: every chip is something the
+    # auto-bet actually checks. The old row listed switched-off filters too
+    # and said "Mar-May" for a filter that skips March and April.
+    floor = s.get("min_raw_draw_prob")
+    dows = s.get("main_banned_dows") or s.get("v2_banned_dows") or []
+    mk_words = " + ".join(md.MARKET_LABELS.get(m, m) for m in mkts) or "No markets"
+    chips = [chip(f"📊 {mk_words}", "#b39dff", "rgba(124,77,255,0.10)")]
+    if floor:
+        chips.append(chip(f"Raw draw ≥ {float(floor):.0%}", "#ffd600", "rgba(255,214,0,0.10)"))
+    chips += [chip(f"Calibrated ≥ {mp}%"),
+              chip(f"EV ≥ {float(s.get('auto_bet_threshold', s.get('min_ev', 0.40))):.1%}"),
+              chip(f"{float(s.get('kelly_fraction', 1.0)):g}x Kelly"),
+              chip(f"Max stake {maxs}%")]
+    if dows:
+        chips.append(chip(" and ".join(dows) + " skipped"))
+    if skip_l:
+        chips.append(chip("Mar and Apr skipped"))
+    if skip_t:
+        chips.append(chip("Title-race hosts skipped"))
+    if s.get("detect_source") == "PS":
+        chips.append(chip("Needs a Pinnacle price"))
+    if sim:
+        chips.append(chip("Same-day stake correction"))
+    chips.append(auto_chip)
     st.markdown(
         '<div style="margin:0.4rem 0 0.5rem 0;line-height:1.7">'
         + "".join(chips) + '</div>',
@@ -4812,7 +4840,7 @@ def _render_clv_trend(port: dict, key_prefix: str = "") -> None:
             col_specs.append((f"—", f"LAST {w}", "#445", "—"))
             continue
         med = wd["median"] * 100
-        col = "#00e676" if med >= 1.0 else ("#ffd600" if med >= 0 else "#ff4081")
+        col = "#00e676" if med >= 1.0 else ("#ffd600" if med >= 0 else "#ff6fa1")
         col_specs.append((f"{med:+.2f}%", f"LAST {w}", col, f"{wd['pct_pos']:.0f}% pos"))
 
     cols = st.columns(3)
@@ -4823,7 +4851,7 @@ def _render_clv_trend(port: dict, key_prefix: str = "") -> None:
                 f'border-radius:8px;padding:0.75rem 1rem">'
                 f'<div style="font-size:1.4rem;font-weight:700;color:{color};'
                 f'line-height:1.1">{val}</div>'
-                f'<div style="font-size:0.84rem;color:#8892a4;letter-spacing:2px;'
+                f'<div style="font-size:0.84rem;color:#c9d0dc;letter-spacing:2px;'
                 f'margin-top:0.25rem">{label}  <span style="color:#b8c0d0">·  {sub}</span></div>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -4895,7 +4923,7 @@ def _elo_sparkline_svg(values: list[float], width: int = 110, height: int = 36,
     polyline = " ".join(pts)
     last_x, last_y = pts[-1].split(",")
     rising = values[-1] >= values[0]
-    line_col = "#00e676" if rising else "#ff4081"
+    line_col = "#00e676" if rising else "#ff6fa1"
     fill_col = "rgba(0,230,118,0.10)" if rising else "rgba(255,64,129,0.10)"
     # Build a closed area for fill underneath the line
     area_pts = polyline + f" {width-pad},{height-pad} {pad},{height-pad}"
@@ -4972,15 +5000,15 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
         f'font-weight:700;text-transform:uppercase;margin-bottom:0.5rem">'
         f'📈  LIVE PREMIER LEAGUE ELO</div>'
         f'<div style="display:flex;gap:2rem;flex-wrap:wrap;font-size:0.86rem;color:#e8eaf0">'
-        f'<div><span style="color:#8892a4">League leader:</span> '
+        f'<div><span style="color:#c9d0dc">League leader:</span> '
         f'<b style="color:#00e676">{top["team"]}</b> ({top["elo"]:.0f})</div>'
-        f'<div><span style="color:#8892a4">Median:</span> '
+        f'<div><span style="color:#c9d0dc">Median:</span> '
         f'<b>{mid["team"]}</b> ({mid["elo"]:.0f})</div>'
-        f'<div><span style="color:#8892a4">Bottom:</span> '
-        f'<b style="color:#ff4081">{bot["team"]}</b> ({bot["elo"]:.0f})</div>'
-        f'<div><span style="color:#8892a4">Spread:</span> '
+        f'<div><span style="color:#c9d0dc">Bottom:</span> '
+        f'<b style="color:#ff6fa1">{bot["team"]}</b> ({bot["elo"]:.0f})</div>'
+        f'<div><span style="color:#c9d0dc">Spread:</span> '
         f'<b>{top["elo"]-bot["elo"]:.0f}</b> Elo points</div>'
-        f'<div><span style="color:#8892a4">As of:</span> '
+        f'<div><span style="color:#c9d0dc">As of:</span> '
         f'<b>{max_date.date()}</b></div>'
         f'</div></div>',
         unsafe_allow_html=True,
@@ -5006,7 +5034,7 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
     }
     .elo-rank   { font-size: 1rem; font-weight: 700; color: #b8c0d0; text-align: right; }
     .elo-rank.top    { color: #00e676; }
-    .elo-rank.bottom { color: #ff4081; }
+    .elo-rank.bottom { color: #ff6fa1; }
     .elo-badge img   { width: 40px; height: 40px; object-fit: contain;
                        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); transition: transform 0.18s; }
     .elo-row:hover .elo-badge img { transform: scale(1.12); }
@@ -5016,7 +5044,7 @@ def tab_elo(df: pd.DataFrame, teams: list) -> None:
     .elo-delta       { font-size: 0.86rem; font-weight: 600;
                        font-variant-numeric: tabular-nums; }
     .elo-up   { color: #00e676; }
-    .elo-down { color: #ff4081; }
+    .elo-down { color: #ff6fa1; }
     .elo-flat { color: #b8c0d0; }
     .elo-spark { line-height: 0; }
 
@@ -5167,7 +5195,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         result_lbl = "W" if won else ("D" if drew else "L")
         score = f"{int(a['FTHG'])}-{int(a['FTAG'])}"
         last5_results.append({
-            "date":  r["Date"].strftime("%d-%b-%y"),
+            "date":  r["Date"].strftime("%-d %b %y"),
             "opp":   opp,
             "venue": "H" if is_home else "A",
             "score": score,
@@ -5231,7 +5259,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     # ── Hero card with badge + stats ─────────────────────────────────────
     badge_url = _BADGE_URL.get(sel, "")
     spark_svg = _elo_sparkline_svg(elo_form_5g, width=140, height=40) if len(elo_form_5g) >= 2 else ""
-    delta_col = "#00e676" if delta_5g > 5 else ("#ff4081" if delta_5g < -5 else "#8892a4")
+    delta_col = "#00e676" if delta_5g > 5 else ("#ff6fa1" if delta_5g < -5 else "#c9d0dc")
     delta_arrow = "▲" if delta_5g > 0 else ("▼" if delta_5g < 0 else "→")
 
     st.markdown(f"""
@@ -5266,7 +5294,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     unsafe_allow_html=True)
         chips = []
         for r in last5_results:
-            res_col = "#00e676" if r["result"] == "W" else ("#ffd600" if r["result"] == "D" else "#ff4081")
+            res_col = "#00e676" if r["result"] == "W" else ("#ffd600" if r["result"] == "D" else "#ff6fa1")
             opp_url = _BADGE_URL.get(r["opp"], "")
             opp_badge = (f'<img class="team-badge" src="{opp_url}" '
                          f'style="width:34px;height:34px" />' if opp_url else "")
@@ -5295,7 +5323,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             d_pct = round(fp["p_d"] * 100, 1)
             a_pct = round(fp["p_a"] * 100, 1)
             try:
-                date_str = fp["date"].strftime("%d-%b-%y")
+                date_str = fp["date"].strftime("%a %-d %b")
             except Exception:
                 date_str = ""
 
@@ -5329,7 +5357,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             """, unsafe_allow_html=True)
     else:
         st.markdown(
-            '<div style="padding:1rem;color:#8892a4;text-align:center">'
+            '<div style="padding:1rem;color:#c9d0dc;text-align:center">'
             'No upcoming fixtures found in the next 45 days.</div>',
             unsafe_allow_html=True,
         )
@@ -5340,8 +5368,8 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     unsafe_allow_html=True)
         # Stats row
         clv_col = "#00e676" if (median_clv or 0) >= 1 else (
-                  "#ffd600" if (median_clv or 0) >= 0 else "#ff4081")
-        pl_col  = "#00e676" if total_pl >= 0 else "#ff4081"
+                  "#ffd600" if (median_clv or 0) >= 0 else "#ff6fa1")
+        pl_col  = "#00e676" if total_pl >= 0 else "#ff6fa1"
         clv_html = f'{median_clv:+.2f}%' if median_clv is not None else '—'
         st.markdown(f"""
         <div class="td-portfolio-stats">
@@ -5352,7 +5380,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
           </div>
           <div class="td-stat-card">
             <div class="td-stat-lbl">P&amp;L</div>
-            <div class="td-stat-val" style="color:{pl_col}">£{total_pl:+,.0f}</div>
+            <div class="td-stat-val" style="color:{pl_col}">{md.fmt_money(total_pl)}</div>
             <div class="td-stat-sub">all bets, all portfolios</div>
           </div>
           <div class="td-stat-card">
@@ -5375,7 +5403,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                              reverse=True):
             try:
                 d = pd.to_datetime(b.get("date") or b.get("placed_at"))
-                date_short = d.strftime("%d-%b-%y")
+                date_short = d.strftime("%-d %b %y")
             except Exception:
                 date_short = (b.get("date") or "")[:10]
             opp = b["away"] if b["home"] == sel else b["home"]
@@ -5387,8 +5415,8 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             profit = b.get("profit") or 0
             if status == "pending":  pl_str = "—"
             else:
-                pl_str = f'£{profit:+,.0f}'
-            pl_color = "#00e676" if profit > 0 else ("#ff4081" if profit < 0 else "#8892a4")
+                pl_str = md.fmt_money(profit)
+            pl_color = "#00e676" if profit > 0 else ("#ff6fa1" if profit < 0 else "#c9d0dc")
             bet_rows.append(
                 f'<div class="td-bet-row">'
                 f'<div class="td-bet-date">{date_short}</div>'
@@ -5413,7 +5441,7 @@ def tab_team_deepdive(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         )
     else:
         st.markdown(
-            '<div style="padding:1rem;color:#8892a4;text-align:center;font-size:0.96rem">'
+            '<div style="padding:1rem;color:#c9d0dc;text-align:center;font-size:0.96rem">'
             f'No portfolio bets involving {sel} yet.</div>',
             unsafe_allow_html=True,
         )
@@ -5454,7 +5482,7 @@ def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
             labels.append("If all win")
         x_vals = list(range(len(y_vals)))
 
-    line_col = "#00e676" if y_vals[-1] >= init_br else "#ff4081"
+    line_col = "#00e676" if y_vals[-1] >= init_br else "#ff6fa1"
     fig_br = go.Figure()
 
     if len(history) > 1:
@@ -5508,7 +5536,7 @@ def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
         fig_br.add_hline(
             y=init_br, line_color="rgba(255,255,255,0.30)", line_dash="dot",
             annotation_text=f"Start £{init_br:,.0f}",
-            annotation_font=dict(color="#8892a4", size=14, family="Inter"),
+            annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
             annotation_position="top left",
         )
 
@@ -5520,7 +5548,7 @@ def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
             for d in deltas[1:]
         ]
         marker_colors = ["#8892a4"] + [
-            "#00e676" if d > 0 else ("#ff4081" if d < 0 else "#8892a4")
+            "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
             for d in deltas[1:]
         ]
         marker_sizes = [0] + [13 if d != 0 else 6 for d in deltas[1:]]
@@ -5741,7 +5769,7 @@ def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
         fig_br.add_hline(
             y=init_br, line_color="rgba(255,255,255,0.25)", line_dash="dot",
             annotation_text=f"Start £{init_br:,.0f}",
-            annotation_font=dict(color="#8892a4", size=11),
+            annotation_font=dict(color="#c9d0dc", size=11),
             annotation_position="top left",
         )
         n_pts = len(y_vals)
@@ -5756,7 +5784,7 @@ def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
                         color=_mk_colors[:-1] if n_pts > 2 else _mk_colors),
             text=labels[:-1] if n_pts > 2 else labels,
             textposition="top center",
-            textfont=dict(size=10, color="#8892a4"),
+            textfont=dict(size=10, color="#c9d0dc"),
             hovertemplate="%{text}<br>£%{y:,.2f}<extra></extra>",
             name="Staked",
         ))
@@ -5783,7 +5811,7 @@ def _render_bankroll_chart(port: dict, pending_bets: list, bankroll: float, *,
             title=dict(text="BET NUMBER", font=dict(size=12, color="#7c4dff", family="Inter"),
                        standoff=18),
             showgrid=False, showticklabels=True,
-            tickfont=dict(size=13, color="#8892a4", family="Inter"),
+            tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
             zeroline=False,
         ),
         yaxis=dict(
@@ -5838,6 +5866,114 @@ def _bankroll_chart_scopes(port: dict, pending_bets: list, bankroll: float) -> N
         _render_bankroll_chart(port, pending_bets, bankroll, chart_key="br_chart_now")
 
 
+# The three Main bets the duplicate tab loop placed on 22 Sep 2026 at 12:08,
+# seconds after the shared run found no fixtures. Left in place (bets are
+# sacred); labelled so they are not mistaken for the strategy's own picks.
+_RETIRED_LOOP_WINDOW = ("2026-09-22T12:08:40", "2026-09-22T12:08:55")
+
+
+def _mt_sizing_blurb(p2: dict) -> str:
+    """What actually differs in Mock Two's live sizing, read from its settings."""
+    s2 = p2.get("settings", {})
+    parts = [f"{float(s2.get('kelly_fraction', 1.0)):g}x Kelly",
+             f"max stake {float(s2.get('max_stake_pct', 0.25)):.0%}"]
+    if s2.get("use_uncertainty_kelly"):
+        parts.append("Baker-McHale uncertainty-shrunk Kelly")
+    if s2.get("use_simultaneous_kelly"):
+        parts.append("simultaneous-bet correction")
+    if s2.get("detect_source") == "PS":
+        parts.append("edge measured at Pinnacle, placed at best price")
+    return " &nbsp;·&nbsp; ".join(parts)
+
+
+def _bet_tags_html(bet: dict, port: dict) -> str:
+    """Warning chips for a pending bet that today's gates would not place."""
+    tags = []
+    placed = str(bet.get("placed_at") or "")
+    if _RETIRED_LOOP_WINDOW[0] <= placed <= _RETIRED_LOOP_WINDOW[1]:
+        tags.append("Placed by the retired tab loop, 22 Sep")
+    floor = (port or {}).get("settings", {}).get("min_raw_draw_prob")
+    if (floor and bet.get("market") == "D"
+            and float(bet.get("model_prob") or 0) < float(floor)):
+        tags.append(f"Raw {float(bet['model_prob'])*100:.1f}% would fail today's "
+                    f"{float(floor):.0%} floor")
+    if not tags:
+        # Never an empty string: this sits inside a multi-line st.markdown card,
+        # and a whitespace-only line ends the HTML block (the rest then renders
+        # as literal text).
+        return '<div class="pend-v2-tags" hidden></div>'
+    return ('<div class="pend-v2-tags">' + "".join(
+        f'<span class="pend-v2-tag">{t}</span>' for t in tags) + '</div>')
+
+
+def _cancel_bet_control(bet: dict, port: dict, save, line: str, key: str) -> None:
+    """A quiet "Cancel bet" that asks first and leaves a trail.
+
+    It used to be a full-width gradient button that deleted the bet on one
+    click. Bets are sacred, so cancelling now takes two deliberate clicks and
+    is written to the activity log.
+    """
+    with st.popover("Cancel bet", use_container_width=False):
+        st.markdown(
+            f'<div style="font-size:0.9rem;color:#eef1f5;margin-bottom:0.5rem">'
+            f'Cancel <b>{bet.get("selection", bet.get("market"))}</b> on '
+            f'{bet["home"]} v {bet["away"]}? The {md.fmt_money(bet["stake"], signed=False, pence=True)} '
+            f'stake returns to the bankroll and the bet leaves the history.</div>',
+            unsafe_allow_html=True)
+        if st.button("Yes, cancel this bet", key=key + "_confirm", type="primary"):
+            pf.remove_pending_bet(port, bet["id"])
+            save(port)
+            _log_activity_event("bet_cancelled", portfolio=line,
+                                match=f"{bet['home']} vs {bet['away']}",
+                                market=bet.get("market"), stake=bet["stake"])
+            st.rerun()
+
+
+def _scan_card_html(home, away, p_h, p_d, p_a, p_o25, api_odds, v, show_all) -> str:
+    """One next-matchday fixture: model bar, strategy verdict, optional market grid.
+
+    Returned as ONE line: st.markdown stops passing raw HTML once a line is
+    whitespace-only, which is how the old card rendered empty boxes.
+    """
+    hp, dp, ap = round(p_h * 100), round(p_d * 100), round(p_a * 100)
+    tone = {"bet": "go", "placed": "info", "held": "hold"}.get(v["status"], "pass")
+    label = {"bet": "WOULD BET", "placed": "BACKED", "held": "HELD",
+             "blocked": "PASS", "window": "NOT YET", "no_odds": "NO PRICE"}.get(v["status"], "PASS")
+    dnum = v.get("draw")
+    nums = ""
+    if dnum:
+        nums = (f'<span class="scan-v-nums">Draw raw {dnum["raw"]*100:.1f}% · calibrated '
+                f'{dnum["cal"]*100:.1f}% · @{dnum["odds"]:.2f} · EV {dnum["ev"]*100:+.1f}%</span>')
+    grid = ""
+    if show_all and api_odds:
+        cells = []
+        for code, prob, name in [("H", p_h, home), ("D", p_d, "Draw"), ("A", p_a, away),
+                                 ("over25", p_o25, "Over 2.5"), ("under25", 1 - p_o25, "Under 2.5")]:
+            o = api_odds.get(code)
+            if not o or o <= 1:
+                continue
+            edge = (prob - 1.0 / o) * 100
+            cells.append(f'<span class="scan-mkt"><b>{name}</b> @{o:.2f} · model {prob*100:.0f}% '
+                         f'vs {100/o:.0f}% ({edge:+.0f}pp)</span>')
+        grid = f'<div class="scan-mkts">{"".join(cells)}</div>'
+    html = f"""
+    <div class="scan-fixture-card scan-{v['status']}">
+      <div class="scan-fixture-row">
+        <div class="fixture-team-name fixture-team-home">{tb(home, 44)}</div>
+        <div class="fixture-prob-bar" style="height:40px">
+          <div class="bar-home" style="width:{hp}%">{hp}%</div>
+          <div class="bar-draw" style="width:{dp}%">{dp}%</div>
+          <div class="bar-away" style="width:{ap}%">{ap}%</div>
+        </div>
+        <div class="fixture-team-name fixture-team-away">{tb(away, 44)}</div>
+      </div>
+      <div class="scan-verdict">{_preflight_chip(label, tone)}
+        <span class="scan-v-text">{v['text']}</span>{nums}</div>
+      {grid}
+    </div>"""
+    return "".join(seg.strip() for seg in html.splitlines())
+
+
 def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict):
     # ── Auto-settle pending bets ─────────────────────────────────────────
     port = pf.load_portfolio()
@@ -5871,7 +6007,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         _ab_mt_clv = (pf.clv_summary(_ab_mt).get("median_clv") or 0) * 100
 
         def _ab_half(label, color, s, clv_v):
-            pcol = "#00e676" if s["profit"] >= 0 else "#ff4081"
+            pcol = "#00e676" if s["profit"] >= 0 else "#ff6fa1"
             return (
                 f'<div style="flex:1;min-width:230px">'
                 f'<div style="font-size:0.78rem;letter-spacing:1.8px;font-weight:800;'
@@ -5879,8 +6015,8 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 f'<div style="font-size:1.25rem;font-weight:900;color:#e8eaf0">'
                 f'£{s["bankroll"]:,.0f} '
                 f'<span style="font-size:0.84rem;color:{pcol}">'
-                f'{"+" if s["profit"] >= 0 else ""}£{s["profit"]:,.0f}</span></div>'
-                f'<div style="font-size:0.78rem;color:#8892a4">'
+                f'{md.fmt_money(s["profit"])}</span></div>'
+                f'<div style="font-size:0.78rem;color:#c9d0dc">'
                 f'ROI {s["roi"]:+.1f}% · {s["n_settled"]} bets · '
                 f'win {s["win_rate"]:.0f}% · CLV {clv_v:+.2f}%</div></div>'
             )
@@ -5960,7 +6096,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                      "calibrator touches it. 0 = off. Validated at 30% on 22 Sep 2026: "
                      "worst season -6.3k -> -2.1k, max drawdown 83% -> 66%.")
             st.markdown(
-                f'<div style="font-size:0.78rem;color:#8892a4;line-height:1.5">'
+                f'<div style="font-size:0.78rem;color:#c9d0dc;line-height:1.5">'
                 f'📋 A bet must clear: probability ≥ <b style="color:#a78bfa">{new_min_prob}%</b> '
                 f'AND EV ≥ <b style="color:#a78bfa">+{new_min_ev}%</b>'
                 + (f' AND raw draw ≥ <b style="color:#a78bfa">{new_raw_floor}%</b>' if new_raw_floor else '')
@@ -6167,9 +6303,9 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         with api_c2:
             _usage = pf.get_api_usage()
             _usage_pct = _usage["count"] / _usage["cap"] * 100 if _usage["cap"] > 0 else 0
-            _usage_col = "#00e676" if _usage_pct < 50 else ("#ffd600" if _usage_pct < 80 else "#ff4081")
+            _usage_col = "#00e676" if _usage_pct < 50 else ("#ffd600" if _usage_pct < 80 else "#ff6fa1")
             st.markdown(
-                f'<div style="font-size:0.78rem;color:#8892a4;padding-top:0.5rem">'
+                f'<div style="font-size:0.78rem;color:#c9d0dc;padding-top:0.5rem">'
                 f'<span style="color:{_usage_col};font-weight:700">'
                 f'📊 {_usage["count"]}/{_usage["cap"]} calls this month '
                 f'({_usage["remaining"]} left)</span> · Cache: {pf._CACHE_HOURS}h</div>',
@@ -6300,13 +6436,13 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
     # Worst case: all pending lose → bankroll stays as-is (stakes already deducted)
     worst_case = bankroll
     profit_pct = (profit / initial * 100) if initial else 0
-    delta_col  = "#00e676" if profit >= 0 else "#ff4081"
+    delta_col  = "#00e676" if profit >= 0 else "#ff6fa1"
     delta_arrow = "▲" if profit >= 0 else "▼"
 
     st.markdown(f"""
     <div class="pnl-hero {hero_class}">
         <div class="pnl-tag">📊 MOCK PORTFOLIO · PAPER BETS ONLY · NOT REAL MONEY</div>
-        <div class="pnl-amount">{sign}£{abs(profit):,.2f}</div>
+        <div class="pnl-amount">{md.fmt_money(profit, pence=True)}</div>
         <div class="pnl-subtitle">
             {arrow} {sign}{roi:.1f}% ROI on settled bets
         </div>
@@ -6320,7 +6456,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
       </div>
       <div class="pj-arrow"><span style="color:{delta_col}">{delta_arrow}</span>
         <span class="pj-arrow-sub" style="color:{delta_col}">
-          {sign}£{abs(profit):,.0f}<br>({sign}{profit_pct:.1f}%)
+          {md.fmt_money(profit)}<br>({sign}{profit_pct:.1f}%)
         </span>
       </div>
       <div class="pj-step pj-now">
@@ -6354,7 +6490,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 f'<div class="pstat-val" style="color:{color}">{val}</div>'
                 f'<div class="pstat-lbl">{lbl}</div></div>')
 
-    roi_col  = "#00e676" if roi >= 0 else "#ff4081"
+    roi_col  = "#00e676" if roi >= 0 else "#ff6fa1"
     ev_col   = "#7c4dff"
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: st.markdown(_stat(f"£{bankroll:,.0f}", "BANKROLL"), unsafe_allow_html=True)
@@ -6413,7 +6549,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 # Short date format like bet history
                 try:
                     _d = pd.to_datetime(bet.get("date") or bet.get("placed_at"))
-                    _date_short = _d.strftime("%d-%b-%y")
+                    _date_short = _d.strftime("%a %-d %b")
                 except Exception:
                     _date_short = (bet.get("date") or "")[:10]
                 _model_p = bet.get("model_prob", 0) * 100
@@ -6432,13 +6568,14 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     <div class="pend-v2-pick" style="color:{mc}">
                         🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span>
                     </div>
+                    {_bet_tags_html(bet, port)}
                     <div class="pend-v2-stats">
                         <div class="pend-v2-stat">
                             <div class="pend-v2-stat-lbl">STAKE</div>
                             <div class="pend-v2-stat-val">£{bet['stake']:,.2f}</div>
                         </div>
                         <div class="pend-v2-stat">
-                            <div class="pend-v2-stat-lbl">MODEL</div>
+                            <div class="pend-v2-stat-lbl">MODEL (RAW)</div>
                             <div class="pend-v2-stat-val pend-v2-model">{_model_p:.1f}%</div>
                         </div>
                         <div class="pend-v2-stat">
@@ -6459,10 +6596,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         </div>
                     </div>
                 </div>""", unsafe_allow_html=True)
-            if st.button("✕ Cancel", key=f"cancel_{bet['id']}", type="secondary"):
-                pf.remove_pending_bet(port, bet["id"])
-                pf.save_portfolio(port)
-                st.rerun()
+            _cancel_bet_control(bet, port, pf.save_portfolio, "main", f"cancel_{bet['id']}")
 
         # Most-recent 8 single bets, rendered two per row
         recent = pending_singles[-8:]
@@ -6482,158 +6616,49 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
 
     st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
 
-    # ── Value Scanner ────────────────────────────────────────────────────
+    # ── Next matchday · what Main would bet ─────────────────────────────
+    # Rebuilt 25 Sep 2026. The old Value Bet Scanner repriced every market with
+    # no gates, so it offered home/away/over "value" with Kelly stakes the
+    # strategy never places, and draws that fail the raw floor. Verdicts now
+    # come from matchday_state, a dry run of the real auto-bet.
+    st.markdown('<p class="section-label">📡  NEXT MATCHDAY · WHAT MAIN WOULD BET</p>',
+                unsafe_allow_html=True)
+    _mk = " and ".join(md.MARKET_LABELS.get(m, m) for m in settings.get("auto_markets", []))
     st.markdown(
-        f'<p class="section-label">📡  VALUE BET SCANNER &nbsp;·&nbsp; '
-        f'min EV +{int(min_ev*100)}% &nbsp;·&nbsp; {int(kelly_frac*100)}% Kelly</p>',
-        unsafe_allow_html=True,
-    )
-    st.markdown("""
-    <div style="background:rgba(124,77,255,0.07);border:1px solid rgba(124,77,255,0.2);
-                border-radius:12px;padding:0.85rem 1.2rem;margin-bottom:1.2rem;
-                font-size:0.82rem;color:#8892a4">
-        💡 <b style="color:#ccd">How value betting works:</b> When our model's probability
-        for an outcome exceeds the bookmaker's implied probability, we have
-        <b style="color:#00e676">positive Expected Value</b> — the bet is theoretically
-        profitable long-term. Kelly criterion sizes the stake proportionally to our edge.
-        Enter odds from your bookmaker, or
-        add <b style="color:#00e5ff">The Odds API key</b> in Settings to auto-fill live odds.
-    </div>""", unsafe_allow_html=True)
+        '<div class="scan-explainer">Each verdict is a dry run of the live auto-bet '
+        f'on a copy of this portfolio: the same gates, caps and stakes. The strategy '
+        f'bets <b>{_mk}</b> only. Other markets appear when you switch on '
+        '"Show every market", for information, with no stake.</div>',
+        unsafe_allow_html=True)
+    show_all = st.toggle("Show every market", key="scan_show_all", value=False)
 
-    with st.spinner("Fetching upcoming fixtures..."):
-        fixtures = cached_fixtures()
-
-    # Fetch live odds if API key set
-    live_odds: dict = {}
-    if api_key.strip():
-        with st.spinner("Fetching live odds from The Odds API..."):
-            live_odds = pf.fetch_live_odds(api_key)
-
-    # ── Collect all fixture data first (needed for acca builder too) ─────────
-    fixture_data: list[dict] = []
-    if fixtures:
-        for fix in fixtures:
-            home, away = fix["home"], fix["away"]
-            if home not in teams or away not in teams:
-                continue
-            hs      = get_current_stats(df, home, elo_dict=elo_dict)
-            as_     = get_current_stats(df, away, elo_dict=elo_dict)
-            dc_pred, _, result = full_predict(
-                home, away, dc_r, dc_draw_r, xgb_m, feat_cols,
-                draw_xgb_m, draw_fc, hs, as_,
-            )
-            fixture_data.append({
-                "home":      home,
-                "away":      away,
-                "date":      fix["date"],
-                "date_str":  fix["date"].isoformat(),
-                "p_h":       result["home_win"],
-                "p_d":       result["draw"],
-                "p_a":       result["away_win"],
-                "p_o25":     dc_pred.get("over_25", 0.5),
-                "api_odds":  live_odds.get((home, away), {}),
-            })
-
-    if not fixture_data:
-        st.info("No upcoming fixtures found. Check back closer to the weekend.")
+    state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                           draw_fc, teams, elo_dict)
+    verdicts = state["verdicts"]["main"]
+    live_odds = state["odds"]
+    if not state["preds"]:
+        st.info("No upcoming fixtures in the next 30 days.")
     else:
         current_date = None
-        for fd in fixture_data:
-            home, away = fd["home"], fd["away"]
-            p_h, p_d, p_a = fd["p_h"], fd["p_d"], fd["p_a"]
-            p_o25      = fd["p_o25"]
-            api_odds   = fd["api_odds"]
-            has_api    = "H" in api_odds and "D" in api_odds and "A" in api_odds
-            has_ou_api = "over25" in api_odds and "under25" in api_odds
-            fix_key    = f"{home}_{away}".replace(" ", "").replace("'", "").replace("-", "")
-            date_str   = fd["date_str"]
-
-            if fd["date"] != current_date:
-                current_date = fd["date"]
+        for q in state["preds"]:
+            home, away = q["home"], q["away"]
+            p_h, p_d, p_a = q["main"]["home_win"], q["main"]["draw"], q["main"]["away_win"]
+            p_o25 = q["p_o25"]
+            api_odds = live_odds.get((home, away), {})
+            fix_key = f"{home}_{away}".replace(" ", "").replace("'", "").replace("-", "")
+            date_str = q["date"]
+            fdate = q["fix_date"]
+            if fdate != current_date:
+                current_date = fdate
                 st.markdown(
-                    f'<p style="font-size:0.82rem;font-weight:700;color:#b8c0d0;'
-                    f'text-transform:uppercase;letter-spacing:2px;margin:1.2rem 0 0.3rem">'
-                    f'{current_date.strftime("%A %-d %B")}</p>',
-                    unsafe_allow_html=True,
-                )
-
-            # Best EV highlight
-            value_html = ""
-            if has_api:
-                candidates_ev = [
-                    ("H",      pf.compute_ev(p_h,         api_odds["H"]),       api_odds["H"],       p_h,         home),
-                    ("D",      pf.compute_ev(p_d,         api_odds["D"]),       api_odds["D"],       p_d,         "Draw"),
-                    ("A",      pf.compute_ev(p_a,         api_odds["A"]),       api_odds["A"],       p_a,         away),
-                ]
-                if has_ou_api:
-                    candidates_ev += [
-                        ("over25",  pf.compute_ev(p_o25,       api_odds["over25"]),  api_odds["over25"],  p_o25,       "Over 2.5"),
-                        ("under25", pf.compute_ev(1-p_o25,     api_odds["under25"]), api_odds["under25"], 1-p_o25,     "Under 2.5"),
-                    ]
-                best = max(candidates_ev, key=lambda x: x[1])
-                if best[1] >= min_ev:
-                    _, ev_val, o_val, pr, label = best
-                    kelly_rec = pf.kelly_stake_amount(pr, o_val, bankroll, kelly_frac, max_stake_pct)
-                    _scan_ret = round(kelly_rec * o_val, 2)
-                    value_html = (
-                        f'<div class="scan-value-banner">'
-                        f'  <div class="svb-icon">💎</div>'
-                        f'  <div class="svb-block">'
-                        f'    <div class="svb-lbl">VALUE PICK</div>'
-                        f'    <div class="svb-val">{label} @ {o_val:.2f}</div>'
-                        f'  </div>'
-                        f'  <div class="svb-block">'
-                        f'    <div class="svb-lbl">EDGE vs MARKET</div>'
-                        f'    <div class="svb-val svb-edge">+{ev_val*100:.1f}%</div>'
-                        f'  </div>'
-                        f'  <div class="svb-block">'
-                        f'    <div class="svb-lbl">KELLY STAKE</div>'
-                        f'    <div class="svb-val svb-stake">£{kelly_rec:,.0f}</div>'
-                        f'  </div>'
-                        f'  <div class="svb-block">'
-                        f'    <div class="svb-lbl">IF IT WINS</div>'
-                        f'    <div class="svb-val svb-win">£{_scan_ret:,.0f}</div>'
-                        f'  </div>'
-                        f'</div>'
-                    )
-
-            # Use the same fixture card visual as the Weekend tab — big badges
-            # and the gradient HDA bar. Keeps Mock Portfolio visually consistent
-            # with the rest of the app and lifts the team identity above the
-            # "what to bet" decision.
-            _result_dict = {"home_win": p_h, "draw": p_d, "away_win": p_a}
-            _h_pct = round(p_h * 100, 1)
-            _d_pct = round(p_d * 100, 1)
-            _a_pct = round(p_a * 100, 1)
-            _ou_pct = round(p_o25 * 100, 1)
-            _u_pct = 100 - _ou_pct
-            _src_chip = ('<span class="scan-src-chip scan-src-live">📡 Live odds</span>'
-                         if has_api
-                         else '<span class="scan-src-chip">✍️ Manual odds</span>')
-            st.markdown(f"""
-            <div class="scan-fixture-card">
-                <div class="scan-fixture-row">
-                    <div class="fixture-team-name fixture-team-home">{tb(home, 56)}</div>
-                    <div class="fixture-prob-bar" style="height:48px">
-                        <div class="bar-home" style="width:{_h_pct}%">{_h_pct:.0f}%</div>
-                        <div class="bar-draw" style="width:{_d_pct}%">{_d_pct:.0f}%</div>
-                        <div class="bar-away" style="width:{_a_pct}%">{_a_pct:.0f}%</div>
-                    </div>
-                    <div class="fixture-team-name fixture-team-away">{tb(away, 56)}</div>
-                </div>
-                <div class="scan-ou-row">
-                    <span class="scan-ou-lbl">Goals (O/U 2.5)</span>
-                    <div class="scan-ou-bar">
-                        <div class="scan-ou-over"  style="width:{_ou_pct}%">Over {_ou_pct:.0f}%</div>
-                        <div class="scan-ou-under" style="width:{_u_pct}%">Under {_u_pct:.0f}%</div>
-                    </div>
-                    {_src_chip}
-                </div>
-            </div>
-            {value_html}""", unsafe_allow_html=True)
+                    f'<p class="scan-day">{current_date.strftime("%A %-d %B")}</p>',
+                    unsafe_allow_html=True)
+            v = verdicts.get((home, away), {"status": "no_odds", "text": "No live price yet"})
+            st.markdown(_scan_card_html(home, away, p_h, p_d, p_a, p_o25, api_odds, v,
+                                        show_all), unsafe_allow_html=True)
 
             # Bet slip expander — bigger, more prominent label
-            with st.expander(f"💰  Place a bet — {home} vs {away}", expanded=False):
+            with st.expander(f"✍️  Manual bet · {home} v {away}", expanded=False):
                 mkt_options = [
                     f"Home Win ({home})", "Draw", f"Away Win ({away})",
                     "Over 2.5 Goals", "Under 2.5 Goals",
@@ -6678,7 +6703,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         key=f"stake_{fix_key}", format="%.2f",
                     )
                 with bc4:
-                    ev_color = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff4081")
+                    ev_color = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff6fa1")
                     st.markdown(f"""
                     <div style="padding-top:0.25rem">
                         <div style="font-size:0.78rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Model EV</div>
@@ -6726,211 +6751,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         st.success(f"🎯 Bet placed! £{stake_inp:.0f} on {sel_label} @ {odds_inp:.2f}")
                         st.rerun()
 
-    st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Accumulator Bets — collapsed by default, separate from singles
-    # ─────────────────────────────────────────────────────────────────────
-    _n_acca_pending = len(pending_accas)
-    _n_acca_settled = len([b for b in port["bets"]
-                           if b.get("type") == "acca" and b["status"] in ("won", "lost")])
-    _acca_label = (f"🎲  Accumulator Bets  ·  "
-                   f"{_n_acca_pending} pending · {_n_acca_settled} settled  ·  "
-                   f"builder + acca-only history")
-    with st.expander(_acca_label, expanded=False):
-        st.markdown(
-            '<div style="background:rgba(124,77,255,0.06);'
-            'border-left:3px solid #7c4dff;padding:0.7rem 1rem;'
-            'border-radius:6px;font-size:0.78rem;color:#8892a4;line-height:1.5;'
-            'margin-bottom:1rem">'
-            '⚠️ Accumulators are kept separate from singles because they are a different '
-            'risk profile. The model finds positive-EV combinations, but accas have '
-            'historically lost money in backtest (-16% to -46% ROI) since needing all '
-            'legs to hit compounds the miss rate. Use sparingly.</div>',
-            unsafe_allow_html=True,
-        )
-
-        # ── Accumulator Builder ───────────────────────────────────────────
-        st.markdown('<p class="section-label">🎲  ACCUMULATOR BUILDER</p>', unsafe_allow_html=True)
-        st.markdown("""
-        <div style="background:rgba(124,77,255,0.07);border:1px solid rgba(124,77,255,0.2);
-                    border-radius:12px;padding:0.85rem 1.2rem;margin-bottom:1.2rem;
-                    font-size:0.82rem;color:#8892a4">
-            💡 Accumulators multiply the odds of each leg — big returns if all legs win.
-            The model finds combinations where <b style="color:#00e676">every individual leg has positive EV</b>,
-            maximising the chance the combined bet also beats the bookmaker.
-            Requires live odds (Odds API key) for best suggestions.
-        </div>""", unsafe_allow_html=True)
-
-        # Build candidates from fixture data
-        acca_candidates: list[dict] = []
-        for fd in fixture_data:
-            api_odds = fd["api_odds"]
-            if not ("H" in api_odds and "D" in api_odds and "A" in api_odds):
-                continue
-            for mkt, prob, sel in [
-                ("H",      fd["p_h"],    f"Home Win ({fd['home']})"),
-                ("D",      fd["p_d"],    "Draw"),
-                ("A",      fd["p_a"],    f"Away Win ({fd['away']})"),
-                ("over25", fd["p_o25"],  "Over 2.5"),
-            ]:
-                o = api_odds.get(mkt)
-                if not o or o <= 1:
-                    continue
-                acca_candidates.append({
-                    "home": fd["home"], "away": fd["away"],
-                    "date": fd["date_str"], "market": mkt, "selection": sel,
-                    "model_prob": prob, "odds": o,
-                    "ev": pf.compute_ev(prob, o),
-                })
-
-        suggestions = pf.build_acca_suggestions(acca_candidates, min_single_ev=0.0, max_legs=3) if acca_candidates else []
-
-        if not suggestions:
-            if not live_odds:
-                st.markdown(
-                    '<p style="color:#b8c0d0;font-size:0.82rem">Add an Odds API key in Settings to '
-                    'generate accumulator suggestions based on live bookmaker odds.</p>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    '<p style="color:#b8c0d0;font-size:0.82rem">No positive-EV combinations found '
-                    'for upcoming fixtures.</p>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            doubles  = [s for s in suggestions if s["n_legs"] == 2][:5]
-            trebles  = [s for s in suggestions if s["n_legs"] == 3][:5]
-
-            for label, group in [("📗 Top Doubles", doubles), ("📘 Top Trebles", trebles)]:
-                if not group:
-                    continue
-                st.markdown(f'<p style="font-size:0.82rem;font-weight:700;color:#b8c0d0;'
-                            f'text-transform:uppercase;letter-spacing:2px;margin:0.8rem 0 0.4rem">'
-                            f'{label}</p>', unsafe_allow_html=True)
-                for i, sug in enumerate(group):
-                    ev_val  = sug["ev"]
-                    ev_col  = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff4081")
-                    legs_txt = " &nbsp;✕&nbsp; ".join(
-                        f'<b style="color:#ccd">{lg["selection"]}</b>'
-                        f' <span style="color:#b8c0d0">({tb(lg["home"], 16)} v {tb(lg["away"], 16)})</span>'
-                        f' <span style="color:#aab">@ {lg["odds"]:.2f}</span>'
-                        for lg in sug["legs"]
-                    )
-                    kelly_acca = pf.kelly_stake_amount(
-                        sug["combined_prob"], sug["combined_odds"],
-                        bankroll, kelly_frac, max_stake_pct
-                    )
-                    st.markdown(f"""
-                    <div class="scan-card" style="flex-direction:column;align-items:flex-start;gap:0.5rem">
-                        <div style="font-size:0.82rem">{legs_txt}</div>
-                        <div style="display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap">
-                            <span style="color:#aab">Combined @ <b style="color:#e8eaf0">{sug['combined_odds']:.2f}</b></span>
-                            <span style="color:#a78bfa">Model: {sug['combined_prob']*100:.1f}%</span>
-                            <span class="ev-tag {'ev-strong' if ev_val>=0.1 else ('ev-mild' if ev_val>=0 else 'ev-neg')}">
-                                EV {'+'  if ev_val>=0 else ''}{ev_val*100:.1f}%</span>
-                            <span style="color:#ffd600">Kelly: £{kelly_acca:.0f}</span>
-                        </div>
-                    </div>""", unsafe_allow_html=True)
-
-                    acca_key = f"acca_{label.replace(' ','_')}_{i}"
-                    acca_s1, acca_s2, _ = st.columns([2, 2, 4])
-                    with acca_s1:
-                        acca_stake = st.number_input(
-                            "Stake (£)", 1.0, max(float(bankroll), 1.0),
-                            max(float(kelly_acca), 1.0), 1.0,
-                            key=f"s_{acca_key}", format="%.2f",
-                        )
-                    with acca_s2:
-                        pot_ret = round(acca_stake * sug["combined_odds"], 2)
-                        pot_prof = round(pot_ret - acca_stake, 2)
-                        st.markdown(
-                            f'<div class="bet-return-box" style="margin-top:0.2rem">'
-                            f'<div>'
-                            f'<div style="font-size:0.84rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Returns</div>'
-                            f'<div class="bet-return-total">£{pot_ret:,.2f}</div>'
-                            f'</div>'
-                            f'<div class="bet-return-detail">+£{pot_prof:,.2f} profit</div>'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
-                    if acca_stake <= bankroll:
-                        if st.button(f"✅  Place {sug['n_legs']}-fold Acca",
-                                     key=f"b_{acca_key}", type="primary"):
-                            pf.place_acca(port, sug["legs"], acca_stake)
-                            pf.save_portfolio(port)
-                            st.success(f"🎯 {sug['n_legs']}-fold acca placed @ {sug['combined_odds']:.2f}!")
-                            st.rerun()
-
-        # ── Acca Pending ─────────────────────────────────────────────────
-        if pending_accas:
-            st.markdown('<div class="divider" style="margin:1.5rem 0 0.8rem"></div>',
-                        unsafe_allow_html=True)
-            st.markdown('<p class="section-label">⏳  ACCA · PENDING</p>',
-                        unsafe_allow_html=True)
-            _acca_pend_rows = []
-            for b in pending_accas:
-                legs = b.get("legs", [])
-                _acca_pend_rows.append({
-                    "Date":     (b.get("date") or b.get("placed_at", ""))[:10],
-                    "Legs":     " + ".join(f"{lg['selection']} ({lg['home']} v {lg['away']})"
-                                            for lg in legs),
-                    "Odds":     round(float(b.get("odds", 1)), 2),
-                    "Stake":    float(b.get("stake", 0)),
-                    "Pot.Ret":  round(float(b.get("stake", 0)) * float(b.get("odds", 1)), 2),
-                })
-            if _acca_pend_rows:
-                st.dataframe(pd.DataFrame(_acca_pend_rows),
-                             use_container_width=True, hide_index=True,
-                             column_config={
-                                 "Stake":    st.column_config.NumberColumn("Stake",   format="£%.2f"),
-                                 "Odds":     st.column_config.NumberColumn("Odds",    format="%.2f"),
-                                 "Pot.Ret":  st.column_config.NumberColumn("If wins", format="£%.2f"),
-                             })
-
-        # ── Acca History ─────────────────────────────────────────────────
-        _acca_settled = [b for b in port["bets"]
-                         if b.get("type") == "acca" and b["status"] in ("won", "lost")]
-        if _acca_settled:
-            st.markdown('<div class="divider" style="margin:1.5rem 0 0.8rem"></div>',
-                        unsafe_allow_html=True)
-            st.markdown('<p class="section-label">📋  ACCA · HISTORY</p>',
-                        unsafe_allow_html=True)
-            _acca_hist_rows = []
-            for b in reversed(_acca_settled):
-                legs = b.get("legs", [])
-                _acca_hist_rows.append({
-                    "Date":     (b.get("date") or b.get("placed_at", ""))[:10],
-                    "Legs":     " + ".join(f"{lg['selection']}" for lg in legs),
-                    "N":        len(legs),
-                    "Odds":     round(float(b.get("odds", 1)), 2),
-                    "Stake":    float(b.get("stake", 0)),
-                    "Result":   "✅ Won" if b["status"] == "won" else "❌ Lost",
-                    "P&L":      float(b.get("profit") or 0),
-                })
-            if _acca_hist_rows:
-                _acca_total = sum(r["P&L"] for r in _acca_hist_rows)
-                _acca_won   = sum(1 for r in _acca_hist_rows if r["Result"].startswith("✅"))
-                st.markdown(
-                    f'<div style="font-size:0.78rem;color:#8892a4;margin-bottom:0.5rem">'
-                    f'<b style="color:#e8eaf0">{_acca_won}</b> won / '
-                    f'<b style="color:#e8eaf0">{len(_acca_hist_rows)}</b> total &nbsp;·&nbsp; '
-                    f'Total P&L: <b style="color:'
-                    f'{"#00e676" if _acca_total >= 0 else "#ff4081"}">'
-                    f'£{_acca_total:+,.2f}</b></div>',
-                    unsafe_allow_html=True,
-                )
-                st.dataframe(pd.DataFrame(_acca_hist_rows),
-                             use_container_width=True, hide_index=True,
-                             height=min(360, 60 + len(_acca_hist_rows) * 35),
-                             column_config={
-                                 "Stake":   st.column_config.NumberColumn("Stake",   format="£%.2f"),
-                                 "Odds":    st.column_config.NumberColumn("Odds",    format="%.2f"),
-                                 "P&L":     st.column_config.NumberColumn("P&L",     format="£%.2f"),
-                             })
-
-    # End acca expander — divider before Bet History
     st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
 
     # ── Bet History — singles only; accas have their own section above ────
@@ -6957,7 +6778,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             # Date — short format e.g. "02-May-26"
             try:
                 d = pd.to_datetime(b.get("date") or b.get("placed_at"))
-                date_short = d.strftime("%d-%b-%y")
+                date_short = d.strftime("%-d %b %y")
             except Exception:
                 date_short = (b.get("date") or "")[:10]
 
@@ -6974,15 +6795,15 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             pnl_cls = "bh-pnl-pos" if profit_b > 0 else ("bh-pnl-neg" if profit_b < 0 else "bh-pnl-flat")
             pnl_sign = "+" if profit_b >= 0 else "−"
             pnl_html = (f'<span class="bh-pnl {pnl_cls}">'
-                        f'{pnl_sign}£{abs(profit_b):,.2f}</span>')
+                        f'{md.fmt_money(profit_b, pence=True)}</span>')
 
             # Edge cell — model_prob vs market implied prob
-            edge_col  = "#00e676" if edge_pp >= 5 else ("#ffd600" if edge_pp >= 0 else "#ff4081")
+            edge_col  = "#00e676" if edge_pp >= 5 else ("#ffd600" if edge_pp >= 0 else "#ff6fa1")
             edge_html = (
                 f'<div class="bh-edge" title="Model probability vs bookmaker implied probability. '
                 f'A bigger gap means we thought the bet was more underpriced.">'
                 f'  <div class="bh-edge-row">'
-                f'    <span class="bh-edge-lbl">model</span>'
+                f'    <span class="bh-edge-lbl">model raw</span>'
                 f'    <span class="bh-edge-num" style="color:#a78bfa">{model_p*100:.1f}%</span>'
                 f'  </div>'
                 f'  <div class="bh-edge-row">'
@@ -7058,15 +6879,15 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
     _clv = pf.clv_summary(port)
     _drift = pf.compute_brier_drift(port)
     _rolling = pf.clv_rolling(port, windows=(5, 10, 20))
-    st.markdown('<p class="section-label">📐  SHARPNESS · CLV vs Pinnacle close</p>',
+    st.markdown('<p class="section-label">📐  SHARPNESS · CLV vs the closing price</p>',
                 unsafe_allow_html=True)
 
     if _clv["n"] == 0:
         st.markdown(
             '<div style="padding:0.9rem 1rem;background:rgba(124,77,255,0.08);'
-            'border-left:3px solid #7c4dff;border-radius:6px;font-size:0.84rem;color:#8892a4">'
+            'border-left:3px solid #7c4dff;border-radius:6px;font-size:0.84rem;color:#c9d0dc">'
             'No CLV data yet — settled bets will be tagged with closing-line value automatically '
-            'once the football-data CSV updates with Pinnacle close prices.</div>',
+            'once football-data publishes closing prices (Pinnacle, or the Betfair Exchange this season).</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -7074,8 +6895,8 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         _mean = _clv["mean_clv"] * 100
         _pos  = _clv["pct_positive"]
         _n    = _clv["n"]
-        _med_col = "#00e676" if _med >= 1.0 else ("#ffd600" if _med >= 0 else "#ff4081")
-        _pos_col = "#00e676" if _pos >= 55 else ("#ffd600" if _pos >= 45 else "#ff4081")
+        _med_col = "#00e676" if _med >= 1.0 else ("#ffd600" if _med >= 0 else "#ff6fa1")
+        _pos_col = "#00e676" if _pos >= 55 else ("#ffd600" if _pos >= 45 else "#ff6fa1")
         _all_verdict = (
             ("🎯 Sharp-tier — beating the closing line consistently", "#00e676") if _med >= 2.0 else
             ("✅ Competitive edge — positive CLV, monitor sample",     "#00e676") if _med >= 1.0 else
@@ -7103,7 +6924,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 continue
             wmed = wd["median"] * 100
             wpos = wd["pct_pos"]
-            wcol = "#00e676" if wmed >= 1.0 else ("#ffd600" if wmed >= 0 else "#ff4081")
+            wcol = "#00e676" if wmed >= 1.0 else ("#ffd600" if wmed >= 0 else "#ff6fa1")
             win_blocks.append(
                 f'<div class="clv-win">'
                 f'  <div class="clv-win-lbl">LAST {w}</div>'
@@ -7179,12 +7000,12 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 height=160, margin=dict(t=20, b=30, l=10, r=10),
                 xaxis=dict(title="bet # (chronological)",
                            gridcolor="rgba(255,255,255,0.04)",
-                           title_font=dict(size=12, color="#8892a4"),
-                           tickfont=dict(size=12, color="#8892a4")),
+                           title_font=dict(size=12, color="#c9d0dc"),
+                           tickfont=dict(size=12, color="#c9d0dc")),
                 yaxis=dict(title="rolling CLV %",
                            gridcolor="rgba(255,255,255,0.04)",
-                           title_font=dict(size=12, color="#8892a4"),
-                           tickfont=dict(size=12, color="#8892a4"),
+                           title_font=dict(size=12, color="#c9d0dc"),
+                           tickfont=dict(size=12, color="#c9d0dc"),
                            zeroline=False),
                 showlegend=False,
             )
@@ -7216,7 +7037,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     '</div>'
                     '<div class="clv-guide-example-arrow">→</div>'
                     '<div class="clv-guide-example-block">'
-                      '<div class="clv-guide-eg-lbl">PINNACLE CLOSED AT</div>'
+                      '<div class="clv-guide-eg-lbl">MARKET CLOSED AT</div>'
                       '<div class="clv-guide-eg-val clv-guide-eg-close">3.80</div>'
                     '</div>'
                     '<div class="clv-guide-example-arrow">=</div>'
@@ -7306,8 +7127,9 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                 '<div class="clv-guide-metric">'
                   '<div class="clv-guide-metric-name">Tagged Bets</div>'
                   '<div class="clv-guide-metric-desc">'
-                    'How many settled bets we have closing-odds data for. Pinnacle close '
-                    'is published in football-data CSVs the day after the match. '
+                    'How many settled bets we have closing-odds data for. Closing prices '
+                    'arrive in the football-data CSV a day or two after the match (Pinnacle '
+                    'when published; 2026-27 uses the Betfair Exchange close). '
                     'The signal stabilises around <b>50 tagged bets</b>.'
                   '</div>'
                 '</div>'
@@ -7380,7 +7202,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
     if _drift["drift_signal"] not in ("insufficient", "insufficient_baseline"):
         _ds = _drift["drift_signal"]
         _delta = _drift["delta"]
-        _drift_col = ("#ff4081" if _ds == "drift_worse" else
+        _drift_col = ("#ff6fa1" if _ds == "drift_worse" else
                       "#00e676" if _ds == "drift_better" else "#445")
         _drift_msg = ("⚠️ Recent Brier {:+.3f} vs baseline — calibration drifting worse, "
                       "consider refitting isotonic" if _ds == "drift_worse" else
@@ -7667,11 +7489,11 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             else:
                 sim_profit = summary["profit"]
                 sim_roi    = summary["roi"]
-                sim_col    = "#00e676" if sim_profit >= 0 else "#ff4081"
+                sim_col    = "#00e676" if sim_profit >= 0 else "#ff6fa1"
 
                 ms1, ms2, ms3, ms4, ms5 = st.columns(5)
                 with ms1: st.metric("Final Bankroll", f"£{summary['final']:,.0f}",
-                                    f"{'+'  if sim_profit >= 0 else ''}£{sim_profit:,.0f}")
+                                    f"{md.fmt_money(sim_profit)}")
                 with ms2: st.metric("ROI", f"{'+'  if sim_roi >= 0 else ''}{sim_roi:.1f}%")
                 with ms3:
                     _skipped = summary.get("skipped_min_prob", 0)
@@ -7687,7 +7509,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     _init_br = summary["initial"]
                     x_h = list(range(len(log_df) + 1))
                     y_h = [float(_init_br)] + [float(v) for v in log_df["Bankroll"].tolist()]
-                    line_col = "#00e676" if y_h[-1] >= _init_br else "#ff4081"
+                    line_col = "#00e676" if y_h[-1] >= _init_br else "#ff6fa1"
 
                     fig_hbt = go.Figure()
 
@@ -7736,7 +7558,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                     fig_hbt.add_hline(
                         y=_init_br, line_color="rgba(255,255,255,0.30)", line_dash="dot",
                         annotation_text=f"Start £{_init_br:,.0f}",
-                        annotation_font=dict(color="#8892a4", size=14, family="Inter"),
+                        annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
                         annotation_position="top left",
                     )
 
@@ -7747,7 +7569,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                         for d in deltas[1:]
                     ]
                     marker_colors = ["#8892a4"] + [
-                        "#00e676" if d > 0 else ("#ff4081" if d < 0 else "#8892a4")
+                        "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
                         for d in deltas[1:]
                     ]
                     marker_sizes = [0] + [11 if d != 0 else 5 for d in deltas[1:]]
@@ -7825,7 +7647,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
                                        font=dict(size=12, color="#7c4dff", family="Inter"),
                                        standoff=18),
                             showgrid=False, showticklabels=True,
-                            tickfont=dict(size=13, color="#8892a4", family="Inter"),
+                            tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
                             zeroline=False,
                         ),
                         yaxis=dict(
@@ -7905,7 +7727,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
     # ── Header: research-track tagline + γ readout ────────────────────────
     gamma_val = dc_kn_r.get("gamma", 0.0)
-    gamma_col = "#00e676" if gamma_val > 0.02 else ("#ffd600" if gamma_val > -0.02 else "#ff4081")
+    gamma_col = "#00e676" if gamma_val > 0.02 else ("#ffd600" if gamma_val > -0.02 else "#ff6fa1")
     st.markdown(
         f'<div style="padding:0.9rem 1.1rem;border-radius:10px;'
         f'background:linear-gradient(135deg,rgba(124,77,255,0.10),rgba(0,229,255,0.04));'
@@ -7917,11 +7739,10 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         f'<span style="color:{gamma_col}">'
         f'{"⬆ inflating draws" if gamma_val > 0.02 else "⬇ deflating draws" if gamma_val < -0.02 else "≈ near zero"}'
         f'</span>) &nbsp;·&nbsp; '
-        f'Baker-McHale uncertainty-shrunk Kelly &nbsp;·&nbsp; '
-        f'simultaneous-bet correction</div>'
-        f'<div style="font-size:0.78rem;color:#8892a4;margin-top:0.4rem">'
-        f'Parallel paper-trade vs main portfolio. Same gates (D + Under 2.5 by default), '
-        f'different model + sizing. End-of-season delta tells us what to graduate.</div>'
+        f'{_mt_sizing_blurb(port2)}</div>'
+        f'<div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.4rem">'
+        f'Runs beside Main on the same fixtures. The end-of-season gap in CLV and '
+        f'P&amp;L decides what graduates to Main.</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -7942,9 +7763,9 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         profit = st_dict["profit"]
         roi    = st_dict["roi"]
         sign   = "+" if profit >= 0 else ""
-        prof_col = "#00e676" if profit >= 0 else "#ff4081"
+        prof_col = "#00e676" if profit >= 0 else "#ff6fa1"
         clv_med  = (cl_dict["median_clv"] * 100) if cl_dict["n"] > 0 else None
-        clv_col  = ("#00e676" if (clv_med or 0) >= 1 else "#ffd600" if (clv_med or 0) >= 0 else "#ff4081") if clv_med is not None else "#556"
+        clv_col  = ("#00e676" if (clv_med or 0) >= 1 else "#ffd600" if (clv_med or 0) >= 0 else "#ff6fa1") if clv_med is not None else "#556"
         clv_str  = f"{clv_med:+.2f}%" if clv_med is not None else "—"
         with col:
             st.markdown(f"""<div style="padding:1rem 1.2rem;border-radius:10px;
@@ -7953,7 +7774,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 <div style="display:flex;gap:1.4rem;align-items:baseline;margin-top:0.5rem;flex-wrap:wrap">
                     <div>
                         <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">P&amp;L</div>
-                        <div style="font-size:1.7rem;font-weight:900;color:{prof_col}">{sign}£{abs(profit):,.0f}</div>
+                        <div style="font-size:1.7rem;font-weight:900;color:{prof_col}">{md.fmt_money(profit)}</div>
                     </div>
                     <div>
                         <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">ROI</div>
@@ -7977,7 +7798,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     delta_roi = mt_stats["roi"] - main_stats["roi"]
     delta_clv = ((mt_clv["median_clv"] or 0) - (main_clv["median_clv"] or 0)) * 100
     if mt_stats["n_settled"] >= 5 or main_stats["n_settled"] >= 5:
-        verd_col = "#00e676" if delta_roi > 0 else ("#ffd600" if delta_roi > -2 else "#ff4081")
+        verd_col = "#00e676" if delta_roi > 0 else ("#ffd600" if delta_roi > -2 else "#ff6fa1")
         verd_msg = (
             f"Research track {'leading' if delta_roi > 0 else 'trailing'} main by "
             f"{abs(delta_roi):.1f}pp ROI &nbsp;·&nbsp; CLV gap {delta_clv:+.2f}pp"
@@ -7990,7 +7811,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             f'background:rgba(124,77,255,0.06);border-left:3px solid {verd_col};'
             f'border-radius:6px;font-size:0.84rem;color:#e8eaf0">'
             f'<b style="color:{verd_col}">{verd_msg}</b> '
-            f'&nbsp;·&nbsp; <span style="color:#8892a4">{sample_msg}</span></div>',
+            f'&nbsp;·&nbsp; <span style="color:#c9d0dc">{sample_msg}</span></div>',
             unsafe_allow_html=True,
         )
 
@@ -8001,7 +7822,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     _render_settings_chip(port2, label_prefix="p2")
 
     # ── Phase 4 findings expander — explain the validated config ─────────
-    with st.expander("🧠  Phase 4 — what's behind the current config", expanded=False):
+    with st.expander("🧠  How this config was chosen", expanded=False):
         _label  = port2["settings"].get("v2_settings_label", "—")
         _source = port2["settings"].get("v2_settings_source", "—")
         st.markdown(
@@ -8014,11 +7835,11 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             f'color:#00e5ff;font-size:0.84rem">{_label}</code><br>'
             f'<b style="color:#a78bfa">52-week WF result:</b> '
             f'£10k → <b style="color:#e8eaf0">£631,537</b> '
-            f'<span style="color:#8892a4">(+96% ROI, 33% max DD, 35 bets, 49% win)</span><br>'
+            f'<span style="color:#c9d0dc">(+96% ROI, 33% max DD, 35 bets, 49% win)</span><br>'
             f'<b style="color:#a78bfa">vs Main baseline:</b> '
             f'£59,320 (+24% ROI, 65% max DD) → <b style="color:#00e676">10× profit, half the DD</b><br>'
             f'<b style="color:#a78bfa">vs £93k ceiling:</b> 6.8× past target<br>'
-            f'<span style="color:#8892a4;font-size:0.84rem">'
+            f'<span style="color:#c9d0dc;font-size:0.84rem">'
             f'Source: <code>data/diagnostics/{_source}.json</code></span>'
             '</div>', unsafe_allow_html=True,
         )
@@ -8041,8 +7862,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             ]
             _rows = "".join([
                 f'<tr><td>{t}</td><td style="text-align:right">{n}</td>'
-                f'<td style="text-align:right;color:#ff4081">£{p:,.0f}</td>'
-                f'<td style="text-align:right;color:#ff4081">{r:+.1f}%</td></tr>'
+                f'<td style="text-align:right;color:#ff6fa1">£{p:,.0f}</td>'
+                f'<td style="text-align:right;color:#ff6fa1">{r:+.1f}%</td></tr>'
                 for t, n, p, r in _phase1_losses
             ])
             st.markdown(
@@ -8056,8 +7877,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 f'<tbody>{_rows}</tbody></table>', unsafe_allow_html=True,
             )
             st.markdown(
-                '<p style="font-size:0.78rem;color:#8892a4;margin-top:0.6rem">'
-                'These six teams alone leaked <b style="color:#ff4081">−£77.4k</b> '
+                '<p style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
+                'These six teams alone leaked <b style="color:#ff6fa1">−£77.4k</b> '
                 "of the 52-week sample. Worth filtering on paper — but the "
                 "rolling team-ROI filter <i>failed walk-forward</i> "
                 "(reactive, blacklists too late). Keep visible for analysis "
@@ -8069,7 +7890,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             st.markdown(
                 '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
                 'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
-                'Phase 4 — Top 5 WF variants</p>', unsafe_allow_html=True,
+                'Top 5 walk-forward variants</p>', unsafe_allow_html=True,
             )
             _phase4_top = [
                 ("dowMF + ev≤1.00 + octX + mp30", 680390, 41.4, 63),
@@ -8101,8 +7922,8 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 f'<tbody>{_rows4}</tbody></table>', unsafe_allow_html=True,
             )
             st.markdown(
-                '<p style="font-size:0.78rem;color:#8892a4;margin-top:0.6rem">'
-                "Filters that <b style='color:#ff4081'>failed</b> WF: "
+                '<p style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
+                "Filters that <b style='color:#ff6fa1'>failed</b> WF: "
                 "team-ROI blacklist, drawdown stake throttle, min-prob ≥ 0.40, "
                 "stacking everything. Why deploy a smaller-profit variant? "
                 "Lower DD = higher staying power if the winning regime breaks.</p>",
@@ -8176,7 +7997,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 help="Only proven on 2025-26.")
 
         # ── Section: Phase 4 validated filters ─────────────────────────
-        _section_header("🧠  Phase 4 — Validated Filters",
+        _section_header("🧠  Walk-forward filters",
                         "Walk-forward validated levers — DOW + Month + Max-EV")
         _all_dows   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         _all_months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -8188,7 +8009,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 options=_all_dows,
                 default=list(settings.get("v2_banned_dows", [])),
                 key="p2_banned_dows",
-                help=("Phase 4 winner: skip Mon+Fri (Phase 1 saw 0/6 across 2 "
+                help=("Walk-forward winner: skip Mon+Fri (Phase 1 saw 0/6 across 2 "
                       "seasons). Adding Sun reduces n but raises win rate."),
             )
             new_banned_months = st.multiselect(
@@ -8196,7 +8017,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 options=_all_months,
                 default=list(settings.get("v2_banned_months", [])),
                 key="p2_banned_months",
-                help=("Phase 4 winner: ban Oct (Phase 1 saw 0/5 ROI -100%). "
+                help=("Walk-forward winner: ban Oct (Phase 1 saw 0/5 ROI -100%). "
                       "Skip Mar-May still controlled by `Skip Mar-May` toggle "
                       "above (a separate code path)."),
             )
@@ -8216,7 +8037,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     min_value=40, max_value=200, step=5,
                     value=int((_max_ev_cur if _max_ev_cur is not None else 1.0) * 100),
                     key="p2_max_ev_val",
-                    help="Phase 4 best at 100%. Tighter caps at 50–80% also win.",
+                    help="Walk-forward best at 100%. Tighter caps at 50–80% also win.",
                 )
             else:
                 new_max_ev = None
@@ -8394,7 +8215,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         # ── Section: API note ──────────────────────────────────────────
         _section_header("🔌  Live Odds API", "Reuses Main's API key + cache")
         st.markdown(
-            f'<div style="font-size:0.78rem;color:#8892a4;line-height:1.5">'
+            f'<div style="font-size:0.78rem;color:#c9d0dc;line-height:1.5">'
             f'API key + monthly usage are shared with the Main portfolio — '
             f'no separate configuration needed here.</div>',
             unsafe_allow_html=True,
@@ -8505,7 +8326,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     st.markdown(f"""
     <div class="pnl-hero {hero_class2}">
         <div class="pnl-tag">🧪 MOCK PORTFOLIO TWO · RESEARCH TRACK · NOT REAL MONEY</div>
-        <div class="pnl-amount">{sign2}£{abs(profit2):,.2f}</div>
+        <div class="pnl-amount">{md.fmt_money(profit2, pence=True)}</div>
         <div class="pnl-subtitle">
             {arrow2} {sign2}{roi2:.1f}% ROI &nbsp;·&nbsp;
             £{bankroll2:,.2f} bankroll &nbsp;·&nbsp;
@@ -8517,7 +8338,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         return (f'<div class="pstat-card">'
                 f'<div class="pstat-val" style="color:{color}">{val}</div>'
                 f'<div class="pstat-lbl">{lbl}</div></div>')
-    roi_col2 = "#00e676" if roi2 >= 0 else "#ff4081"
+    roi_col2 = "#00e676" if roi2 >= 0 else "#ff6fa1"
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: st.markdown(_stat2(f"£{bankroll2:,.0f}", "BANKROLL"), unsafe_allow_html=True)
     with c2: st.markdown(_stat2(str(mt_stats["n_settled"]), "SETTLED"), unsafe_allow_html=True)
@@ -8538,7 +8359,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         x_vals_p2  = history2["idx"].tolist()
         y_vals_p2  = history2["bankroll"].tolist()
         labels_p2  = history2["label"].tolist()
-        line_col_p2 = "#00e676" if y_vals_p2[-1] >= init_br_p2 else "#ff4081"
+        line_col_p2 = "#00e676" if y_vals_p2[-1] >= init_br_p2 else "#ff6fa1"
 
         fig_p2 = go.Figure()
 
@@ -8578,7 +8399,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         fig_p2.add_hline(
             y=init_br_p2, line_color="rgba(255,255,255,0.30)", line_dash="dot",
             annotation_text=f"Start £{init_br_p2:,.0f}",
-            annotation_font=dict(color="#8892a4", size=14, family="Inter"),
+            annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
             annotation_position="top left",
         )
 
@@ -8590,7 +8411,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             for d in deltas_p2[1:]
         ]
         marker_colors_p2 = ["#8892a4"] + [
-            "#00e676" if d > 0 else ("#ff4081" if d < 0 else "#8892a4")
+            "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
             for d in deltas_p2[1:]
         ]
         marker_sizes_p2 = [0] + [13 if d != 0 else 6 for d in deltas_p2[1:]]
@@ -8773,7 +8594,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                            font=dict(size=12, color="#7c4dff", family="Inter"),
                            standoff=18),
                 showgrid=False, showticklabels=True,
-                tickfont=dict(size=13, color="#8892a4", family="Inter"),
+                tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
                 zeroline=False,
             ),
             yaxis=dict(
@@ -8792,17 +8613,17 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
     # ── Mock Two CLV diagnostics ──────────────────────────────────────────
     if mt_clv["n"] > 0:
-        st.markdown('<p class="section-label">📐  CLV vs Pinnacle close · Mock Two</p>',
+        st.markdown('<p class="section-label">📐  CLV vs the closing price · Mock Two</p>',
                     unsafe_allow_html=True)
         _med  = mt_clv["median_clv"] * 100
         _mean = mt_clv["mean_clv"] * 100
         _pos  = mt_clv["pct_positive"]
-        _med_col = "#00e676" if _med >= 1.0 else ("#ffd600" if _med >= 0 else "#ff4081")
+        _med_col = "#00e676" if _med >= 1.0 else ("#ffd600" if _med >= 0 else "#ff6fa1")
         cv1, cv2, cv3, cv4 = st.columns(4)
         with cv1: st.markdown(_stat2(f"{_med:+.2f}%", "MEDIAN CLV", _med_col), unsafe_allow_html=True)
         with cv2: st.markdown(_stat2(f"{_mean:+.2f}%", "MEAN CLV", _med_col), unsafe_allow_html=True)
         with cv3: st.markdown(_stat2(f"{_pos:.0f}%", "% POSITIVE",
-            "#00e676" if _pos >= 55 else "#ffd600" if _pos >= 45 else "#ff4081"), unsafe_allow_html=True)
+            "#00e676" if _pos >= 55 else "#ffd600" if _pos >= 45 else "#ff6fa1"), unsafe_allow_html=True)
         with cv4: st.markdown(_stat2(f"{mt_clv['n']}", "TAGGED"), unsafe_allow_html=True)
         _render_clv_trend(port2, key_prefix="mt")
         st.markdown('<div class="divider" style="margin:1rem 0"></div>', unsafe_allow_html=True)
@@ -8822,7 +8643,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             mc = mkt_colors_p2.get(bet["market"], "#aab")
             try:
                 _d = pd.to_datetime(bet.get("date") or bet.get("placed_at"))
-                _date_short = _d.strftime("%d-%b-%y")
+                _date_short = _d.strftime("%a %-d %b")
             except Exception:
                 _date_short = (bet.get("date") or "")[:10]
             _model_p    = bet.get("model_prob", 0) * 100
@@ -8858,13 +8679,14 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 <div class="pend-v2-pick" style="color:{mc}">
                     🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span>
                 </div>
+                {_bet_tags_html(bet, port2)}
                 <div class="pend-v2-stats">
                     <div class="pend-v2-stat">
                         <div class="pend-v2-stat-lbl">STAKE</div>
                         <div class="pend-v2-stat-val">£{bet['stake']:,.2f}</div>
                     </div>
                     <div class="pend-v2-stat">
-                        <div class="pend-v2-stat-lbl">MODEL</div>
+                        <div class="pend-v2-stat-lbl">MODEL (RAW)</div>
                         <div class="pend-v2-stat-val pend-v2-model">{_model_p:.1f}%</div>
                     </div>
                     <div class="pend-v2-stat">
@@ -8886,10 +8708,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     </div>
                 </div>
             </div>""", unsafe_allow_html=True)
-            if st.button("✕ Cancel", key=f"p2_cancel_{bet['id']}", type="secondary"):
-                pf.remove_pending_bet(port2, bet["id"])
-                pf.save_portfolio_two(port2)
-                st.rerun()
+            _cancel_bet_control(bet, port2, pf.save_portfolio_two, "mt", f"p2_cancel_{bet['id']}")
 
         # Two cards per row, latest 8
         recent_p2 = pending2_singles[-8:]
@@ -8925,7 +8744,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
             try:
                 d = pd.to_datetime(b.get("date") or b.get("placed_at"))
-                date_short = d.strftime("%d-%b-%y")
+                date_short = d.strftime("%-d %b %y")
             except Exception:
                 date_short = (b.get("date") or "")[:10]
 
@@ -8938,13 +8757,13 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                        else ("bh-pnl-neg" if profit_b < 0 else "bh-pnl-flat"))
             pnl_sign = "+" if profit_b >= 0 else "−"
             pnl_html = (f'<span class="bh-pnl {pnl_cls}">'
-                        f'{pnl_sign}£{abs(profit_b):,.2f}</span>')
+                        f'{md.fmt_money(profit_b, pence=True)}</span>')
 
-            edge_col  = "#00e676" if edge_pp >= 5 else ("#ffd600" if edge_pp >= 0 else "#ff4081")
+            edge_col  = "#00e676" if edge_pp >= 5 else ("#ffd600" if edge_pp >= 0 else "#ff6fa1")
             edge_html = (
                 f'<div class="bh-edge" title="Model probability vs bookmaker implied probability.">'
                 f'  <div class="bh-edge-row">'
-                f'    <span class="bh-edge-lbl">model</span>'
+                f'    <span class="bh-edge-lbl">model raw</span>'
                 f'    <span class="bh-edge-num" style="color:#a78bfa">{model_p*100:.1f}%</span>'
                 f'  </div>'
                 f'  <div class="bh-edge-row">'
@@ -8997,7 +8816,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     elif not pending2:
         st.markdown(
             '<div style="padding:1rem 1.2rem;background:rgba(124,77,255,0.05);'
-            'border-left:3px solid #7c4dff;border-radius:6px;font-size:0.84rem;color:#8892a4">'
+            'border-left:3px solid #7c4dff;border-radius:6px;font-size:0.84rem;color:#c9d0dc">'
             'Mock Two is fresh — no bets placed yet. Toggle <b>Auto-Bet</b> in settings '
             'and ensure the Odds API key is set in the main portfolio. The research-track '
             'stack will auto-place qualifying bets on the same fixtures the main portfolio '
@@ -9144,7 +8963,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             'border-top:1px dashed rgba(124,77,255,0.25);'
             'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
             'text-transform:uppercase;color:#a78bfa">'
-            '🧠 Phase 4 filters — replay with deployed config or experiment'
+            '🧠 Walk-forward filters · replay the live config or experiment'
             '</div>', unsafe_allow_html=True,
         )
         _all_dows_bt = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -9157,7 +8976,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 options=_all_dows_bt,
                 default=list(settings.get("v2_banned_dows", [])),
                 key="hbt2_banned_dows",
-                help="Phase 4 winner: Mon+Fri.",
+                help="Walk-forward winner: Mon+Fri.",
             )
         with pfb2:
             hbt2_banned_months = st.multiselect(
@@ -9165,7 +8984,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                 options=_all_months_bt,
                 default=list(settings.get("v2_banned_months", [])),
                 key="hbt2_banned_months",
-                help="Phase 4 winner: Oct.",
+                help="Walk-forward winner: Oct.",
             )
         with pfb3:
             _max_ev_default = settings.get("v2_max_ev_pct")
@@ -9290,11 +9109,11 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
             else:
                 sim_profit2 = summary2["profit"]
                 sim_roi2    = summary2["roi"]
-                sim_col2    = "#00e676" if sim_profit2 >= 0 else "#ff4081"
+                sim_col2    = "#00e676" if sim_profit2 >= 0 else "#ff6fa1"
 
                 m2c1, m2c2, m2c3, m2c4, m2c5 = st.columns(5)
                 with m2c1: st.metric("Final Bankroll", f"£{summary2['final']:,.0f}",
-                                     f"{'+' if sim_profit2 >= 0 else ''}£{sim_profit2:,.0f}")
+                                     f"{md.fmt_money(sim_profit2)}")
                 with m2c2: st.metric("ROI", f"{'+' if sim_roi2 >= 0 else ''}{sim_roi2:.1f}%")
                 with m2c3:
                     _sk = summary2.get("skipped_min_prob", 0)
@@ -9306,7 +9125,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
 
                 # Research-stack diagnostics — what the v2 sizers actually did
                 st.markdown(
-                    f'<div style="font-size:0.78rem;color:#8892a4;margin-top:0.6rem">'
+                    f'<div style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
                     f'Mean Baker-McHale shrinkage: <b style="color:#e8eaf0">'
                     f'{summary2.get("mean_shrinkage", 0):.2f}</b> '
                     f'(1.0 = no shrinkage, 0.0 = total) &nbsp;·&nbsp; '
@@ -9323,7 +9142,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     _init_br2 = summary2["initial"]
                     x_h2 = list(range(len(log2_df) + 1))
                     y_h2 = [float(_init_br2)] + [float(v) for v in log2_df["Bankroll"].tolist()]
-                    line_col2 = "#00e676" if y_h2[-1] >= _init_br2 else "#ff4081"
+                    line_col2 = "#00e676" if y_h2[-1] >= _init_br2 else "#ff6fa1"
 
                     fig2 = go.Figure()
 
@@ -9363,7 +9182,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                     fig2.add_hline(
                         y=_init_br2, line_color="rgba(255,255,255,0.30)", line_dash="dot",
                         annotation_text=f"Start £{_init_br2:,.0f}",
-                        annotation_font=dict(color="#8892a4", size=14, family="Inter"),
+                        annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
                         annotation_position="top left",
                     )
 
@@ -9374,7 +9193,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                         for d in deltas2[1:]
                     ]
                     marker_colors2 = ["#8892a4"] + [
-                        "#00e676" if d > 0 else ("#ff4081" if d < 0 else "#8892a4")
+                        "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
                         for d in deltas2[1:]
                     ]
                     marker_sizes2 = [0] + [11 if d != 0 else 5 for d in deltas2[1:]]
@@ -9465,7 +9284,7 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                                        font=dict(size=12, color="#7c4dff", family="Inter"),
                                        standoff=18),
                             showgrid=False, showticklabels=True,
-                            tickfont=dict(size=13, color="#8892a4", family="Inter"),
+                            tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
                             zeroline=False,
                         ),
                         yaxis=dict(
@@ -9552,7 +9371,7 @@ def _render_backtest_clv_trend(log_df, df, key_prefix: str) -> None:
     med  = float(s.median())
     beat = float((s > 0).mean() * 100)
 
-    st.markdown('<p class="section-label" style="margin-top:1.2rem">CLV vs Pinnacle close</p>',
+    st.markdown('<p class="section-label" style="margin-top:1.2rem">CLV vs the closing price</p>',
                 unsafe_allow_html=True)
     cv1, cv2, cv3 = st.columns(3)
     with cv1: st.metric("Median CLV", f"{med:+.2f}%")
@@ -9563,7 +9382,7 @@ def _render_backtest_clv_trend(log_df, df, key_prefix: str) -> None:
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=xs, y=clvs,
-        marker_color=["#00e676" if v >= 0 else "#ff4081" for v in clvs],
+        marker_color=["#00e676" if v >= 0 else "#ff6fa1" for v in clvs],
         opacity=0.45, name="per-bet CLV",
         hovertemplate="Bet %{x}: %{y:+.2f}%<extra></extra>"))
     fig.add_trace(go.Scatter(
@@ -9575,7 +9394,7 @@ def _render_backtest_clv_trend(log_df, df, key_prefix: str) -> None:
         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)", height=260,
         margin=dict(l=10, r=10, t=10, b=10),
-        font=dict(family="Inter", size=12, color="#8892a4"),
+        font=dict(family="Inter", size=12, color="#c9d0dc"),
         legend=dict(orientation="h", y=1.15, x=0),
         yaxis=dict(gridcolor="#1c2440", ticksuffix="%"),
         xaxis=dict(gridcolor="#1c2440", title="bet #"),
@@ -9628,10 +9447,10 @@ def _render_offseason_card(df, blurb: str, key_prefix: str) -> bool:
         {logo}
         <div style="font-size:1.25rem;font-weight:900;color:#e8eaf0;margin-top:0.7rem">
             The {info['season_label']} season is complete</div>
-        <div style="font-size:0.85rem;color:#8892a4;margin-top:0.35rem">
+        <div style="font-size:0.85rem;color:#c9d0dc;margin-top:0.35rem">
             Final matchday was {info['last_match'].strftime('%-d %B %Y')}. {blurb}</div>
         <div style="margin-top:1.3rem;font-size:0.78rem;letter-spacing:2.5px;
-             color:#8892a4;font-weight:800">NEXT SEASON KICKS OFF IN</div>
+             color:#c9d0dc;font-weight:800">NEXT SEASON KICKS OFF IN</div>
         <div style="font-size:2.6rem;font-weight:900;
              background:linear-gradient(90deg,#3d6eff,#7c4dff);
              -webkit-background-clip:text;-webkit-text-fill-color:transparent">
@@ -9705,11 +9524,11 @@ def tab_season_review(df):
          text-align:center;padding:2.2rem 1rem 1.9rem;margin-bottom:1.4rem;
          background:linear-gradient(160deg,#11162a 0%,#0d1322 100%);
          border:1px solid #1c2440;border-radius:18px">
-        <div style="font-size:0.78rem;letter-spacing:3px;color:#8892a4;font-weight:800">SEASON REVIEW</div>
+        <div style="font-size:0.78rem;letter-spacing:3px;color:#c9d0dc;font-weight:800">SEASON REVIEW</div>
         <div style="font-size:2.4rem;font-weight:900;margin:0.15rem 0;
              background:linear-gradient(90deg,#3d6eff,#7c4dff,#ff4081);
              -webkit-background-clip:text;-webkit-text-fill-color:transparent">{season}</div>
-        <div style="font-size:0.85rem;color:#8892a4">{sub}</div>
+        <div style="font-size:0.85rem;color:#c9d0dc">{sub}</div>
         {crest}
     </div>
     """, unsafe_allow_html=True)
@@ -9722,12 +9541,12 @@ def tab_season_review(df):
 
     def _scorecard(title, accent, stats, clv, start):
         profit = stats["profit"]
-        pcol = "#00e676" if profit >= 0 else "#ff4081"
+        pcol = "#00e676" if profit >= 0 else "#ff6fa1"
         clv_v = (clv.get("median_clv") or 0) * 100
-        clv_col = "#00e676" if clv_v >= 1.0 else ("#ffd600" if clv_v >= 0 else "#ff4081")
+        clv_col = "#00e676" if clv_v >= 1.0 else ("#ffd600" if clv_v >= 0 else "#ff6fa1")
         chip = ('display:inline-block;padding:0.22rem 0.7rem;border-radius:999px;'
                 'background:#0d1322;border:1px solid #1c2440;font-size:0.78rem;'
-                'color:#8892a4;margin:0.15rem 0.2rem;font-weight:700')
+                'color:#c9d0dc;margin:0.15rem 0.2rem;font-weight:700')
         return f"""
         <div style="animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both;
              padding:1.4rem 1.5rem;background:#11162a;border:1px solid #1c2440;
@@ -9735,7 +9554,7 @@ def tab_season_review(df):
             <div style="font-size:0.78rem;letter-spacing:2px;font-weight:800;color:{accent}">{title}</div>
             <div style="font-size:2rem;font-weight:900;color:#e8eaf0;margin:0.25rem 0 0">£{stats['bankroll']:,.0f}</div>
             <div style="font-size:0.95rem;font-weight:800;color:{pcol}">
-                {'+' if profit >= 0 else ''}£{profit:,.0f} from £{start:,.0f}</div>
+                {md.fmt_money(profit)} from £{start:,.0f}</div>
             <div style="margin-top:0.8rem">
                 <span style="{chip}">ROI <b style="color:#e8eaf0">{stats['roi']:+.1f}%</b></span>
                 <span style="{chip}">Bets <b style="color:#e8eaf0">{stats['n_settled']}</b></span>
@@ -9792,7 +9611,7 @@ def tab_season_review(df):
             template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)", height=340,
             margin=dict(l=10, r=10, t=10, b=10),
-            font=dict(family="Inter", size=12, color="#8892a4"),
+            font=dict(family="Inter", size=12, color="#c9d0dc"),
             legend=dict(orientation="h", y=1.08, x=0),
             yaxis=dict(gridcolor="#1c2440", tickprefix="£", tickformat=",.0f"),
             xaxis=dict(gridcolor="#1c2440"),
@@ -9815,10 +9634,10 @@ def tab_season_review(df):
         def _bet_row(b, rank=None):
             mkt_lbl, mkt_col = _MKT_CHIP.get(b["market"], (b["market"], "#8892a4"))
             profit = b.get("profit", 0.0)
-            pcol = "#00e676" if profit >= 0 else "#ff4081"
+            pcol = "#00e676" if profit >= 0 else "#ff6fa1"
             rank_html = (f'<span style="color:#b8c0d0;font-weight:900;width:1.4rem;'
                          f'display:inline-block">{rank}</span>' if rank else
-                         '<span style="color:#ff4081;font-weight:900">✗</span> ')
+                         '<span style="color:#ff6fa1;font-weight:900">✗</span> ')
             return f"""
             <div style="display:flex;align-items:center;gap:0.7rem;padding:0.55rem 0.9rem;
                  background:#11162a;border:1px solid #1c2440;border-radius:12px;
@@ -9829,10 +9648,10 @@ def tab_season_review(df):
                     {tb(b['home'], 24)} <span style="color:#b8c0d0">vs</span> {tb(b['away'], 24)}</span>
                 <span style="font-size:0.78rem;font-weight:800;color:{mkt_col};
                      border:1px solid {mkt_col};border-radius:999px;padding:0.1rem 0.55rem">{mkt_lbl}</span>
-                <span style="font-size:0.78rem;color:#8892a4">@{b['odds']:.2f} · £{b['stake']:,.0f}</span>
+                <span style="font-size:0.78rem;color:#c9d0dc">@{b['odds']:.2f} · £{b['stake']:,.0f}</span>
                 <span style="font-size:0.78rem;color:{b['_pcol']};font-weight:700">{b['_port']}</span>
                 <span style="font-size:0.9rem;font-weight:900;color:{pcol};min-width:80px;
-                     text-align:right">{'+' if profit >= 0 else ''}£{profit:,.0f}</span>
+                     text-align:right">{md.fmt_money(profit)}</span>
             </div>"""
 
         st.markdown("".join(_bet_row(b, i + 1) for i, b in enumerate(top5)),
@@ -9846,7 +9665,9 @@ def tab_season_review(df):
         st.info("No settled bets this season.")
 
     # ── Final table ───────────────────────────────────────────────────────
-    st.markdown('<p class="section-label" style="margin-top:1.6rem">Final league table</p>',
+    _tbl_title = ("Final league table" if len(tbl) and int(tbl["Played"].min()) >= 38
+                  else f"League table after {int(tbl['Played'].max()) if len(tbl) else 0} matches")
+    st.markdown(f'<p class="section-label" style="margin-top:1.6rem">{_tbl_title}</p>',
                 unsafe_allow_html=True)
     if len(tbl):
         rows_html = []
@@ -9855,7 +9676,7 @@ def tab_season_review(df):
             accent = ("#ffd600" if pos == 1 else
                       "#00e676" if pos <= 4 else
                       "#00e5ff" if pos <= 6 else
-                      "#ff4081" if pos >= len(tbl) - 2 else "transparent")
+                      "#ff6fa1" if pos >= len(tbl) - 2 else "transparent")
             rows_html.append(f"""
             <tr style="border-left:3px solid {accent}">
                 <td style="color:#b8c0d0;font-weight:800;padding:0.35rem 0.6rem">{pos}</td>
@@ -9870,7 +9691,7 @@ def tab_season_review(df):
              padding:0.7rem 0.6rem;overflow-x:auto;
              animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
         <table style="width:100%;border-collapse:collapse;font-size:0.82rem;
-               color:#8892a4;text-align:center">
+               color:#c9d0dc;text-align:center">
             <thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">
                 <th style="padding:0.3rem 0.6rem">#</th>
                 <th style="text-align:left;padding:0.3rem 0.6rem">TEAM</th>
@@ -9883,7 +9704,7 @@ def tab_season_review(df):
             <span style="color:#ffd600">▌</span> Champions &nbsp;
             <span style="color:#00e676">▌</span> Champions League &nbsp;
             <span style="color:#00e5ff">▌</span> Europe &nbsp;
-            <span style="color:#ff4081">▌</span> Relegated</p>
+            <span style="color:#ff6fa1">▌</span> Relegated</p>
         """, unsafe_allow_html=True)
 
     # ── What the season taught the model ──────────────────────────────────
@@ -9918,7 +9739,7 @@ def tab_season_review(df):
                  border-left:4px solid {accent};border-radius:14px;margin-bottom:0.8rem;
                  animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
                 <div style="font-size:0.9rem;font-weight:800;color:#e8eaf0">{icon} {title}</div>
-                <div style="font-size:0.82rem;color:#8892a4;margin-top:0.3rem;line-height:1.5">{body}</div>
+                <div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.3rem;line-height:1.5">{body}</div>
             </div>""", unsafe_allow_html=True)
 
     # ── Next season ───────────────────────────────────────────────────────
@@ -9931,13 +9752,13 @@ def tab_season_review(df):
          background:linear-gradient(160deg,#11162a 0%,#0d1322 100%);
          border:1px solid #1c2440;border-radius:16px;
          animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">
-        <div style="font-size:0.78rem;letter-spacing:2.5px;color:#8892a4;font-weight:800">
+        <div style="font-size:0.78rem;letter-spacing:2.5px;color:#c9d0dc;font-weight:800">
             {live} KICKS OFF IN</div>
         <div style="font-size:2.4rem;font-weight:900;
              background:linear-gradient(90deg,#3d6eff,#7c4dff);
              -webkit-background-clip:text;-webkit-text-fill-color:transparent">
             {info['days_to_kickoff']} days</div>
-        <div style="font-size:0.82rem;color:#8892a4;margin-top:0.5rem">
+        <div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.5rem">
             Pre-season checklist: re-run the honest random search on updated data ·
             re-validate the edge cross-league · review the simplified config ·
             let the odds-snapshot pipeline warm up</div>
@@ -9947,7 +9768,7 @@ def tab_season_review(df):
 
 TAB_REGISTRY = [
     ("predict",     "🔮", "Predict Match",  "Pick any two teams"),
-    ("weekend",     "📅", "This Weekend",   "Upcoming fixtures"),
+    ("weekend",     "📅", "Next Matchday",  "Upcoming fixtures"),
     ("results",     "📋", "Last Gameweek",  "How the model did"),
     ("backtest",    "📊", "Backtesting",    "Accuracy & calibration"),
     ("season",      "🏆", "Season Outlook", "Monte Carlo forecast"),
@@ -9956,7 +9777,7 @@ TAB_REGISTRY = [
     ("teamdeep",    "🔍", "Team Deep Dive", "All data on one team"),
     ("portfolio",   "💰", "Mock Portfolio", "Paper-trade bets"),
     ("portfolio2",  "🧪", "Mock Two",       "Research-track A/B"),
-    ("preflight",   "🛫", "Pre-Flight",     "Season readiness"),
+    ("preflight",   "🛫", "Pre-Flight",     "Gates and verdicts"),
 ]
 
 
@@ -10040,42 +9861,36 @@ def _render_home_activity() -> None:
         and datetime.fromisoformat(e["ts"].rstrip("Z").split("+")[0]) > cutoff
     )
 
-    # Next fixture lookup
-    next_fix = None
+    # Next matchday: the same fixture list every page uses (30-day window,
+    # clustered to one gameweek). The old 7-day lookup said "No upcoming
+    # fixtures" while This Weekend listed ten, 15 days out.
     try:
-        for fx in fetch_upcoming_fixtures(lookahead_days=7):
-            if not next_fix or fx["date"] < next_fix["date"]:
-                next_fix = fx
+        nm = md.next_matchday(cached_fixtures())
     except Exception:
-        pass
+        nm = None
 
     # ── 4 quick-snapshot tiles ────────────────────────────────────────
     main_pl   = main_stats["profit"]
     mt_pl     = mt_stats["profit"]
-    main_pl_col = "#00e676" if main_pl >= 0 else "#ff4081"
-    mt_pl_col   = "#00e676" if mt_pl   >= 0 else "#ff4081"
+    main_pl_col = "#00e676" if main_pl >= 0 else "#ff6fa1"
+    mt_pl_col   = "#00e676" if mt_pl   >= 0 else "#ff6fa1"
 
     main_clv_v = (main_clv.get("median_clv") or 0) * 100
     mt_clv_v   = (mt_clv.get("median_clv")   or 0) * 100
-    main_clv_col = "#00e676" if main_clv_v >= 1.0 else ("#ffd600" if main_clv_v >= 0 else "#ff4081")
-    mt_clv_col   = "#00e676" if mt_clv_v   >= 1.0 else ("#ffd600" if mt_clv_v   >= 0 else "#ff4081")
+    main_clv_col = "#00e676" if main_clv_v >= 1.0 else ("#ffd600" if main_clv_v >= 0 else "#ff6fa1")
+    mt_clv_col   = "#00e676" if mt_clv_v   >= 1.0 else ("#ffd600" if mt_clv_v   >= 0 else "#ff6fa1")
 
-    # Next fixture countdown
-    next_fix_html = ""
-    if next_fix:
-        try:
-            from datetime import date as _date
-            today = _date.today()
-            days_to = (next_fix["date"] - today).days
-            next_str = f"{next_fix['home']} vs {next_fix['away']}"
-            if days_to == 0:    when = "TODAY"
-            elif days_to == 1:  when = "TOMORROW"
-            else:               when = f"in {days_to}d"
-            next_fix_html = f'<div class="hf-next-when">{when}</div><div class="hf-next-match">{next_str}</div>'
-        except Exception:
-            next_fix_html = '<div class="hf-next-when">—</div>'
+    if nm:
+        d = nm["days_away"]
+        when = "TODAY" if d == 0 else ("TOMORROW" if d == 1 else f"in {d} days")
+        span = nm["start"].strftime("%a %-d %b")
+        if nm["end"] != nm["start"]:
+            span += " to " + nm["end"].strftime("%a %-d %b")
+        next_fix_html = (f'<div class="hf-next-when">{when}</div>'
+                         f'<div class="hf-next-match">{span} · {nm["n"]} fixtures</div>')
     else:
-        next_fix_html = '<div class="hf-next-when">—</div><div class="hf-next-match">No upcoming fixtures</div>'
+        next_fix_html = ('<div class="hf-next-when">None scheduled</div>'
+                         '<div class="hf-next-match">No fixtures in the next 30 days</div>')
 
     main_pl_sign = "+" if main_pl >= 0 else "−"
     mt_pl_sign   = "+" if mt_pl   >= 0 else "−"
@@ -10098,9 +9913,9 @@ def _render_home_activity() -> None:
         f'<div class="hf-tile-lbl">PORTFOLIOS</div>'
         f'<div class="hf-portfolios-row">'
             f'<span class="hf-port-line"><b>Main</b> '
-            f'<span style="color:{main_pl_col}">{main_pl_sign}£{abs(main_pl):,.0f}</span></span>'
+            f'<span style="color:{main_pl_col}">{md.fmt_money(main_pl)}</span></span>'
             f'<span class="hf-port-line"><b>Mock 2</b> '
-            f'<span style="color:{mt_pl_col}">{mt_pl_sign}£{abs(mt_pl):,.0f}</span></span>'
+            f'<span style="color:{mt_pl_col}">{md.fmt_money(mt_pl)}</span></span>'
         f'</div>'
         f'<div class="hf-tile-sub">'
         f'{len(main_pending)} + {len(mt_pending)} pending · {settled_24h} settled 24h</div>'
@@ -10124,7 +9939,7 @@ def _render_home_activity() -> None:
         # ── Tile 4: Next fixture ──
         '<div class="hf-tile hf-next">'
         f'<div class="hf-tile-icon">📅</div>'
-        f'<div class="hf-tile-lbl">NEXT FIXTURE</div>'
+        f'<div class="hf-tile-lbl">NEXT MATCHDAY</div>'
         f'{next_fix_html}'
         '</div>'
 
@@ -10133,9 +9948,29 @@ def _render_home_activity() -> None:
     )
 
     # ── Recent events feed ─────────────────────────────────────────────
-    feed_events = [e for e in events
-                   if e.get("type") in ("auto_bet_placed", "settled",
-                                         "clv_snapshot", "warning", "error", "fatal")][:10]
+    # Collapse repeats: the hourly runner logs the same "no fixtures" warning
+    # and an unchanged CLV snapshot every run, which filled all ten rows.
+    feed_events, seen = [], {}
+    for e in events:
+        if e.get("type") not in ("auto_bet_placed", "settled", "clv_snapshot",
+                                 "warning", "error", "fatal"):
+            continue
+        if e["type"] == "clv_snapshot":
+            sig = ("clv", e.get("portfolio"), round((e.get("median_clv") or 0), 4), e.get("n"))
+        elif e["type"] in ("warning", "error", "fatal"):
+            msg = str(e.get("message", e.get("error", "")))
+            sig = ("warn", msg.replace(" (app load)", "").replace(" found", ""))
+        else:
+            sig = None
+        if sig is not None and sig in seen:
+            seen[sig]["_repeat"] = seen[sig].get("_repeat", 1) + 1
+            continue
+        e = dict(e)
+        if sig is not None:
+            seen[sig] = e
+        feed_events.append(e)
+        if len(feed_events) >= 5:
+            break
     if not feed_events:
         return  # nothing to show yet
 
@@ -10156,16 +9991,16 @@ def _render_home_activity() -> None:
             res = e.get("result", "?")
             profit = e.get("profit") or 0
             sign = "+" if profit >= 0 else "−"
-            colr = "#00e676" if res == "won" else "#ff4081"
+            colr = "#00e676" if res == "won" else "#ff6fa1"
             ico  = "✅" if res == "won" else "❌"
             txt = (f'<b>{ico} Settled</b> · '
                    f'<span class="hf-evt-match">{e.get("match","")}</span> '
                    f'· <span style="color:{colr};font-weight:800">'
-                   f'{sign}£{abs(profit):,.2f}</span>')
+                   f'{md.fmt_money(profit, pence=True)}</span>')
             row_cls = f"hf-evt-{'won' if res=='won' else 'lost'}"
         elif et == "clv_snapshot":
             v = (e.get("median_clv") or 0) * 100
-            colr = "#00e676" if v >= 0 else "#ff4081"
+            colr = "#00e676" if v >= 0 else "#ff6fa1"
             txt = (f'<b>📐 CLV check</b> · median '
                    f'<span style="color:{colr};font-weight:800">{v:+.2f}%</span> '
                    f'over {e.get("n",0)} tagged')
@@ -10178,7 +10013,9 @@ def _render_home_activity() -> None:
         item_html.append(
             f'<div class="hf-evt {row_cls}">'
               f'<div class="hf-evt-time">{age}</div>'
-              f'<div class="hf-evt-body">{txt}</div>'
+              f'<div class="hf-evt-body">{txt}'
+              + (f' <span class="hf-evt-rep">· {e["_repeat"]} times</span>' if e.get("_repeat") else '')
+              + f'</div>'
               f'<div class="hf-evt-port-cell">{port_chip}</div>'
             f'</div>'
         )
@@ -10198,7 +10035,7 @@ def _render_home_screen() -> None:
     <div class="home-hero">
         {logo_html}
         <div class="home-title">Premier League Match Predictor</div>
-        <div class="home-sub">Dixon-Coles · Poisson · XGBoost · Draw Specialist</div>
+        <div class="home-sub">Dixon-Coles · XGBoost · Draw Specialist · Calibrated</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -10227,7 +10064,7 @@ def _render_home_screen() -> None:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(
         '<p style="text-align:center;font-size:0.78rem;color:#9aa6ba;letter-spacing:2px">'
-        'DATA: FOOTBALL-DATA.CO.UK + UNDERSTAT · FOR ENTERTAINMENT PURPOSES</p>',
+        'DATA: FOOTBALL-DATA.CO.UK · UNDERSTAT · ESPN · THE ODDS API · BETFAIR EXCHANGE CLOSE · PAPER TRADING ONLY</p>',
         unsafe_allow_html=True,
     )
 
@@ -10272,6 +10109,7 @@ def _preflight_chip(text: str, tone: str) -> str:
         "hold": ("#ffd600", "rgba(255,214,0,0.14)"),
         "stop": ("#ff4081", "rgba(255,64,129,0.14)"),
         "info": ("#00e5ff", "rgba(0,229,255,0.14)"),
+        "pass": ("#c9d0dc", "rgba(201,208,220,0.10)"),
     }
     fg, bg = colours.get(tone, colours["info"])
     return (f'<span style="display:inline-block;padding:0.2rem 0.65rem;'
@@ -10303,7 +10141,7 @@ def _preflight_portfolio_card(port: dict, title: str, accent: str) -> str:
                          if s.get("min_team_matches") else "off"),
         ("Club cap",    f"{s['max_bets_per_club']} bets"
                         if s.get("max_bets_per_club") else "off"),
-        ("Markets",     "+".join(s.get("auto_markets", [])) or "none"),
+        ("Markets",     " + ".join(md.MARKET_LABELS.get(m, m) for m in s.get("auto_markets", [])) or "none"),
     ]
     rows = "".join(
         f'<div style="display:flex;justify-content:space-between;gap:0.6rem;'
@@ -10312,7 +10150,17 @@ def _preflight_portfolio_card(port: dict, title: str, accent: str) -> str:
         f'<span style="font-size:0.82rem;color:#e8eaf0;font-weight:700;'
         f'font-variant-numeric:tabular-nums">{v}</span></div>'
         for k, v in gates)
-    label = s.get("main_settings_label") or s.get("v2_settings_label") or ""
+    # Built from the live settings: the stored label is free text and went
+    # stale (Mock Two's still read "full Kelly" at 0.45x).
+    mk = " + ".join(md.MARKET_LABELS.get(m, m) for m in s.get("auto_markets", []))
+    label = (f"{mk or 'No markets'} · EV at least {float(s.get('auto_bet_threshold', s.get('min_ev', 0.4))):.1%}"
+             f" · {float(s.get('kelly_fraction', 1.0)):g}x Kelly"
+             + (f" · raw draw floor {float(s['min_raw_draw_prob']):.0%}" if s.get("min_raw_draw_prob") else "")
+             + (" · Mondays skipped" if "Mon" in (s.get("main_banned_dows") or s.get("v2_banned_dows") or []) else "")
+             + (" · needs a Pinnacle price" if s.get("detect_source") == "PS" else ""))
+    pending = sum(b["stake"] for b in port["bets"] if b["status"] == "pending")
+    season = port.get("season") or ""
+    n_season = sum(1 for b in port["bets"] if b.get("type") != "acca")
     html = f"""
     <div class="metric-card" style="text-align:left;border-color:{accent}55">
       <div style="display:flex;justify-content:space-between;align-items:center;
@@ -10321,9 +10169,9 @@ def _preflight_portfolio_card(port: dict, title: str, accent: str) -> str:
                      letter-spacing:0.5px">{title}</span>{posture}
       </div>
       <div style="font-size:1.5rem;font-weight:900;color:#e8eaf0;
-                  font-variant-numeric:tabular-nums">£{port['bankroll']:,.2f}</div>
-      <div style="font-size:0.78rem;color:#b8c0d0;margin-bottom:0.7rem">
-        {len(port['bets'])} bets this season · opened £{port['initial_bankroll']:,.0f}</div>
+                  font-variant-numeric:tabular-nums">{md.fmt_money(port['bankroll'] + pending, signed=False)}</div>
+      <div style="font-size:0.82rem;color:#c9d0dc;margin-bottom:0.7rem">
+        {md.fmt_money(port['bankroll'], signed=False)} cash + {md.fmt_money(pending, signed=False)} pending · {n_season} bets {season} · opened {md.fmt_money(port['initial_bankroll'], signed=False)}</div>
       {rows}
       <div style="font-size:0.78rem;color:#b8c0d0;margin-top:0.7rem;
                   line-height:1.45">{label}</div>
@@ -10346,18 +10194,35 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
     mt_port   = pf.load_portfolio_two()
     match_counts = team_match_counts(df)
 
-    # ── Countdown hero ───────────────────────────────────────────────────
-    days = info["days_to_kickoff"]
-    tone = "#00e676" if days == 0 else ("#ffd600" if days <= 14 else "#7c4dff")
-    st.markdown(
-        f'<div class="pnl-hero pnl-neutral" style="border-color:{tone}55">'
-        f'<div class="pnl-tag" style="color:#b8c0d0">Season {_season_of(info["kickoff"])} '
-        f'· first bet-eligible fixture</div>'
-        f'<div class="pnl-amount" style="color:{tone}">{days}</div>'
-        f'<div style="font-size:0.95rem;color:#e8eaf0;font-weight:700">'
-        f'days to kickoff · {info["kickoff"].strftime("%A %-d %B %Y")}</div></div>',
-        unsafe_allow_html=True,
-    )
+    # ── Next matchday hero ───────────────────────────────────────────────
+    # Was a season-kickoff countdown ("first bet-eligible fixture") that kept
+    # counting after the season started. It now counts to the next matchday.
+    state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                           draw_fc, teams, elo_dict)
+    nm = state["next"]
+    if nm:
+        days = nm["days_away"]
+        tone = "#00e676" if days <= 1 else ("#ffd600" if days <= md.BETTING_WINDOW_DAYS else "#b39dff")
+        span = nm["start"].strftime("%A %-d %B")
+        if nm["end"] != nm["start"]:
+            span += " to " + nm["end"].strftime("%A %-d %B")
+        opens = nm["start"] - timedelta(days=md.BETTING_WINDOW_DAYS)
+        window = ("Inside the 14-day betting window" if days <= md.BETTING_WINDOW_DAYS
+                  else f"Betting window opens {opens.strftime('%a %-d %b')}")
+        st.markdown(
+            f'<div class="pnl-hero pnl-neutral" style="border-color:{tone}55">'
+            f'<div class="pnl-tag" style="color:#c9d0dc">Next matchday · {nm["n"]} fixtures</div>'
+            f'<div class="pnl-amount" style="color:{tone}">{days}</div>'
+            f'<div style="font-size:0.95rem;color:#e8eaf0;font-weight:700">'
+            f'days · {span}</div>'
+            f'<div style="font-size:0.86rem;color:#c9d0dc;margin-top:0.3rem">{window}</div></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="pnl-hero pnl-neutral"><div class="pnl-tag" style="color:#c9d0dc">'
+            'Next matchday</div><div style="font-size:1.1rem;color:#e8eaf0;font-weight:700">'
+            'No fixtures in the next 30 days</div></div>', unsafe_allow_html=True)
 
     # ── Portfolio posture ────────────────────────────────────────────────
     _section_header("Trading posture",
@@ -10365,79 +10230,67 @@ def tab_preflight(df, dc_r, dc_draw_r, xgb_m, feat_cols,
                     "right now.")
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(_preflight_portfolio_card(main_port, "MAIN", "#3d6eff"),
+        st.markdown(_preflight_portfolio_card(main_port, "MAIN", "#7ea2ff"),
                     unsafe_allow_html=True)
     with c2:
-        st.markdown(_preflight_portfolio_card(mt_port, "MOCK TWO", "#7c4dff"),
+        st.markdown(_preflight_portfolio_card(mt_port, "MOCK TWO", "#b39dff"),
                     unsafe_allow_html=True)
 
     # ── Fixture board ────────────────────────────────────────────────────
-    _section_header("Opening fixtures",
-                    "Model draw probability, and whether the fixture is "
-                    "eligible to be staked.")
-    try:
-        fixtures = cached_fixtures()[:12]
-    except Exception as e:
-        fixtures = []
-        st.warning(f"Could not load fixtures: {e}")
-
+    _section_header("Next matchday · would we bet?",
+                    "Each line's verdict comes from a dry run of its real auto-bet "
+                    "on a copy of the portfolio, so it always matches what the "
+                    "run will do. The reason names the first gate that stops it.")
+    fixtures = state["fixtures"][:12]
+    seeded_dc = dc_r
     if not fixtures:
         st.info("No upcoming fixtures published yet.")
     else:
-        # main() already seeds promoted sides before anything predicts, so
-        # re-seeding here would find nothing new and report an empty list.
-        # Trust the marker it leaves, and only seed if we were handed raw
-        # ratings (which happens if the seeding step upstream failed).
-        if dc_r.get("seeded_teams") is None:
-            names = [t for f in fixtures for t in (f["home"], f["away"])]
-            seeded_dc = seed_promoted_teams(dc_r, names)
-            seeded_draw = seed_promoted_teams(dc_draw_r, names)
-        else:
-            seeded_dc, seeded_draw = dc_r, dc_draw_r
-        min_matches = main_port["settings"].get("min_team_matches")
+        preds = {(q["home"], q["away"]): q for q in state["preds"]}
+        v_main, v_mt = state["verdicts"]["main"], state["verdicts"]["mt"]
+
+        def _verdict_cell(v: dict | None) -> str:
+            if not v:
+                return _preflight_chip("NOT PRICED", "pass")
+            tone, label = {
+                "bet": ("go", "WOULD BET"), "placed": ("info", "BACKED"),
+                "held": ("hold", "HELD"), "blocked": ("pass", "PASS"),
+                "window": ("pass", "NOT YET"), "no_odds": ("pass", "NO PRICE"),
+            }.get(v["status"], ("pass", v["status"].upper()))
+            return (f'<span style="display:flex;flex-direction:column;gap:0.2rem;'
+                    f'align-items:flex-start">{_preflight_chip(label, tone)}'
+                    f'<span style="font-size:0.78rem;color:#c9d0dc;line-height:1.3">'
+                    f'{v["text"]}</span></span>')
+
         rows_html = []
         for f in fixtures:
             h, a = f["home"], f["away"]
-            # Full ensemble, not bare Dixon-Coles: this must be the same number
-            # the auto-bet path stakes on, or the board is quietly lying.
-            try:
-                hs = get_current_stats(df, h, elo_dict=elo_dict)
-                as_ = get_current_stats(df, a, elo_dict=elo_dict)
-                _dc, _blend, res = full_predict(
-                    h, a, seeded_dc, seeded_draw, xgb_m, feat_cols,
-                    draw_xgb_m, draw_fc, hs, as_)
-                p = {"draw": res["draw"]}
-            except Exception:
-                p = predict_dixon_coles(h, a, seeded_dc)
-            blocked = pf.should_skip_unrated(h, a, match_counts, min_matches)
-            if blocked:
-                low = [t for t in (h, a) if match_counts.get(t, 0) < (min_matches or 0)]
-                badge = _preflight_chip("GATED", "stop")
-                why = (f"{', '.join(low)} under {min_matches} Premier League "
-                       f"matches — priced on the promoted prior, not staked")
+            q = preds.get((h, a))
+            dm = v_main.get((h, a), {}).get("draw")
+            if dm:
+                draw_txt = (f'{dm["raw"]*100:.1f}%<br><span style="font-size:0.78rem;'
+                            f'color:#c9d0dc;font-weight:600">cal {dm["cal"]*100:.0f}% · '
+                            f'@{dm["odds"]:.2f}</span>')
+            elif q:
+                draw_txt = f'{q["main"]["draw"]*100:.1f}%'
             else:
-                badge = _preflight_chip("ELIGIBLE", "go")
-                why = "both sides rated"
-            draw_pct = p["draw"] * 100
+                draw_txt = "–"
             rows_html.append(
-                f'<div style="display:grid;grid-template-columns:5.5rem 1fr auto auto;'
-                f'gap:0.7rem;align-items:center;padding:0.5rem 0;'
-                f'border-bottom:1px solid rgba(255,255,255,0.06)">'
-                f'<span style="font-size:0.78rem;color:#b8c0d0">'
+                f'<div class="pf-board-row">'
+                f'<span style="font-size:0.82rem;color:#c9d0dc">'
                 f'{f["date"].strftime("%a %-d %b")}</span>'
-                f'<span><span style="font-size:0.88rem;color:#e8eaf0;font-weight:700">'
-                f'{h} v {a}</span><br>'
-                f'<span style="font-size:0.78rem;color:#b8c0d0">'
-                f'Elo {elo_dict.get(h, 0):.0f} v {elo_dict.get(a, 0):.0f} · '
-                f'{why}</span></span>'
+                f'<span><span style="font-size:0.9rem;color:#eef1f5;font-weight:700">'
+                f'{tb(h, 20)} v {tb(a, 20)}</span><br>'
+                f'<span style="font-size:0.78rem;color:#c9d0dc">'
+                f'Elo {elo_dict.get(h, 0):.0f} v {elo_dict.get(a, 0):.0f}</span></span>'
                 f'<span style="font-size:0.95rem;font-weight:900;color:#ffd600;'
-                f'font-variant-numeric:tabular-nums">{draw_pct:.1f}%</span>{badge}</div>')
+                f'font-variant-numeric:tabular-nums;line-height:1.3">{draw_txt}</span>'
+                f'{_verdict_cell(v_main.get((h, a)))}{_verdict_cell(v_mt.get((h, a)))}</div>')
         st.markdown(
-            '<div class="metric-card" style="text-align:left">'
-            '<div style="display:grid;grid-template-columns:5.5rem 1fr auto auto;'
-            'gap:0.7rem;font-size:0.78rem;color:#b8c0d0;font-weight:800;'
-            'letter-spacing:1px;text-transform:uppercase;padding-bottom:0.4rem">'
-            '<span>Date</span><span>Fixture</span><span>Draw</span><span>Status</span>'
+            '<div class="metric-card pf-board" style="text-align:left">'
+            '<div class="pf-board-row pf-board-head">'
+            '<span>Date</span><span>Fixture</span><span>Raw draw</span>'
+            '<span>Main</span><span>Mock Two</span>'
             '</div>' + "".join(rows_html) + '</div>',
             unsafe_allow_html=True)
 
@@ -10634,6 +10487,113 @@ def _session_auto_bet(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                               draw_xgb_m, draw_fc, teams, elo_dict)
 
 
+def _file_stamp(path) -> str:
+    try:
+        return str(int(Path(path).stat().st_mtime))
+    except Exception:
+        return "0"
+
+
+def matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc,
+                   teams, elo_dict) -> dict:
+    """The next matchday as every page shows it: fixtures, predictions, verdicts.
+
+    Held in session_state against a stamp of everything it depends on (match
+    data, fixtures, the odds cache and both portfolio files), so it recomputes
+    only when one of them changes. Verdicts come from `matchday.fixture_verdicts`,
+    which dry-runs the real placers: the page can never say "would bet" about a
+    fixture the auto-bet would refuse.
+    """
+    fixtures = cached_fixtures()
+    fx_key = "|".join(f"{f['home']}~{f['away']}~{f['date']}" for f in fixtures)
+    stamp = "|".join([str(len(df)), str(df["Date"].max().date()), fx_key,
+                      _file_stamp(pf._LIVE_ODDS_CACHE), _file_stamp(pf.PORTFOLIO_FILE),
+                      _file_stamp(pf.MOCK2_PORTFOLIO_FILE), str(date.today())])
+    held = st.session_state.get("_matchday_state")
+    if held and held.get("stamp") == stamp:
+        return held
+
+    nm = md.next_matchday(fixtures)
+    state = {"stamp": stamp, "next": nm, "fixtures": fixtures, "preds": [],
+             "verdicts": {"main": {}, "mt": {}}, "odds": {}}
+    if fixtures:
+        main_port = pf.load_portfolio()
+        mt_port = pf.load_portfolio_two()
+        df_hash = len(df)
+        try:
+            calibrators = cached_calibrators(df_hash)
+            dc_kn_r = cached_dc_kn(f"{df_hash}_{df['Date'].max().date()}")
+            bin_vars = cached_bin_variances(df_hash)
+        except Exception:
+            calibrators, dc_kn_r, bin_vars = None, dc_r, None
+        rateable = set(teams) | set(dc_r.get("attacks", {}))
+        preds = _predict_fixtures(fixtures, df, dc_r, dc_draw_r, dc_kn_r, xgb_m,
+                                  feat_cols, draw_xgb_m, draw_fc, elo_dict, rateable)
+        api_key = pf.resolve_odds_api_key(main_port.get("settings", {}).get("odds_api_key", ""))
+        odds_map = pf.fetch_live_odds(api_key) if api_key else {}
+        main_c, mt_c = md.build_candidates(preds, odds_map, elo_dict)
+        counts = team_match_counts(df)
+        state["preds"] = preds
+        state["odds"] = odds_map
+        state["verdicts"]["main"] = md.fixture_verdicts(
+            main_port, fixtures, main_c,
+            float(main_port["settings"].get("auto_bet_threshold", 0.40)),
+            pf.auto_place_value_bets, calibrators=calibrators,
+            match_counts=counts, line="main")
+        state["verdicts"]["mt"] = md.fixture_verdicts(
+            mt_port, fixtures, mt_c,
+            float(mt_port["settings"].get("auto_bet_threshold", 0.40)),
+            pf.auto_place_value_bets_v2, calibrators=calibrators,
+            match_counts=counts, line="mt", bin_variances=bin_vars)
+    st.session_state["_matchday_state"] = state
+    return state
+
+
+def _predict_fixtures(fixtures, df, dc_r, dc_draw_r, dc_kn_r, xgb_m, feat_cols,
+                      draw_xgb_m, draw_fc, elo_dict, rateable,
+                      log: bool = False) -> list[dict]:
+    """Main + Mock Two predictions for each fixture, in matchday.build_candidates shape.
+
+    Shared by the auto-bet run and every page that shows a verdict, so the
+    numbers on screen are the numbers the run bets on. `log` records skipped
+    and failed fixtures in the activity log (the run only).
+    """
+    preds: list[dict] = []
+    for fix in fixtures:
+        h, a = fix["home"], fix["away"]
+        if h not in rateable or a not in rateable:
+            # Was a bare continue, which made promoted sides invisible: in
+            # 2026-27 that silently hid 2 of the 10 opening fixtures.
+            if log:
+                unknown = [t for t in (h, a) if t not in rateable]
+                _log_activity_event("fixture_skipped", reason="unknown_team",
+                                    match=f"{h} vs {a}",
+                                    detail=f"{', '.join(unknown)} not in the model's team list")
+            continue
+        try:
+            hs  = get_current_stats(df, h, elo_dict=elo_dict)
+            as_ = get_current_stats(df, a, elo_dict=elo_dict)
+            dc_p, _dc_blend, main_res = full_predict(
+                h, a, dc_r, dc_draw_r, xgb_m, feat_cols,
+                draw_xgb_m, draw_fc, hs, as_,
+            )
+            _kn_p, _kn_blend, mt_res = full_predict_v2(
+                h, a, dc_kn_r, dc_draw_r, xgb_m, feat_cols,
+                draw_xgb_m, draw_fc, hs, as_,
+            )
+        except Exception as e:
+            if log:
+                _log_activity_event("error", stage="predict",
+                                    match=f"{h} vs {a}", error=str(e))
+            continue
+        ds = fix["date"].isoformat() if hasattr(fix["date"], "isoformat") else str(fix["date"])
+        preds.append({"home": h, "away": a, "date": ds, "fix_date": fix["date"],
+                      "time_utc": fix.get("time_utc"),
+                      "main": main_res, "mt": mt_res, "dc": dc_p,
+                      "p_o25": dc_p.get("over_25", 0.5)})
+    return preds
+
+
 def _session_auto_bet_run(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
                           draw_xgb_m, draw_fc, teams, elo_dict) -> None:
     """The body of `_session_auto_bet`, run while holding `pf.autobet_lock`."""
@@ -10700,65 +10660,15 @@ def _session_auto_bet_run(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
         _log_activity_event("run_completed", source="app_load")
         return
 
-    main_cands: list[dict] = []
-    mt_cands:   list[dict] = []
     # The runner treats any club the model can rate as playable; the app used
     # `teams` = the most recent season's 20 sides, so it silently dropped
     # Coventry, Hull AND Ipswich — three of the ten openers, including the
     # largest edge on the board. Same rule in both now: rated means playable.
     rateable = set(teams) | set(dc_r.get("attacks", {}))
-    for fix in fixtures:
-        h, a = fix["home"], fix["away"]
-        if h not in rateable or a not in rateable:
-            # Was a bare continue, which made promoted sides invisible: in
-            # 2026-27 that silently hid 2 of the 10 opening fixtures.
-            unknown = [t for t in (h, a) if t not in rateable]
-            _log_activity_event("fixture_skipped", reason="unknown_team",
-                                match=f"{h} vs {a}",
-                                detail=f"{', '.join(unknown)} not in the model's team list")
-            continue
-        api_o = live_odds_map.get((h, a), {})
-        if not api_o or "H" not in api_o:
-            continue
-        try:
-            hs  = get_current_stats(df, h, elo_dict=elo_dict)
-            as_ = get_current_stats(df, a, elo_dict=elo_dict)
-            dc_p, _dc_blend, main_res = full_predict(
-                h, a, dc_r, dc_draw_r, xgb_m, feat_cols,
-                draw_xgb_m, draw_fc, hs, as_,
-            )
-            _kn_p, _kn_blend, mt_res = full_predict_v2(
-                h, a, dc_kn_r, dc_draw_r, xgb_m, feat_cols,
-                draw_xgb_m, draw_fc, hs, as_,
-            )
-        except Exception as e:
-            _log_activity_event("error", stage="predict",
-                                match=f"{h} vs {a}", error=str(e))
-            continue
-
-        ds = fix["date"].isoformat() if hasattr(fix["date"], "isoformat") else str(fix["date"])
-        pinn = api_o.get("_pinnacle") if isinstance(api_o, dict) else None
-        p_o25 = dc_p.get("over_25", 0.5)
-
-        for mkt, m_prob, mt_prob, lbl in [
-            ("H",       main_res["home_win"], mt_res["home_win"], f"Home Win ({h})"),
-            ("D",       main_res["draw"],     mt_res["draw"],     "Draw"),
-            ("A",       main_res["away_win"], mt_res["away_win"], f"Away Win ({a})"),
-            ("over25",  p_o25,                p_o25,              "Over 2.5 Goals"),
-            ("under25", 1.0 - p_o25,          1.0 - p_o25,        "Under 2.5 Goals"),
-        ]:
-            place_o = api_o.get(mkt)
-            if not place_o:
-                continue
-            detect_o = pinn.get(mkt) if pinn else None
-            ev_ref = detect_o if (detect_o and detect_o > 1) else place_o
-            base = dict(home=h, away=a, date=ds, market=mkt, selection=lbl,
-                        odds=place_o, detect_odds=detect_o,
-                        home_elo=elo_dict.get(h), away_elo=elo_dict.get(a))
-            main_cands.append({**base, "model_prob": m_prob,
-                               "ev": pf.compute_ev(m_prob, ev_ref) if ev_ref else -1})
-            mt_cands.append({**base, "model_prob": mt_prob,
-                             "ev": pf.compute_ev(mt_prob, ev_ref) if ev_ref else -1})
+    preds = _predict_fixtures(fixtures, df, dc_r, dc_draw_r, dc_kn_r, xgb_m,
+                              feat_cols, draw_xgb_m, draw_fc, elo_dict,
+                              rateable, log=True)
+    main_cands, mt_cands = md.build_candidates(preds, live_odds_map, elo_dict)
 
     placed_total = 0
     # No-history gate: promoted sides with too little top-flight history to be
@@ -10929,8 +10839,8 @@ def main():
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(
         '<p style="text-align:center;font-size:0.78rem;color:#9aa6ba;letter-spacing:2px">'
-        'DATA: FOOTBALL-DATA.CO.UK + UNDERSTAT · MODEL: DIXON-COLES + POISSON + XGBOOST · '
-        'FOR ENTERTAINMENT PURPOSES</p>',
+        'DATA: FOOTBALL-DATA.CO.UK · UNDERSTAT · ESPN · THE ODDS API · BETFAIR EXCHANGE CLOSE · '
+        'MODEL: DIXON-COLES + XGBOOST + DRAW SPECIALIST, CALIBRATED · PAPER TRADING ONLY</p>',
         unsafe_allow_html=True,
     )
 

@@ -22,7 +22,7 @@ import pytest
 APP = Path(__file__).resolve().parents[1] / "app.py"
 
 BACKGROUND = "#0a0e1a"
-FLOOR = 4.5
+FLOOR = 7.0
 
 # Some text is deliberately dark ink on a bright fill — the green form-W chip,
 # the yellow draw chip, the percentage sitting on a filled bar. Scoring those
