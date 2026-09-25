@@ -1,0 +1,11 @@
+# UI environment (.venv, Python 3.11). Numerical pins MUST match the runner's
+# framework Python 3.9 install, or the app and runner can disagree on a bet.
+numpy==1.24.3
+pandas==2.0.3
+scipy==1.13.1
+scikit-learn==1.6.1
+xgboost==2.1.4
+plotly==5.23.0
+requests==2.32.3
+streamlit==1.64.0
+pytest
