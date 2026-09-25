@@ -46,3 +46,5 @@ data/results.csv
 .DS_Store
 Thumbs.db
 data/autobet.lock
+data/prediction_log.json
+data/cache/

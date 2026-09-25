@@ -530,6 +530,11 @@ html body div[class*="st-key-navtile_"] button:hover { border-color: #b39dff !im
 .rk-val { font-size: 1.5rem; font-weight: 900; color: #eef1f5; font-variant-numeric: tabular-nums; }
 .pend-v2-move { text-align: center; font-size: 0.84rem; color: #eef1f5; margin: -0.2rem 0 0.6rem; }
 @media (max-width: 900px) { .rk-strip { grid-template-columns: 1fr 1fr; } .rk-clv { grid-column: 1 / -1; } }
+[data-testid="stButtonGroup"] button { color: #eef1f5 !important; }
+[data-testid="stButtonGroup"] button[aria-checked="true"], [data-testid="stButtonGroup"] button[kind*="Active"] {
+    background: #2a1f63 !important; border-color: #b39dff !important; color: #ffffff !important; }
+[data-testid="stButtonGroup"] button p { color: inherit !important; font-weight: 700; }
+button[role="tab"] p { color: #eef1f5 !important; font-weight: 700; }
 .hf-evt-rep { font-size: 0.82rem; color: #c9d0dc; font-weight: 600; margin-left: 0.3rem; }
 .pf-board-row { display: grid; grid-template-columns: 5.5rem minmax(12rem, 1.6fr) 6rem 1fr 1fr;
     gap: 0.8rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -6122,6 +6127,57 @@ def _bankroll_chart_scopes(port: dict, pending_bets: list, bankroll: float) -> N
 _RETIRED_LOOP_WINDOW = ("2026-09-22T12:08:40", "2026-09-22T12:08:55")
 
 
+def _track_settings_change(line: str, port: dict) -> None:
+    """Log any change to a line's live settings, wherever it was made.
+
+    Compares against the snapshot this session last saw; a difference is
+    written to activity.log as settings_changed with each key's old and new
+    value, so a loosened gate can always be traced.
+    """
+    key = f"_settings_snapshot_{line}"
+    cur = {k: v for k, v in port.get("settings", {}).items() if k != "odds_api_key"}
+    prev = st.session_state.get(key)
+    if prev is not None and prev != cur:
+        diff = {k: [prev.get(k), cur.get(k)] for k in set(prev) | set(cur) if prev.get(k) != cur.get(k)}
+        if diff:
+            _log_activity_event("settings_changed", portfolio=line,
+                                changes=json.dumps(diff, default=str))
+            st.toast(f"Live settings changed: {', '.join(sorted(diff))}")
+    st.session_state[key] = json.loads(json.dumps(cur, default=str))
+
+
+def _settings_lock(line: str, port: dict) -> bool:
+    """Live settings open read-only. Returns True only while editing is unlocked.
+
+    The panel holds sliders that move a money-making config; one stray drag
+    used to change live gates. Editing now takes a deliberate switch, and every
+    change lands in the log shown underneath.
+    """
+    title, accent = ("MAIN", "#7ea2ff") if line == "main" else ("MOCK TWO", "#b39dff")
+    unlocked = st.toggle("Edit live settings", key=f"_unlock_{line}", value=False,
+                         help="Changes apply to the live auto-bet on its next run.")
+    if unlocked:
+        st.warning("Editing the LIVE config. The next auto-bet run uses whatever is saved here. "
+                   "Tightening is fine; loosening a gate needs a backtest first.")
+    else:
+        st.markdown(_preflight_portfolio_card(port, title, accent), unsafe_allow_html=True)
+    changes = [e for e in _read_activity_log(400)
+               if e.get("type") == "settings_changed" and e.get("portfolio") == line][:8]
+    if changes:
+        rows = []
+        for e in changes:
+            try:
+                d = json.loads(e.get("changes", "{}"))
+            except Exception:
+                d = {}
+            txt = " · ".join(f"{k}: {v[0]} → {v[1]}" for k, v in d.items())
+            rows.append(f'<div class="hf-evt"><div class="hf-evt-time">{_humanize_age(e["ts"])}</div>'
+                        f'<div class="hf-evt-body">{txt}</div><div></div></div>')
+        st.markdown('<p class="section-label">Settings change log</p><div class="hf-feed-list">'
+                    + "".join(rows) + '</div>', unsafe_allow_html=True)
+    return unlocked
+
+
 def _risk_numbers(p: dict) -> dict:
     """Drawdown, losing streak and CLV trend for one portfolio's settled bets."""
     chrono = sorted((b for b in p["bets"] if b.get("type") != "acca" and b["status"] in ("won", "lost")),
@@ -6212,913 +6268,20 @@ def _bet_tags_html(bet: dict, port: dict) -> str:
         f'<span class="pend-v2-tag">{t}</span>' for t in tags) + '</div>')
 
 
-def _cancel_bet_control(bet: dict, port: dict, save, line: str, key: str) -> None:
-    """A quiet "Cancel bet" that asks first and leaves a trail.
+_PEND_MKT_COLOURS = {"H": "#7ea2ff", "D": "#ffd600", "A": "#ff6fa1",
+                     "over25": "#b39dff", "under25": "#00e5ff"}
 
-    It used to be a full-width gradient button that deleted the bet on one
-    click. Bets are sacred, so cancelling now takes two deliberate clicks and
-    is written to the activity log.
+
+def _bet_history(port: dict, key: str, title: str) -> None:
+    """Settled singles, newest first, numbered to match the bankroll chart.
+
+    Shared by Main and Mock Two; the two copies had drifted apart.
     """
-    with st.popover("Cancel bet", use_container_width=False):
-        st.markdown(
-            f'<div style="font-size:0.9rem;color:#eef1f5;margin-bottom:0.5rem">'
-            f'Cancel <b>{bet.get("selection", bet.get("market"))}</b> on '
-            f'{bet["home"]} v {bet["away"]}? The {md.fmt_money(bet["stake"], signed=False, pence=True)} '
-            f'stake returns to the bankroll and the bet leaves the history.</div>',
-            unsafe_allow_html=True)
-        if st.button("Yes, cancel this bet", key=key + "_confirm", type="primary"):
-            pf.remove_pending_bet(port, bet["id"])
-            save(port)
-            _log_activity_event("bet_cancelled", portfolio=line,
-                                match=f"{bet['home']} vs {bet['away']}",
-                                market=bet.get("market"), stake=bet["stake"])
-            st.rerun()
-
-
-_VERDICT_CHIP = {
-    "bet": ("go", "WOULD BET"), "placed": ("info", "BACKED"), "held": ("hold", "HELD"),
-    "blocked": ("pass", "PASS"), "window": ("pass", "NOT YET"), "no_odds": ("pass", "NO PRICE"),
-}
-
-
-def _verdict_chip(v: dict | None, line_label: str = "") -> str:
-    """Verdict pill plus its one-line reason, for one portfolio line."""
-    if not v:
-        return ""
-    tone, label = _VERDICT_CHIP.get(v["status"], ("pass", v["status"].upper()))
-    prefix = f"{line_label} · " if line_label else ""
-    return (f'<span class="fx-verdict">{_preflight_chip(prefix + label, tone)}'
-            f'<span class="fx-verdict-text">{v["text"]}</span></span>')
-
-
-def _fixture_card_html(q: dict, v_main: dict | None, v_mt: dict | None,
-                       api_o: dict | None, lines: tuple = ("main", "mt")) -> str:
-    """The one fixture card every page uses (Next Matchday, Portfolio, Team dossier).
-
-    Model bar on top, the margin-free market bar under it at the same scale, so
-    the eye compares lengths directly. The draw gets its own line because the
-    draw is the strategy. Returned as ONE line of HTML (see the markdown trap
-    in the Streamlit skill).
-    """
-    h, a = q["home"], q["away"]
-    res = q["main"]
-    ph, pd_, pa = res["home_win"], res["draw"], res["away_win"]
-    mkt = md.market_probs(api_o)
-    ko = md.kickoff_local(q.get("time_utc"))
-    fdate = q.get("fix_date")
-    when = (ko.strftime("%a %-d %b · %H:%M") if ko
-            else (fdate.strftime("%a %-d %b") if hasattr(fdate, "strftime") else str(q.get("date", ""))[:10]))
-
-    def bar(hp, dp, ap, cls):
-        H, D, A = round(hp * 100), round(dp * 100), round(ap * 100)
-        return (f'<div class="fx-bar {cls}"><div class="bar-home" style="width:{hp*100:.1f}%">{H}%</div>'
-                f'<div class="bar-draw" style="width:{dp*100:.1f}%">{D}%</div>'
-                f'<div class="bar-away" style="width:{ap*100:.1f}%">{A}%</div></div>')
-
-    market_html = ""
-    draw_line = f'Draw <b>{pd_*100:.1f}%</b> in the model'
-    if mkt:
-        market_html = (f'<div class="fx-bar-row"><span class="fx-bar-lbl">Market</span>'
-                       f'{bar(mkt["H"], mkt["D"], mkt["A"], "fx-bar-mkt")}</div>')
-        edge = (pd_ - mkt["D"]) * 100
-        ecol = "#00e676" if edge >= 3 else ("#ffd600" if edge >= 0 else "#ff6fa1")
-        draw_line = (f'Draw <b>{pd_*100:.1f}%</b> model · <b>{mkt["D"]*100:.1f}%</b> market '
-                     f'({mkt["source"]}) · <b style="color:{ecol}">{edge:+.1f}pp</b>'
-                     f'<span class="fx-freq">About {round(pd_*100)} in 100 matches like this '
-                     f'end level; the market expects {round(mkt["D"]*100)}.</span>')
-    verdicts = ""
-    if "main" in lines:
-        verdicts += _verdict_chip(v_main, "Main")
-    if "mt" in lines:
-        verdicts += _verdict_chip(v_mt, "Mock Two")
-    html = (f'<div class="fx-card fx-{(v_main or {}).get("status", "none")}">'
-            f'<div class="fx-top"><span class="fx-when">{when}</span></div>'
-            f'<div class="fx-row"><div class="fx-team fx-home">{tb(h, 40)}</div>'
-            f'<div class="fx-bars"><div class="fx-bar-row"><span class="fx-bar-lbl">Model</span>'
-            f'{bar(ph, pd_, pa, "fx-bar-model")}</div>{market_html}</div>'
-            f'<div class="fx-team fx-away">{tb(a, 40)}</div></div>'
-            f'<div class="fx-draw">{draw_line}</div>'
-            f'<div class="fx-verdicts">{verdicts}</div></div>')
-    return html
-
-
-def _fixture_card(q: dict, state: dict, key: str, lines: tuple = ("main", "mt")) -> None:
-    """Render one fixture card plus its Open-in-Predict link."""
-    k = (q["home"], q["away"])
-    st.markdown(_fixture_card_html(q, state["verdicts"]["main"].get(k),
-                                   state["verdicts"]["mt"].get(k),
-                                   state["odds"].get(k), lines),
-                unsafe_allow_html=True)
-    if st.button("Open in Predict →", key=f"fxp_{key}_{q['home']}_{q['away']}", type="tertiary"):
-        st.session_state["pred_home"] = q["home"]
-        st.session_state["pred_away"] = q["away"]
-        st.session_state["_active_view"] = "predict"
-        st.rerun()
-
-
-def _market_grid_html(home, away, p_h, p_d, p_a, p_o25, api_odds) -> str:
-    """Every priced market, model against best price, for information only."""
-    cells = []
-    for code, prob, name in [("H", p_h, home), ("D", p_d, "Draw"), ("A", p_a, away),
-                             ("over25", p_o25, "Over 2.5"), ("under25", 1 - p_o25, "Under 2.5")]:
-        o = api_odds.get(code)
-        if not o or o <= 1:
-            continue
-        edge = (prob - 1.0 / o) * 100
-        cells.append(f'<span class="scan-mkt"><b>{name}</b> @{o:.2f} · model {prob*100:.0f}% '
-                     f'vs {100/o:.0f}% ({edge:+.0f}pp)</span>')
-    return f'<div class="scan-mkts">{"".join(cells)}</div>'
-
-
-def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict):
-    # ── Auto-settle pending bets ─────────────────────────────────────────
-    port = pf.load_portfolio()
-    n_settled = pf.auto_settle(port, df)
-    # Backfill closing-line value for any settled bets that haven't been tagged.
-    # Reads Pinnacle close (PSH/PSD/PSA) from the football-data CSVs — non-mutating
-    # to bet stakes/profits, only adds `closing_odds` and `clv` fields.
-    n_clv_added = pf.backfill_clv_for_settled_bets(port, df)
-    if n_settled > 0 or n_clv_added > 0:
-        pf.save_portfolio(port)
-
-    stats    = pf.portfolio_stats(port)
-    settings = port["settings"]
-    min_ev        = float(settings.get("min_ev", 0.05))
-    kelly_frac    = float(settings.get("kelly_fraction", 0.5))
-    max_stake_pct = float(settings.get("max_stake_pct", 0.10))
-    api_key       = pf.resolve_odds_api_key(settings.get("odds_api_key", ""))
-
-    # Fit isotonic calibrators once per session (shares cache with Backtesting tab)
-    try:
-        with st.spinner("Fitting probability calibration…"):
-            calibrators = cached_calibrators(len(df))
-    except Exception:
-        calibrators = {}
-
-    # ── Main vs Mock Two at a glance — the A/B story, surfaced up front ──
-    try:
-        _ab_mt = pf.load_portfolio_two()
-        _ab_mt_s = pf.portfolio_stats(_ab_mt)
-        _ab_mn_clv = (pf.clv_summary(port).get("median_clv") or 0) * 100
-        _ab_mt_clv = (pf.clv_summary(_ab_mt).get("median_clv") or 0) * 100
-
-        def _ab_half(label, color, s, clv_v):
-            pcol = "#00e676" if s["profit"] >= 0 else "#ff6fa1"
-            return (
-                f'<div style="flex:1;min-width:230px">'
-                f'<div style="font-size:0.78rem;letter-spacing:1.8px;font-weight:800;'
-                f'color:{color}">{label}</div>'
-                f'<div style="font-size:1.25rem;font-weight:900;color:#e8eaf0">'
-                f'£{s["bankroll"]:,.0f} '
-                f'<span style="font-size:0.84rem;color:{pcol}">'
-                f'{md.fmt_money(s["profit"])}</span></div>'
-                f'<div style="font-size:0.78rem;color:#c9d0dc">'
-                f'ROI {s["roi"]:+.1f}% · {s["n_settled"]} bets · '
-                f'win {s["win_rate"]:.0f}% · CLV {clv_v:+.2f}%</div></div>'
-            )
-
-        _ab_c1, _ab_c2 = st.columns([8, 2])
-        with _ab_c1:
-            st.markdown(
-                '<div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;'
-                'padding:0.8rem 1.1rem;background:#11162a;border:1px solid #1c2440;'
-                'border-radius:14px;margin-bottom:0.6rem;'
-                'animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">'
-                + _ab_half("MAIN", "#3d6eff", stats, _ab_mn_clv)
-                + '<div style="font-size:0.84rem;color:#b8c0d0;font-weight:900">vs</div>'
-                + _ab_half("MOCK TWO", "#7c4dff", _ab_mt_s, _ab_mt_clv)
-                + '</div>',
-                unsafe_allow_html=True,
-            )
-        with _ab_c2:
-            st.markdown('<div style="padding-top:0.9rem">', unsafe_allow_html=True)
-            if st.button("Mock Two →", key="port_to_mt", use_container_width=True):
-                st.session_state["_active_view"] = "portfolio2"
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-    except Exception:
-        pass
-
-    # ── Status chip — current config at a glance ─────────────────────────
-    _render_settings_chip(port, label_prefix="port")
-
-    # ── Settings expander ────────────────────────────────────────────────
-    with st.expander("⚙️  Portfolio Settings", expanded=False):
-
-        # ── Quick presets ──────────────────────────────────────────────
-        _render_preset_buttons(port, key_prefix="port", save_fn=pf.save_portfolio)
-
-        # ── Section: Stake & Bankroll ──────────────────────────────────
-        _section_header("💰  Stake & Bankroll", "How much you bet, sized by Kelly")
-        sb1, sb2, sb3 = st.columns(3)
-        with sb1:
-            new_initial = st.number_input(
-                "Starting Budget (£)", 100.0, 100_000.0,
-                float(port["initial_bankroll"]), 100.0, key="port_budget",
-            )
-        with sb2:
-            new_kelly = st.select_slider(
-                "Kelly Fraction",
-                # The saved value is always an option: a fraction set outside
-                # the presets (Mock Two's 0.45) would otherwise crash the page.
-                options=sorted({0.25, 0.45, 0.5, 0.75, 1.0, float(kelly_frac)}),
-                value=kelly_frac, key="port_kelly",
-                format_func=lambda x: f"{int(x*100)}%",
-            )
-        with sb3:
-            new_max_stake = st.slider(
-                "Max Stake (% of bankroll)", 5, 50,
-                int(settings.get("max_stake_pct", 0.33) * 100),
-                key="port_maxstake",
-                help="Hard cap on a single bet. WF-validated saturation: 33%.",
-            )
-
-        # ── Section: Edge Gates ────────────────────────────────────────
-        _section_header("🎯  Edge Gates",
-                        "Default thresholds — per-market overrides set in Markets section below")
-        eg1, eg2, eg3 = st.columns([2, 2, 3])
-        with eg1:
-            new_min_ev = st.slider("Min EV (default, %)", 1, 60,
-                int(min_ev * 100), key="port_minev")
-        with eg2:
-            new_min_prob = st.slider("Min Prob Gate (%)", 10, 80,
-                int(settings.get("min_prob", 0.30) * 100), key="port_minprob",
-                help="Reject long-shots even with +EV. WF-validated optimum: 30%.")
-        with eg3:
-            _raw_floor_now = settings.get("min_raw_draw_prob")
-            new_raw_floor = st.slider("Raw Draw Floor (%)", 0, 45,
-                int(round(float(_raw_floor_now or 0) * 100)), key="port_rawfloor",
-                help="Floor on the model's OWN draw probability, before the trailing "
-                     "calibrator touches it. 0 = off. Validated at 30% on 22 Sep 2026: "
-                     "worst season -6.3k -> -2.1k, max drawdown 83% -> 66%.")
-            st.markdown(
-                f'<div style="font-size:0.78rem;color:#c9d0dc;line-height:1.5">'
-                f'📋 A bet must clear: probability ≥ <b style="color:#a78bfa">{new_min_prob}%</b> '
-                f'AND EV ≥ <b style="color:#a78bfa">+{new_min_ev}%</b>'
-                + (f' AND raw draw ≥ <b style="color:#a78bfa">{new_raw_floor}%</b>' if new_raw_floor else '')
-                + ' (unless market_gates overrides for U2.5/etc.)</div>',
-                unsafe_allow_html=True,
-            )
-
-        # ── Section: Markets ───────────────────────────────────────────
-        _section_header("📊  Markets",
-                        "Which markets auto-bet considers + per-market gates")
-        _all_markets = {"D": "Draw", "over25": "Over 2.5", "under25": "Under 2.5",
-                        "H": "Home Win", "A": "Away Win"}
-        _current_auto_mkts = settings.get("auto_markets", list(pf.PROFITABLE_MARKETS))
-        mk1, mk2, mk3, mk4, mk5 = st.columns(5)
-        _new_auto_mkts = []
-        for col, (code, label) in zip([mk1, mk2, mk3, mk4, mk5], _all_markets.items()):
-            with col:
-                checked = st.checkbox(
-                    label, value=code in _current_auto_mkts, key=f"mkt_toggle_{code}",
-                    help="Profitable" if code in pf.PROFITABLE_MARKETS else "Loses money in backtest",
-                )
-                if checked:
-                    _new_auto_mkts.append(code)
-
-        _existing_gates = settings.get("market_gates") or {}
-        new_u25_gates = st.toggle(
-            "🎚️ Use separate Under 2.5 gates (mp=50%, mev=5%)",
-            value="under25" in _existing_gates,
-            key="port_u25_gates",
-            help=("Adds U2.5 to auto-bet with its own thresholds — raw U2.5 wins "
-                  "~52% but its EV distribution is much tighter than draws; the "
-                  "40% global EV gate would exclude all U2.5 candidates."),
-        )
-
-        # ── Section: Filters ───────────────────────────────────────────
-        _section_header("🚫  Filters",
-                        "Skip systematically losing patterns identified in walk-forward")
-        f1, f2, _ = st.columns([1, 1.5, 2])
-        with f1:
-            new_skip_late = st.toggle(
-                "Skip Mar-Apr",
-                value=bool(settings.get("skip_late_season", True)),
-                key="port_skip_late",
-                help="0/7 wins across 2024-25 + 2025-26 in March-April. "
-                     "(May was previously bundled in but is now allowed.)",
-            )
-        with f2:
-            new_skip_title = st.toggle(
-                "Skip home_title_race",
-                value=bool(settings.get("skip_home_title_race", False)),
-                key="port_skip_title",
-                help="Title-chasing home teams almost never draw.",
-            )
-
-        # ── Section: Optional Phase 4 / multi-season filters (Main) ─────
-        _section_header("🧠  Optional escape-hatch filters (defaults OFF)",
-                        "Toggle ON if you want to trade peak profit for floor protection. "
-                        "Current Main produces £85k 2025-26 peak with all OFF; "
-                        "ELO floor 1500 caps that to £35k but never crashes.")
-        _all_dows_m   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        _all_months_m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        mf1, mf2 = st.columns(2)
-        with mf1:
-            new_main_banned_dows = st.multiselect(
-                "Banned days of week",
-                options=_all_dows_m,
-                default=list(settings.get("main_banned_dows", [])),
-                key="port_main_banned_dows",
-                help="Mon+Fri were validated as losing on Mock Two but didn't "
-                     "transfer cleanly to Main on multi-season; OFF by default.",
-            )
-            new_main_banned_months = st.multiselect(
-                "Banned months",
-                options=_all_months_m,
-                default=list(settings.get("main_banned_months", [])),
-                key="port_main_banned_months",
-                help="Octoberban was overfit; left as opt-in.",
-            )
-        with mf2:
-            _main_max_ev_cur = settings.get("main_max_ev_pct")
-            new_main_max_ev_on = st.toggle(
-                "Cap claimed EV (overconfidence guard)",
-                value=_main_max_ev_cur is not None,
-                key="port_main_max_ev_on",
-                help="Phase 1 found high-EV bets calibrate worst.",
-            )
-            new_main_max_ev = (
-                st.slider("Max EV cap (%)", 40, 200,
-                          int((_main_max_ev_cur or 1.0) * 100), 5,
-                          key="port_main_max_ev_val")
-                if new_main_max_ev_on else None
-            )
-
-        # Main ELO-profile filter
-        st.markdown(
-            '<div style="margin-top:0.7rem;padding-top:0.5rem;'
-            'border-top:1px dashed rgba(0,229,255,0.20);'
-            'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
-            'text-transform:uppercase;color:#00e5ff">'
-            '🎯 ELO-profile filter (Mock Two grid winner: min team ELO 1500)'
-            '</div>', unsafe_allow_html=True,
-        )
-        mec1, mec2 = st.columns(2)
-        with mec1:
-            _mte_cur = settings.get("main_min_team_elo")
-            new_main_min_te_on = st.toggle(
-                "Min team ELO floor",
-                value=_mte_cur is not None,
-                key="port_main_min_te_on",
-                help="Skip if either team's ELO is below this. Mock Two grid "
-                     "winner: 1500. Caps Main's £85k peak at ~£35k but eliminates crashes.",
-            )
-            new_main_min_te = (
-                st.slider("Min ELO", 1300, 1700, int(_mte_cur or 1500), 10,
-                          key="port_main_min_te_val")
-                if new_main_min_te_on else None
-            )
-            _mgmin_cur = settings.get("main_elo_gap_min")
-            new_main_gap_min_on = st.toggle(
-                "Min |ΔELO| (skip too-close)",
-                value=_mgmin_cur is not None, key="port_main_gap_min_on",
-            )
-            new_main_gap_min = (
-                st.slider("Min gap", 20, 200, int(_mgmin_cur or 80), 10,
-                          key="port_main_gap_min_val")
-                if new_main_gap_min_on else None
-            )
-        with mec2:
-            _mxte_cur = settings.get("main_max_team_elo")
-            new_main_max_te_on = st.toggle(
-                "Max team ELO ceiling",
-                value=_mxte_cur is not None, key="port_main_max_te_on",
-            )
-            new_main_max_te = (
-                st.slider("Max ELO", 1700, 2100, int(_mxte_cur or 1900), 10,
-                          key="port_main_max_te_val")
-                if new_main_max_te_on else None
-            )
-            _mgmax_cur = settings.get("main_elo_gap_max")
-            new_main_gap_max_on = st.toggle(
-                "Max |ΔELO| (skip lopsided)",
-                value=_mgmax_cur is not None, key="port_main_gap_max_on",
-            )
-            new_main_gap_max = (
-                st.slider("Max gap", 100, 500, int(_mgmax_cur or 300), 20,
-                          key="port_main_gap_max_val")
-                if new_main_gap_max_on else None
-            )
-
-        # ── Section: Auto-Bet ──────────────────────────────────────────
-        _section_header("🤖  Auto-Bet",
-                        "Automatic placement when gates and market filter pass")
-        ab1, ab2 = st.columns(2)
-        with ab1:
-            new_auto_enabled = st.toggle(
-                "Auto-Bet enabled",
-                value=settings.get("auto_bet_enabled", False),
-                key="port_auto_enabled",
-                help="Automatically place Kelly bets when all gates pass",
-            )
-        with ab2:
-            new_auto_thresh = st.slider(
-                "Auto-Bet EV Threshold (%)", 1, 60,
-                int(settings.get("auto_bet_threshold", 0.40) * 100),
-                key="port_auto_thresh",
-                help="Only auto-bet when model EV is this high. Optimum: 40%.",
-            )
-        new_use_sim = st.toggle(
-            "Sim-bet correction (reduce stakes when ≥2 bets settle same day)",
-            value=bool(settings.get("use_simultaneous_kelly", True)),
-            key="port_use_sim",
-            help="Mock Two has it built-in; this enables on Main.",
-        )
-        if new_auto_enabled:
-            st.markdown(
-                f'<div style="padding:0.5rem 0.8rem;background:rgba(0,230,118,0.06);'
-                f'border-left:3px solid #00e676;border-radius:6px;font-size:0.78rem;color:#e8eaf0">'
-                f'✅ Auto-bet ON — will place Kelly bets when EV ≥ +{new_auto_thresh}%, '
-                f'prob ≥ {new_min_prob}% (or per-market overrides), market in '
-                f'{{{", ".join(_new_auto_mkts) or "(none)"}}}, plus filters.</div>',
-                unsafe_allow_html=True,
-            )
-
-        # ── Section: Calibration ───────────────────────────────────────
-        _section_header("📐  Calibration", "Probability adjustment from backtest fit")
-        new_use_cal = st.toggle(
-            "Apply isotonic probability calibration",
-            value=settings.get("use_calibrated_probs", True),
-            key="port_use_cal",
-            help="Fit on backtest data — corrects systematic over/under-confidence.",
-        )
-
-        # ── Section: API ───────────────────────────────────────────────
-        _section_header("🔌  Live Odds API",
-                        "The Odds API key (free tier — 500 req/month)")
-        api_c1, api_c2 = st.columns([2, 3])
-        with api_c1:
-            new_api_key = st.text_input(
-                "API Key", value=api_key, type="password", key="port_apikey",
-                help="Free key from the-odds-api.com",
-                label_visibility="collapsed",
-            )
-        with api_c2:
-            _usage = pf.get_api_usage()
-            _usage_pct = _usage["count"] / _usage["cap"] * 100 if _usage["cap"] > 0 else 0
-            _usage_col = "#00e676" if _usage_pct < 50 else ("#ffd600" if _usage_pct < 80 else "#ff6fa1")
-            st.markdown(
-                f'<div style="font-size:0.78rem;color:#c9d0dc;padding-top:0.5rem">'
-                f'<span style="color:{_usage_col};font-weight:700">'
-                f'📊 {_usage["count"]}/{_usage["cap"]} calls this month '
-                f'({_usage["remaining"]} left)</span> · Cache: {pf._CACHE_HOURS}h</div>',
-                unsafe_allow_html=True,
-            )
-
-        st.markdown('<div style="margin-top:1rem"></div>', unsafe_allow_html=True)
-        save_c, reset_c, _ = st.columns([1, 1, 4])
-        with save_c:
-            if st.button("💾 Save Settings", key="save_port_settings"):
-                port["settings"]["min_ev"]              = new_min_ev / 100
-                port["settings"]["kelly_fraction"]      = new_kelly
-                port["settings"]["odds_api_key"]        = new_api_key
-                port["settings"]["auto_bet_enabled"]    = new_auto_enabled
-                port["settings"]["auto_bet_threshold"]  = new_auto_thresh / 100
-                port["settings"]["auto_markets"]        = _new_auto_mkts
-                port["settings"]["min_prob"]            = new_min_prob / 100
-                port["settings"]["min_raw_draw_prob"]   = (new_raw_floor / 100) if new_raw_floor else None
-                port["settings"]["use_calibrated_probs"] = new_use_cal
-                port["settings"]["max_stake_pct"]       = new_max_stake / 100
-                port["settings"]["skip_late_season"]    = new_skip_late
-                port["settings"]["skip_home_title_race"] = new_skip_title
-                port["settings"]["use_simultaneous_kelly"] = new_use_sim
-                # Optional Main filters (default OFF — escape hatches)
-                port["settings"]["main_banned_dows"]   = list(new_main_banned_dows)
-                port["settings"]["main_banned_months"] = list(new_main_banned_months)
-                port["settings"]["main_max_ev_pct"]    = (
-                    float(new_main_max_ev) / 100 if new_main_max_ev is not None else None
-                )
-                port["settings"]["main_min_team_elo"]  = (
-                    float(new_main_min_te) if new_main_min_te is not None else None
-                )
-                port["settings"]["main_max_team_elo"]  = (
-                    float(new_main_max_te) if new_main_max_te is not None else None
-                )
-                port["settings"]["main_elo_gap_min"]   = (
-                    float(new_main_gap_min) if new_main_gap_min is not None else None
-                )
-                port["settings"]["main_elo_gap_max"]   = (
-                    float(new_main_gap_max) if new_main_gap_max is not None else None
-                )
-                # Per-market gates: when U2.5 is enabled, register its own gates
-                # AND add it to the auto_markets list so it can clear the market filter.
-                if new_u25_gates:
-                    port["settings"]["market_gates"] = {
-                        "under25": {"min_prob": 0.50, "min_ev": 0.05},
-                    }
-                    if "under25" not in _new_auto_mkts:
-                        _new_auto_mkts.append("under25")
-                    port["settings"]["auto_markets"] = _new_auto_mkts
-                else:
-                    port["settings"].pop("market_gates", None)
-                # Only rebase an untouched portfolio. This used to check for
-                # settled bets alone, so saving settings with money still on
-                # the table reset the bankroll and silently refunded every
-                # pending stake — observed 2026-08-09, £1,042.64 handed back
-                # while the bet was still live.
-                if not port["bets"]:
-                    port["initial_bankroll"] = new_initial
-                    port["bankroll"]         = new_initial
-                pf.save_portfolio(port)
-                st.success("Settings saved!")
-                st.rerun()
-        with reset_c:
-            if st.button("🗑️ Reset Portfolio", key="reset_port", type="secondary"):
-                st.session_state["_port_confirm_reset"] = True
-        if st.session_state.get("_port_confirm_reset"):
-            st.warning("⚠️ This will delete ALL bets and reset your bankroll. Are you sure?")
-            cy, cn, _ = st.columns([1, 1, 4])
-            with cy:
-                if st.button("Yes, reset", key="port_yes"):
-                    fresh = {
-                        "initial_bankroll": new_initial,
-                        "bankroll":         new_initial,
-                        "bets":             [],
-                        "settings": {
-                            "min_ev":          new_min_ev / 100,
-                            "kelly_fraction":  new_kelly,
-                            "max_stake_pct":   0.10,
-                            "odds_api_key":    new_api_key,
-                        },
-                    }
-                    pf.save_portfolio(fresh)
-                    st.session_state["_port_confirm_reset"] = False
-                    st.rerun()
-            with cn:
-                if st.button("Cancel", key="port_no"):
-                    st.session_state["_port_confirm_reset"] = False
-                    st.rerun()
-
-    if n_settled > 0:
-        st.success(f"✅ Auto-settled {n_settled} bet{'s' if n_settled > 1 else ''}!")
-
-    # ── Auto-bet (fires on every page load if enabled + API key set) ──────
-    auto_enabled   = settings.get("auto_bet_enabled", False)
-    auto_threshold = float(settings.get("auto_bet_threshold", 0.15))
-    # Auto-bet no longer fires from inside this tab. Until 22 Sep 2026 a second,
-    # unlogged copy of the placement loop lived here: it took no auto-bet lock,
-    # wrote nothing to activity.log, skipped the no-history gate, priced only
-    # Main, and read fixtures 30 days ahead where the shared run reads 7. On
-    # 22 Sep it placed three Main bets on fixtures 18 days away that the shared
-    # run had just reported as "No upcoming fixtures". Every placement now goes
-    # through _session_auto_bet_run (app load and the hourly runner), so there
-    # is exactly one gate list, one lock and one log.
-
-    # ── P&L Hero ─────────────────────────────────────────────────────────
-    profit   = stats["profit"]
-    bankroll = stats["bankroll"]
-    roi      = stats["roi"]
-    pending_bets  = [b for b in port["bets"] if b["status"] == "pending"]
-    pending_stake = sum(b["stake"] for b in pending_bets)
-
-    if stats["n_settled"] == 0 and not pending_bets:
-        hero_class = "pnl-neutral"
-    elif profit >= 0:
-        hero_class = "pnl-profit"
-    else:
-        hero_class = "pnl-loss"
-
-    sign   = "+" if profit >= 0 else ""
-    arrow  = "▲" if profit >= 0 else "▼"
-
-    # ── Story-driven journey: Started → Now → Potential ──────────────────
-    initial = port["initial_bankroll"]
-    wealth_now = bankroll + pending_stake  # cash + capital locked in pending
-    # Best case: all pending win → bankroll + sum(stake * odds)
-    best_case  = bankroll + sum(b["stake"] * b["odds"] for b in pending_bets)
-    # Worst case: all pending lose → bankroll stays as-is (stakes already deducted)
-    worst_case = bankroll
-    profit_pct = (profit / initial * 100) if initial else 0
-    delta_col  = "#00e676" if profit >= 0 else "#ff6fa1"
-    delta_arrow = "▲" if profit >= 0 else "▼"
-
-    st.markdown(f"""
-    <div class="pnl-hero {hero_class}">
-        <div class="pnl-tag">📊 MOCK PORTFOLIO · PAPER BETS ONLY · NOT REAL MONEY</div>
-        <div class="pnl-amount">{md.fmt_money(profit, pence=True)}</div>
-        <div class="pnl-subtitle">
-            {arrow} {sign}{roi:.1f}% ROI on settled bets
-        </div>
-    </div>
-
-    <div class="pnl-journey">
-      <div class="pj-step pj-start">
-        <div class="pj-lbl">STARTED WITH</div>
-        <div class="pj-val">£{initial:,.0f}</div>
-        <div class="pj-sub">initial bankroll</div>
-      </div>
-      <div class="pj-arrow"><span style="color:{delta_col}">{delta_arrow}</span>
-        <span class="pj-arrow-sub" style="color:{delta_col}">
-          {md.fmt_money(profit)}<br>({sign}{profit_pct:.1f}%)
-        </span>
-      </div>
-      <div class="pj-step pj-now">
-        <div class="pj-lbl">CURRENT WEALTH</div>
-        <div class="pj-val">£{wealth_now:,.0f}</div>
-        <div class="pj-sub">
-          £{bankroll:,.0f} cash &nbsp;+&nbsp;
-          <span style="color:#ffd600">£{pending_stake:,.0f} pending</span>
-        </div>
-      </div>
-      <div class="pj-arrow pj-arrow-future">
-        <div class="pj-future-lbl">{stats['n_pending']} bet{'s' if stats['n_pending']!=1 else ''} could resolve to</div>
-      </div>
-      <div class="pj-step pj-future">
-        <div class="pj-future-row">
-          <div class="pj-future-half pj-future-win">
-            <div class="pj-future-lbl-small">IF ALL WIN</div>
-            <div class="pj-future-val pj-future-win-val">£{best_case:,.0f}</div>
-          </div>
-          <div class="pj-future-half pj-future-lose">
-            <div class="pj-future-lbl-small">IF ALL LOSE</div>
-            <div class="pj-future-val pj-future-lose-val">£{worst_case:,.0f}</div>
-          </div>
-        </div>
-      </div>
-    </div>""", unsafe_allow_html=True)
-
-    # ── Stats row ─────────────────────────────────────────────────────────
-    def _stat(val, lbl, color="#e8eaf0"):
-        return (f'<div class="pstat-card">'
-                f'<div class="pstat-val" style="color:{color}">{val}</div>'
-                f'<div class="pstat-lbl">{lbl}</div></div>')
-
-    roi_col  = "#00e676" if roi >= 0 else "#ff6fa1"
-    ev_col   = "#7c4dff"
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: st.markdown(_stat(f"£{bankroll:,.0f}", "BANKROLL"), unsafe_allow_html=True)
-    with c2: st.markdown(_stat(str(stats["n_settled"]), "SETTLED"), unsafe_allow_html=True)
-    with c3: st.markdown(_stat(f"{stats['win_rate']:.0f}%", "WIN RATE"), unsafe_allow_html=True)
-    with c4: st.markdown(_stat(f"{sign}{roi:.1f}%", "ROI", roi_col), unsafe_allow_html=True)
-    with c5: st.markdown(_stat(f"+{stats['avg_ev_pct']:.1f}%" if stats["avg_ev_pct"] >= 0 else f"{stats['avg_ev_pct']:.1f}%", "AVG MODEL EV", ev_col), unsafe_allow_html=True)
-
-    st.markdown('<div class="divider" style="margin:1.2rem 0"></div>', unsafe_allow_html=True)
-
-    # ── Bankroll chart (full width) ───────────────────────────────────────
-    st.markdown('<p class="section-label">📈  BANKROLL HISTORY</p>', unsafe_allow_html=True)
-    _bankroll_chart_scopes(port, pending_bets, bankroll)
-
-    _render_risk_edge_strip(port)
-
-    # ── Pending bets — singles only; accas live in their own section below ──
-    pending_singles = [b for b in pending_bets if b.get("type") != "acca"]
-    pending_accas   = [b for b in pending_bets if b.get("type") == "acca"]
-
-    st.markdown('<div class="divider" style="margin:1.5rem 0 1rem"></div>', unsafe_allow_html=True)
-    st.markdown('<p class="section-label">⏳  PENDING BETS · Singles</p>', unsafe_allow_html=True)
-
-    if pending_singles:
-        mkt_colors = {"H": "#3d6eff", "D": "#ffd600", "A": "#ff4081",
-                      "over25": "#7c4dff", "under25": "#00e5ff"}
-
-        def _render_pending_card(bet: dict) -> None:
-            ev_pct = bet["ev"] * 100
-            _pot_ret = round(bet['stake'] * bet['odds'], 2)
-            _pot_profit = round(_pot_ret - bet['stake'], 2)
-            if bet.get("type") == "acca":
-                legs_summary = " + ".join(
-                    f"{lg.get('selection', '?')}" for lg in bet.get("legs", [])
-                )
-                match_label = " &amp; ".join(
-                    f"{tb(lg['home'], 16)} vs {tb(lg['away'], 16)}" for lg in bet.get("legs", [])
-                )
-                mc = "#7c4dff"
-                st.markdown(f"""
-                <div class="pend-card">
-                    <div class="pend-match">🎯 ACCA · {match_label}</div>
-                    <div class="pend-sel" style="color:{mc}">{legs_summary} @ {bet['odds']}</div>
-                    <div class="pend-meta">
-                        <span>£{bet['stake']:.2f} stake</span>
-                        <span style="color:#a78bfa">Model {bet.get('combined_model_prob', 0)*100:.1f}%</span>
-                        <span style="color:#00e676">EV +{ev_pct:.1f}%</span>
-                    </div>
-                    <div class="pend-return">
-                        <span class="pend-return-label">Returns</span>
-                        <span class="pend-return-val">£{_pot_ret:,.2f}</span>
-                        <span class="pend-return-profit">(+£{_pot_profit:,.2f} profit)</span>
-                    </div>
-                    <div class="pend-date">ID #{bet['id']}</div>
-                </div>""", unsafe_allow_html=True)
-            else:
-                mc = mkt_colors.get(bet["market"], "#aab")
-                # Short date format like bet history
-                try:
-                    _d = pd.to_datetime(bet.get("date") or bet.get("placed_at"))
-                    _date_short = _d.strftime("%a %-d %b")
-                except Exception:
-                    _date_short = (bet.get("date") or "")[:10]
-                _model_p = bet.get("model_prob", 0) * 100
-                _profit_pct = round((_pot_profit / max(bet['stake'], 0.01)) * 100, 0)
-                st.markdown(f"""
-                <div class="pend-card-v2">
-                    <div class="pend-v2-top">
-                        <span class="pend-v2-date">📅 {_date_short}</span>
-                        <span class="pend-v2-badge" style="color:{mc};border-color:{mc}55;background:rgba({_hex_to_rgb(mc)},0.10)">{bet['market'].upper()}</span>
-                    </div>
-                    <div class="pend-v2-teams">
-                        <div class="pend-v2-team"><img class="team-badge" src="{_BADGE_URL.get(bet['home'], '')}" width="56" /><span>{bet['home']}</span></div>
-                        <div class="pend-v2-vs">VS</div>
-                        <div class="pend-v2-team"><img class="team-badge" src="{_BADGE_URL.get(bet['away'], '')}" width="56" /><span>{bet['away']}</span></div>
-                    </div>
-                    <div class="pend-v2-pick" style="color:{mc}">
-                        🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span>
-                    </div>
-                    {_bet_tags_html(bet, port)}
-                    {_odds_move_html(bet)}
-                    <div class="pend-v2-stats">
-                        <div class="pend-v2-stat">
-                            <div class="pend-v2-stat-lbl">STAKE</div>
-                            <div class="pend-v2-stat-val">£{bet['stake']:,.2f}</div>
-                        </div>
-                        <div class="pend-v2-stat">
-                            <div class="pend-v2-stat-lbl">MODEL (RAW)</div>
-                            <div class="pend-v2-stat-val pend-v2-model">{_model_p:.1f}%</div>
-                        </div>
-                        <div class="pend-v2-stat">
-                            <div class="pend-v2-stat-lbl">EV</div>
-                            <div class="pend-v2-stat-val pend-v2-ev">+{ev_pct:.1f}%</div>
-                        </div>
-                    </div>
-                    <div class="pend-v2-return">
-                        <div class="pend-v2-return-block">
-                            <div class="pend-v2-return-lbl">IF IT WINS</div>
-                            <div class="pend-v2-return-val">£{_pot_ret:,.2f}</div>
-                        </div>
-                        <div class="pend-v2-arrow">→</div>
-                        <div class="pend-v2-return-block">
-                            <div class="pend-v2-return-lbl">PROFIT</div>
-                            <div class="pend-v2-return-profit">+£{_pot_profit:,.2f}</div>
-                            <div class="pend-v2-return-pct">+{_profit_pct:.0f}% on stake</div>
-                        </div>
-                    </div>
-                </div>""", unsafe_allow_html=True)
-            _cancel_bet_control(bet, port, pf.save_portfolio, "main", f"cancel_{bet['id']}")
-
-        # Most-recent 8 single bets, rendered two per row
-        recent = pending_singles[-8:]
-        for i in range(0, len(recent), 2):
-            cols = st.columns(2)
-            with cols[0]:
-                _render_pending_card(recent[i])
-            if i + 1 < len(recent):
-                with cols[1]:
-                    _render_pending_card(recent[i + 1])
-    else:
-        st.markdown(
-            '<p style="color:#9aa6ba;font-size:0.9rem;text-align:center;padding:2.5rem 0">'
-            'No pending single bets</p>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
-
-    # ── Next matchday · what Main would bet ─────────────────────────────
-    # Rebuilt 25 Sep 2026. The old Value Bet Scanner repriced every market with
-    # no gates, so it offered home/away/over "value" with Kelly stakes the
-    # strategy never places, and draws that fail the raw floor. Verdicts now
-    # come from matchday_state, a dry run of the real auto-bet.
-    st.markdown('<p class="section-label">📡  NEXT MATCHDAY · WHAT MAIN WOULD BET</p>',
-                unsafe_allow_html=True)
-    _mk = " and ".join(md.MARKET_LABELS.get(m, m) for m in settings.get("auto_markets", []))
-    st.markdown(
-        '<div class="scan-explainer">Each verdict is a dry run of the live auto-bet '
-        f'on a copy of this portfolio: the same gates, caps and stakes. The strategy '
-        f'bets <b>{_mk}</b> only. Other markets appear when you switch on '
-        '"Show every market", for information, with no stake.</div>',
-        unsafe_allow_html=True)
-    show_all = st.toggle("Show every market", key="scan_show_all", value=False)
-
-    state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
-                           draw_fc, teams, elo_dict)
-    verdicts = state["verdicts"]["main"]
-    live_odds = state["odds"]
-    if not state["preds"]:
-        st.info("No upcoming fixtures in the next 30 days.")
-    else:
-        current_date = None
-        for q in state["preds"]:
-            home, away = q["home"], q["away"]
-            p_h, p_d, p_a = q["main"]["home_win"], q["main"]["draw"], q["main"]["away_win"]
-            p_o25 = q["p_o25"]
-            api_odds = live_odds.get((home, away), {})
-            fix_key = f"{home}_{away}".replace(" ", "").replace("'", "").replace("-", "")
-            date_str = q["date"]
-            fdate = q["fix_date"]
-            if fdate != current_date:
-                current_date = fdate
-                st.markdown(
-                    f'<p class="scan-day">{current_date.strftime("%A %-d %B")}</p>',
-                    unsafe_allow_html=True)
-            _fixture_card(q, state, key="pf", lines=("main",))
-            if show_all and api_odds:
-                st.markdown(_market_grid_html(home, away, p_h, p_d, p_a, p_o25, api_odds),
-                            unsafe_allow_html=True)
-
-            # Bet slip expander — bigger, more prominent label
-            with st.expander(f"✍️  Manual bet · {home} v {away}", expanded=False):
-                mkt_options = [
-                    f"Home Win ({home})", "Draw", f"Away Win ({away})",
-                    "Over 2.5 Goals", "Under 2.5 Goals",
-                ]
-                # Pre-select the best EV market
-                _mkt_evs = [
-                    ("H",      p_h,     api_odds.get("H", 2.0)),
-                    ("D",      p_d,     api_odds.get("D", 3.0)),
-                    ("A",      p_a,     api_odds.get("A", 3.0)),
-                    ("over25", p_o25,   api_odds.get("over25", 2.0)),
-                    ("under25",1-p_o25, api_odds.get("under25", 2.0)),
-                ]
-                _best_idx = max(range(len(_mkt_evs)),
-                                key=lambda i: pf.compute_ev(_mkt_evs[i][1], _mkt_evs[i][2]))
-                bc1, bc2, bc3, bc4 = st.columns([3, 2, 2, 2])
-                with bc1:
-                    mkt_sel = st.selectbox("Market", mkt_options, index=_best_idx, key=f"mkt_{fix_key}")
-                    if "Home" in mkt_sel:
-                        mkt_code, prob_sel, sel_label = "H",       p_h,       f"Home Win ({home})"
-                    elif "Away" in mkt_sel:
-                        mkt_code, prob_sel, sel_label = "A",       p_a,       f"Away Win ({away})"
-                    elif "Over" in mkt_sel:
-                        mkt_code, prob_sel, sel_label = "over25",  p_o25,     "Over 2.5 Goals"
-                    elif "Under" in mkt_sel:
-                        mkt_code, prob_sel, sel_label = "under25", 1-p_o25,   "Under 2.5 Goals"
-                    else:
-                        mkt_code, prob_sel, sel_label = "D",       p_d,       "Draw"
-                with bc2:
-                    _ou_key = "over25" if "Over" in mkt_sel else "under25"
-                    _default_o = float(api_odds.get(mkt_code, api_odds.get(_ou_key, 2.0))) if api_odds else 2.0
-                    odds_inp = st.number_input(
-                        "Decimal Odds", 1.01, 200.0, _default_o, 0.05,
-                        key=f"odds_{fix_key}", format="%.2f",
-                    )
-                with bc3:
-                    ev_val    = pf.compute_ev(prob_sel, odds_inp)
-                    kelly_rec = pf.kelly_stake_amount(prob_sel, odds_inp, bankroll,
-                                                      kelly_frac, max_stake_pct)
-                    stake_inp = st.number_input(
-                        "Stake (£)", 1.0, max(float(bankroll), 1.0),
-                        max(float(kelly_rec), 1.0), 1.0,
-                        key=f"stake_{fix_key}", format="%.2f",
-                    )
-                with bc4:
-                    ev_color = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff6fa1")
-                    st.markdown(f"""
-                    <div style="padding-top:0.25rem">
-                        <div style="font-size:0.78rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Model EV</div>
-                        <div style="font-size:1.5rem;font-weight:800;color:{ev_color}">
-                            {"+" if ev_val >= 0 else ""}{ev_val*100:.1f}%
-                        </div>
-                        <div style="font-size:0.78rem;color:#b8c0d0">Kelly: £{kelly_rec:.0f}</div>
-                        <div style="font-size:0.78rem;color:#b8c0d0">Implied: {pf.implied_prob(odds_inp)*100:.1f}%</div>
-                    </div>""", unsafe_allow_html=True)
-
-                if ev_val < 0:
-                    st.warning("⚠️ Negative EV — model says these odds aren't value.")
-                elif 0 <= ev_val < min_ev:
-                    st.info(f"ℹ️ Below your +{int(min_ev*100)}% threshold but still positive EV.")
-
-                already = any(
-                    b.get("type") != "acca"
-                    and b["status"] == "pending"
-                    and b["home"] == home and b["away"] == away
-                    and b["market"] == mkt_code
-                    for b in port["bets"]
-                )
-                if already:
-                    st.warning("⚠️ Already have a pending bet on this market.")
-                elif stake_inp > bankroll:
-                    st.error(f"Insufficient bankroll — £{bankroll:.2f} available.")
-                else:
-                    pot_return = round(stake_inp * odds_inp, 2)
-                    pot_profit = round(pot_return - stake_inp, 2)
-                    st.markdown(
-                        f'<div class="bet-return-box">'
-                        f'<div>'
-                        f'<div style="font-size:0.88rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Potential Return</div>'
-                        f'<div class="bet-return-total">£{pot_return:,.2f}</div>'
-                        f'</div>'
-                        f'<div class="bet-return-detail">+£{pot_profit:,.2f} profit</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                    if st.button(f"✅  Place £{stake_inp:.0f} on {sel_label}",
-                                 key=f"place_{fix_key}_{mkt_code}", type="primary"):
-                        pf.place_bet(port, home, away, date_str, mkt_code, sel_label,
-                                     prob_sel, odds_inp, stake_inp)
-                        pf.save_portfolio(port)
-                        st.success(f"🎯 Bet placed! £{stake_inp:.0f} on {sel_label} @ {odds_inp:.2f}")
-                        st.rerun()
-
-
-    st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
-
     # ── Bet History — singles only; accas have their own section above ────
     settled_hist = [b for b in port["bets"]
                     if b["status"] in ("won", "lost") and b.get("type") != "acca"]
     if settled_hist:
-        st.markdown('<p class="section-label" id="bet-history">📋  BET HISTORY · Singles</p>',
+        st.markdown(f'<p class="section-label">📋  {title}</p>',
                     unsafe_allow_html=True)
 
         # Build numbered rows in chronological order so bet # matches the chart,
@@ -7175,7 +6338,7 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             )
 
             # Highlight if user clicked through from chart
-            highlight_idx = st.session_state.get("_bh_highlight")
+            highlight_idx = st.session_state.get(f"_bh_highlight_{key}")
             row_cls = "bh-row" + (" bh-row-highlight" if highlight_idx == bet_idx else "")
 
             rows_html.append(
@@ -7214,13 +6377,13 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
         with jc1:
             jump_to = st.number_input(
                 "Jump to bet #", min_value=1, max_value=len(chrono),
-                value=int(st.session_state.get("_bh_highlight") or len(chrono)),
-                key="bh_jump", step=1,
+                value=int(st.session_state.get(f"_bh_highlight_{key}") or len(chrono)),
+                key=f"bh_jump_{key}", step=1,
                 help="Type a bet number from the chart to highlight it in the table below.",
             )
         with jc2:
-            if st.button("🎯  Highlight bet", key="bh_jump_btn"):
-                st.session_state["_bh_highlight"] = int(jump_to)
+            if st.button("🎯  Highlight bet", key=f"bh_jump_btn_{key}"):
+                st.session_state[f"_bh_highlight_{key}"] = int(jump_to)
                 st.rerun()
 
         st.markdown(
@@ -7230,8 +6393,12 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
 
+def _clv_section(port: dict, df) -> None:
+    """CLV against the close, its trend and drift, and the per-bet trail.
+
+    One renderer for Main and Mock Two; Mock Two had a cut-down copy.
+    """
     # ── Sharpness diagnostics: CLV vs Pinnacle close + calibration drift ──
     # CLV is the strongest forward-looking signal of long-run profitability —
     # ROI is too high-variance on draws to read in <100 bets. CLV stabilises
@@ -7581,462 +6748,1350 @@ def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m
 
     st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
 
-    # ── Historical EV Backtest ────────────────────────────────────────────
-    with st.expander("📜  Historical EV Backtest — could you beat the bookies on past data?", expanded=False):
-        st.markdown("""
-        <div style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem;line-height:1.6">
-            Simulates what would have happened if you had placed Kelly-sized bets on every match
-            where the <b style="color:#ccd">DC + XGB + Draw Specialist</b> ensemble identified a
-            value opportunity vs actual <b style="color:#ccd">Bet365 closing odds</b> from our
-            historical CSV data.
-            Training is strictly cut off before each test window — no data leakage.
-            Results directly answer: <i>does our model have long-run edge over the bookmaker?</i>
-        </div>""", unsafe_allow_html=True)
 
-        # ── Quick presets ─────────────────────────────────────────────
-        _render_backtest_presets("hbt")
+def _pending_card(bet: dict, port: dict, save, line: str) -> None:
+    """One open bet, identical on Main and Mock Two (the two copies had drifted).
 
-        # Multi-season note (matches Mock Two)
+    Mock Two's sizing audit (Kelly shrink, same-day factor) shows only when the
+    stack actually adjusted the stake. Built as one line of HTML: an empty
+    audit slot in the old multi-line card ended the HTML block early.
+    """
+    ev_pct = float(bet.get("ev", 0)) * 100
+    pot_ret = round(bet["stake"] * bet["odds"], 2)
+    pot_profit = round(pot_ret - bet["stake"], 2)
+    mc = _PEND_MKT_COLOURS.get(bet["market"], "#c9d0dc")
+    try:
+        date_short = pd.to_datetime(bet.get("date") or bet.get("placed_at")).strftime("%a %-d %b")
+    except Exception:
+        date_short = (bet.get("date") or "")[:10]
+    profit_pct = round(pot_profit / max(bet["stake"], 0.01) * 100)
+    audit = ""
+    if bet.get("v2_kelly_shrinkage") is not None:
+        audit += (f'<div class="pend-v2-stat"><div class="pend-v2-stat-lbl">SHRINK</div>'
+                  f'<div class="pend-v2-stat-val pend-v2-model">{bet["v2_kelly_shrinkage"]:.2f}</div></div>')
+    sim = bet.get("v2_sim_factor", bet.get("sim_factor"))
+    if sim is not None and abs(float(sim) - 1.0) > 0.001:
+        audit += (f'<div class="pend-v2-stat"><div class="pend-v2-stat-lbl">SAME-DAY ×</div>'
+                  f'<div class="pend-v2-stat-val pend-v2-model">{float(sim):.2f}</div></div>')
+    html = f"""
+    <div class="pend-card-v2">
+      <div class="pend-v2-top"><span class="pend-v2-date">📅 {date_short}</span>
+        <span class="pend-v2-badge" style="color:{mc};border-color:{mc}55;background:rgba({_hex_to_rgb(mc)},0.10)">{md.MARKET_LABELS.get(bet['market'], bet['market']).upper()}</span></div>
+      <div class="pend-v2-teams">
+        <div class="pend-v2-team">{badge(bet['home'], 56)}<span>{bet['home']}</span></div>
+        <div class="pend-v2-vs">VS</div>
+        <div class="pend-v2-team">{badge(bet['away'], 56)}<span>{bet['away']}</span></div></div>
+      <div class="pend-v2-pick" style="color:{mc}">🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span></div>
+      {_bet_tags_html(bet, port)}
+      {_odds_move_html(bet)}
+      <div class="pend-v2-stats">
+        <div class="pend-v2-stat"><div class="pend-v2-stat-lbl">STAKE</div><div class="pend-v2-stat-val">{md.fmt_money(bet['stake'], signed=False, pence=True)}</div></div>
+        <div class="pend-v2-stat"><div class="pend-v2-stat-lbl">MODEL (RAW)</div><div class="pend-v2-stat-val pend-v2-model">{float(bet.get('model_prob', 0))*100:.1f}%</div></div>
+        <div class="pend-v2-stat"><div class="pend-v2-stat-lbl">EV</div><div class="pend-v2-stat-val pend-v2-ev">{ev_pct:+.1f}%</div></div>
+        {audit}</div>
+      <div class="pend-v2-return">
+        <div class="pend-v2-return-block"><div class="pend-v2-return-lbl">IF IT WINS</div><div class="pend-v2-return-val">{md.fmt_money(pot_ret, signed=False, pence=True)}</div></div>
+        <div class="pend-v2-arrow">→</div>
+        <div class="pend-v2-return-block"><div class="pend-v2-return-lbl">PROFIT</div><div class="pend-v2-return-profit">{md.fmt_money(pot_profit, pence=True)}</div><div class="pend-v2-return-pct">+{profit_pct:.0f}% on stake</div></div>
+      </div>
+    </div>"""
+    st.markdown("".join(seg.strip() for seg in html.splitlines()), unsafe_allow_html=True)
+    _cancel_bet_control(bet, port, save, line,
+                        f"{'cancel' if line == 'main' else 'p2_cancel'}_{bet['id']}")
+
+
+def _cancel_bet_control(bet: dict, port: dict, save, line: str, key: str) -> None:
+    """A quiet "Cancel bet" that asks first and leaves a trail.
+
+    It used to be a full-width gradient button that deleted the bet on one
+    click. Bets are sacred, so cancelling now takes two deliberate clicks and
+    is written to the activity log.
+    """
+    with st.popover("Cancel bet", use_container_width=False):
         st.markdown(
-            '<div style="background:linear-gradient(135deg,rgba(0,229,255,0.07),rgba(124,77,255,0.04));'
-            'border-left:3px solid #00e5ff;border-radius:8px;padding:0.7rem 1rem;'
-            'margin-bottom:0.9rem;font-size:0.82rem;color:#cdd;line-height:1.5">'
-            '💡 <b style="color:#00e5ff">Multi-season backtests:</b> '
-            "test_weeks ≥ 80 spans more than one season. Recent seasons are "
-            "the most representative — older data includes teams since "
-            "relegated/promoted, and ELO ratings stabilise as more matches "
-            "accumulate. <b>2025-26 is most predictive of next season's "
-            "behaviour.</b> Defaults below match your saved live config."
-            '</div>', unsafe_allow_html=True,
-        )
+            f'<div style="font-size:0.9rem;color:#eef1f5;margin-bottom:0.5rem">'
+            f'Cancel <b>{bet.get("selection", bet.get("market"))}</b> on '
+            f'{bet["home"]} v {bet["away"]}? The {md.fmt_money(bet["stake"], signed=False, pence=True)} '
+            f'stake returns to the bankroll and the bet leaves the history.</div>',
+            unsafe_allow_html=True)
+        if st.button("Yes, cancel this bet", key=key + "_confirm", type="primary"):
+            pf.remove_pending_bet(port, bet["id"])
+            save(port)
+            _log_activity_event("bet_cancelled", portfolio=line,
+                                match=f"{bet['home']} vs {bet['away']}",
+                                market=bet.get("market"), stake=bet["stake"])
+            st.rerun()
 
-        hc1, hc2, hc3, hc4, hc5, hc6 = st.columns(6)
-        with hc1:
-            hbt_weeks  = st.slider("Test Window (weeks)", 8, 200, 40,
-                                    key="hbt_weeks",
-                                    help="Default 40 ≈ one full season back from "
-                                         "the latest match (Aug–May). 27 ≈ recent "
-                                         "6 months (mid-season view). Beyond ~52 "
-                                         "the single-split design goes stale — "
-                                         "the model trains only on pre-window data.")
-        with hc2:
-            hbt_min_ev = st.slider("Min EV (%)", 1, 60,
-                                    int(float(settings.get("min_ev", 0.40)) * 100),
-                                    key="hbt_minev")
-        with hc3:
-            hbt_min_prob = st.slider(
-                "Min Prob Gate (%)", 0, 80,
-                int(settings.get("min_prob", 0.30) * 100),
-                key="hbt_minprob",
-                help="Reject candidates whose model probability is below this floor.",
-            )
-        with hc4:
-            _kf = float(settings.get("kelly_fraction", 1.0))
-            _kf_options = [0.25, 0.5, 0.75, 1.0]
-            _kf_default = min(_kf_options, key=lambda x: abs(x - _kf))
-            hbt_kelly  = st.select_slider(
-                "Kelly Fraction", _kf_options, _kf_default, key="hbt_kelly",
-                format_func=lambda x: f"{int(x*100)}%",
-            )
-        with hc5:
-            hbt_max_stake = st.slider(
-                "Max Stake (% of bankroll)", 5, 50,
-                int(settings.get("max_stake_pct", 0.33) * 100),
-                key="hbt_maxstake",
-                help="Cap on a single bet. 33% = practical saturation.",
-            )
-        with hc6:
-            hbt_bankroll = st.number_input(
-                "Bankroll (£)", 100.0, 100000.0, 10000.0, 1000.0,
-                key="hbt_bankroll", format="%.0f",
-            )
 
-        fc1, fc2, fc3, fc4 = st.columns([1.1, 1.3, 1.2, 1])
-        with fc1:
-            hbt_skip_late = st.checkbox(
-                "Skip Mar-Apr",
-                value=bool(settings.get("skip_late_season", True)),
-                key="hbt_skip_late",
-                help="0/7 wins across 2024-25 + 2025-26 in March-April. "
-                     "(May was previously bundled in but is now allowed.)",
-            )
-        with fc2:
-            hbt_skip_title = st.checkbox(
-                "Skip home_title_race",
-                value=bool(settings.get("skip_home_title_race", False)),
-                key="hbt_skip_title",
-                help="0/6 wins when home team chasing title (2025-26).",
-            )
-        with fc3:
-            hbt_sim_main = st.checkbox(
-                "Sim-bet correction",
-                value=bool(settings.get("use_simultaneous_kelly", True)),
-                key="hbt_sim",
-                help="Reduce stake when multiple bets settle the same day.",
-            )
-        with fc4:
-            _odds_options = ["B365", "Max", "Avg", "PS"]
-            hbt_odds_src = st.selectbox(
-                "Place at",
-                options=_odds_options,
-                index=_odds_options.index("Max"),
-                key="hbt_odds_src",
-                help="The price you actually win at if your bet hits. "
-                     "Multi-season grid optimum: Max (best CLV when paired with PS).",
-            )
+_VERDICT_CHIP = {
+    "bet": ("go", "WOULD BET"), "placed": ("info", "BACKED"), "held": ("hold", "HELD"),
+    "blocked": ("pass", "PASS"), "window": ("pass", "NOT YET"), "no_odds": ("pass", "NO PRICE"),
+}
 
-        # Markets row — U2.5 separate-gates toggle
-        mc1, mc2 = st.columns([1.5, 3])
-        with mc1:
-            hbt_u25_gates = st.checkbox(
-                "Include Under 2.5 (separate gates)",
-                value="under25" in (settings.get("market_gates") or {}),
-                key="hbt_u25_gates",
-                help="Adds U2.5 to the simulated market set with mp=50%, mev=5%.",
-            )
-        with mc2:
-            if hbt_u25_gates:
+
+def _verdict_chip(v: dict | None, line_label: str = "") -> str:
+    """Verdict pill plus its one-line reason, for one portfolio line."""
+    if not v:
+        return ""
+    tone, label = _VERDICT_CHIP.get(v["status"], ("pass", v["status"].upper()))
+    prefix = f"{line_label} · " if line_label else ""
+    return (f'<span class="fx-verdict">{_preflight_chip(prefix + label, tone)}'
+            f'<span class="fx-verdict-text">{v["text"]}</span></span>')
+
+
+def _fixture_card_html(q: dict, v_main: dict | None, v_mt: dict | None,
+                       api_o: dict | None, lines: tuple = ("main", "mt")) -> str:
+    """The one fixture card every page uses (Next Matchday, Portfolio, Team dossier).
+
+    Model bar on top, the margin-free market bar under it at the same scale, so
+    the eye compares lengths directly. The draw gets its own line because the
+    draw is the strategy. Returned as ONE line of HTML (see the markdown trap
+    in the Streamlit skill).
+    """
+    h, a = q["home"], q["away"]
+    res = q["main"]
+    ph, pd_, pa = res["home_win"], res["draw"], res["away_win"]
+    mkt = md.market_probs(api_o)
+    ko = md.kickoff_local(q.get("time_utc"))
+    fdate = q.get("fix_date")
+    when = (ko.strftime("%a %-d %b · %H:%M") if ko
+            else (fdate.strftime("%a %-d %b") if hasattr(fdate, "strftime") else str(q.get("date", ""))[:10]))
+
+    def bar(hp, dp, ap, cls):
+        H, D, A = round(hp * 100), round(dp * 100), round(ap * 100)
+        return (f'<div class="fx-bar {cls}"><div class="bar-home" style="width:{hp*100:.1f}%">{H}%</div>'
+                f'<div class="bar-draw" style="width:{dp*100:.1f}%">{D}%</div>'
+                f'<div class="bar-away" style="width:{ap*100:.1f}%">{A}%</div></div>')
+
+    market_html = ""
+    draw_line = f'Draw <b>{pd_*100:.1f}%</b> in the model'
+    if mkt:
+        market_html = (f'<div class="fx-bar-row"><span class="fx-bar-lbl">Market</span>'
+                       f'{bar(mkt["H"], mkt["D"], mkt["A"], "fx-bar-mkt")}</div>')
+        edge = (pd_ - mkt["D"]) * 100
+        ecol = "#00e676" if edge >= 3 else ("#ffd600" if edge >= 0 else "#ff6fa1")
+        draw_line = (f'Draw <b>{pd_*100:.1f}%</b> model · <b>{mkt["D"]*100:.1f}%</b> market '
+                     f'({mkt["source"]}) · <b style="color:{ecol}">{edge:+.1f}pp</b>'
+                     f'<span class="fx-freq">About {round(pd_*100)} in 100 matches like this '
+                     f'end level; the market expects {round(mkt["D"]*100)}.</span>')
+    verdicts = ""
+    if "main" in lines:
+        verdicts += _verdict_chip(v_main, "Main")
+    if "mt" in lines:
+        verdicts += _verdict_chip(v_mt, "Mock Two")
+    html = (f'<div class="fx-card fx-{(v_main or {}).get("status", "none")}">'
+            f'<div class="fx-top"><span class="fx-when">{when}</span></div>'
+            f'<div class="fx-row"><div class="fx-team fx-home">{tb(h, 40)}</div>'
+            f'<div class="fx-bars"><div class="fx-bar-row"><span class="fx-bar-lbl">Model</span>'
+            f'{bar(ph, pd_, pa, "fx-bar-model")}</div>{market_html}</div>'
+            f'<div class="fx-team fx-away">{tb(a, 40)}</div></div>'
+            f'<div class="fx-draw">{draw_line}</div>'
+            f'<div class="fx-verdicts">{verdicts}</div></div>')
+    return html
+
+
+def _fixture_card(q: dict, state: dict, key: str, lines: tuple = ("main", "mt")) -> None:
+    """Render one fixture card plus its Open-in-Predict link."""
+    k = (q["home"], q["away"])
+    st.markdown(_fixture_card_html(q, state["verdicts"]["main"].get(k),
+                                   state["verdicts"]["mt"].get(k),
+                                   state["odds"].get(k), lines),
+                unsafe_allow_html=True)
+    if st.button("Open in Predict →", key=f"fxp_{key}_{q['home']}_{q['away']}", type="tertiary"):
+        st.session_state["pred_home"] = q["home"]
+        st.session_state["pred_away"] = q["away"]
+        st.session_state["_active_view"] = "predict"
+        st.rerun()
+
+
+def _market_grid_html(home, away, p_h, p_d, p_a, p_o25, api_odds) -> str:
+    """Every priced market, model against best price, for information only."""
+    cells = []
+    for code, prob, name in [("H", p_h, home), ("D", p_d, "Draw"), ("A", p_a, away),
+                             ("over25", p_o25, "Over 2.5"), ("under25", 1 - p_o25, "Under 2.5")]:
+        o = api_odds.get(code)
+        if not o or o <= 1:
+            continue
+        edge = (prob - 1.0 / o) * 100
+        cells.append(f'<span class="scan-mkt"><b>{name}</b> @{o:.2f} · model {prob*100:.0f}% '
+                     f'vs {100/o:.0f}% ({edge:+.0f}pp)</span>')
+    return f'<div class="scan-mkts">{"".join(cells)}</div>'
+
+
+def tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_fc, teams, elo_dict):
+    # ── Auto-settle pending bets ─────────────────────────────────────────
+    port = pf.load_portfolio()
+    n_settled = pf.auto_settle(port, df)
+    # Backfill closing-line value for any settled bets that haven't been tagged.
+    # Reads Pinnacle close (PSH/PSD/PSA) from the football-data CSVs — non-mutating
+    # to bet stakes/profits, only adds `closing_odds` and `clv` fields.
+    n_clv_added = pf.backfill_clv_for_settled_bets(port, df)
+    if n_settled > 0 or n_clv_added > 0:
+        pf.save_portfolio(port)
+
+    stats    = pf.portfolio_stats(port)
+    settings = port["settings"]
+    min_ev        = float(settings.get("min_ev", 0.05))
+    kelly_frac    = float(settings.get("kelly_fraction", 0.5))
+    max_stake_pct = float(settings.get("max_stake_pct", 0.10))
+    api_key       = pf.resolve_odds_api_key(settings.get("odds_api_key", ""))
+
+    # Fit isotonic calibrators once per session (shares cache with Backtesting tab)
+    try:
+        with st.spinner("Fitting probability calibration…"):
+            calibrators = cached_calibrators(len(df))
+    except Exception:
+        calibrators = {}
+
+    _track_settings_change("main", port)
+    _t_over, _t_open, _t_hist, _t_set = st.tabs(
+        ["Overview", "Open bets and next matchday", "History and CLV", "Settings and research"])
+
+    with _t_over:
+        # ── Main vs Mock Two at a glance — the A/B story, surfaced up front ──
+        try:
+            _ab_mt = pf.load_portfolio_two()
+            _ab_mt_s = pf.portfolio_stats(_ab_mt)
+            _ab_mn_clv = (pf.clv_summary(port).get("median_clv") or 0) * 100
+            _ab_mt_clv = (pf.clv_summary(_ab_mt).get("median_clv") or 0) * 100
+
+            def _ab_half(label, color, s, clv_v):
+                pcol = "#00e676" if s["profit"] >= 0 else "#ff6fa1"
+                return (
+                    f'<div style="flex:1;min-width:230px">'
+                    f'<div style="font-size:0.78rem;letter-spacing:1.8px;font-weight:800;'
+                    f'color:{color}">{label}</div>'
+                    f'<div style="font-size:1.25rem;font-weight:900;color:#e8eaf0">'
+                    f'£{s["bankroll"]:,.0f} '
+                    f'<span style="font-size:0.84rem;color:{pcol}">'
+                    f'{md.fmt_money(s["profit"])}</span></div>'
+                    f'<div style="font-size:0.78rem;color:#c9d0dc">'
+                    f'ROI {s["roi"]:+.1f}% · {s["n_settled"]} bets · '
+                    f'win {s["win_rate"]:.0f}% · CLV {clv_v:+.2f}%</div></div>'
+                )
+
+            _ab_c1, _ab_c2 = st.columns([8, 2])
+            with _ab_c1:
                 st.markdown(
-                    '<div style="font-size:0.86rem;color:#a78bfa;padding-top:0.55rem">'
-                    'Backtest will include <b>Draw + Under 2.5</b> with separate per-market gates '
-                    '(U2.5: mp ≥ 50%, ev ≥ 5%).</div>',
+                    '<div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;'
+                    'padding:0.8rem 1.1rem;background:#11162a;border:1px solid #1c2440;'
+                    'border-radius:14px;margin-bottom:0.6rem;'
+                    'animation:fadeInUp 0.5s cubic-bezier(.22,.61,.36,1) both">'
+                    + _ab_half("MAIN", "#7ea2ff", stats, _ab_mn_clv)
+                    + '<div style="font-size:0.84rem;color:#b8c0d0;font-weight:900">vs</div>'
+                    + _ab_half("MOCK TWO", "#b39dff", _ab_mt_s, _ab_mt_clv)
+                    + '</div>',
                     unsafe_allow_html=True,
                 )
+            with _ab_c2:
+                # The page-level Main / Mock Two switch replaced the jump button.
+                pass
+        except Exception:
+            pass
 
-        _detect_options = ["(same as place)", "B365", "Max", "Avg", "PS"]
-        hbt_detect_src = st.selectbox(
-            "Detect EV against (optional — leave 'same as place' for single-source)",
-            options=_detect_options,
-            index=_detect_options.index("PS"),
-            key="hbt_detect_src",
-            help="Multi-season grid optimum: detect at PS, place at Max.",
-        )
+    with _t_set:
+        # ── Status chip — current config at a glance ─────────────────────────
+        _render_settings_chip(port, label_prefix="port")
 
-        # ── Optional Phase 4 / ELO filter controls — defaulted from settings ──
-        st.markdown(
-            '<div style="margin:0.7rem 0 0.4rem;padding-top:0.6rem;'
-            'border-top:1px dashed rgba(0,229,255,0.25);'
-            'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
-            'text-transform:uppercase;color:#00e5ff">'
-            '🧠 Optional escape-hatch filters (defaults match saved live settings)'
-            '</div>', unsafe_allow_html=True,
-        )
-        _all_dows_h   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        _all_months_h = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        bf1, bf2, bf3 = st.columns([1.2, 1.2, 1.6])
-        with bf1:
-            hbt_banned_dows = st.multiselect(
-                "Banned days (DOW)",
-                options=_all_dows_h,
-                default=list(settings.get("main_banned_dows", [])),
-                key="hbt_banned_dows",
-            )
-        with bf2:
-            hbt_banned_months = st.multiselect(
-                "Banned months",
-                options=_all_months_h,
-                default=list(settings.get("main_banned_months", [])),
-                key="hbt_banned_months",
-            )
-        with bf3:
-            _max_ev_default = settings.get("main_max_ev_pct")
-            hbt_max_ev_on = st.checkbox(
-                "Cap claimed EV (overconfidence guard)",
-                value=_max_ev_default is not None,
-                key="hbt_max_ev_on",
-            )
-            hbt_max_ev = (
-                st.slider("Max EV cap (%)", 40, 200,
-                          int((_max_ev_default or 1.0) * 100), 5,
-                          key="hbt_max_ev_val")
-                if hbt_max_ev_on else None
-            )
+        # ── Settings expander ────────────────────────────────────────────────
+        if _settings_lock("main", port):
+            with st.expander("⚙️  Portfolio Settings", expanded=False):
 
-        # ELO-profile filter row
-        st.markdown(
-            '<div style="margin-top:0.7rem;font-size:0.78rem;font-weight:700;'
-            'color:#a78bfa">🎯 ELO-profile filter (Mock Two grid winner: 1500)</div>',
-            unsafe_allow_html=True,
-        )
-        be1, be2, be3, be4 = st.columns(4)
-        with be1:
-            _mte = settings.get("main_min_team_elo")
-            hbt_min_te_on = st.checkbox(
-                "Min team ELO floor", value=_mte is not None,
-                key="hbt_min_te_on",
-                help="Skip if either team is below this ELO. Trade peak £85k for £6k floor.",
-            )
-            hbt_min_te = (st.slider("Min ELO", 1300, 1700, int(_mte or 1500),
-                                     10, key="hbt_min_te_val")
-                          if hbt_min_te_on else None)
-        with be2:
-            _mxe = settings.get("main_max_team_elo")
-            hbt_max_te_on = st.checkbox(
-                "Max team ELO ceiling", value=_mxe is not None,
-                key="hbt_max_te_on",
-            )
-            hbt_max_te = (st.slider("Max ELO", 1700, 2100, int(_mxe or 1900),
-                                     10, key="hbt_max_te_val")
-                          if hbt_max_te_on else None)
-        with be3:
-            _gmin = settings.get("main_elo_gap_min")
-            hbt_gap_min_on = st.checkbox(
-                "Min |ΔELO|", value=_gmin is not None, key="hbt_gap_min_on",
-            )
-            hbt_gap_min = (st.slider("Min gap", 20, 200, int(_gmin or 80),
-                                      10, key="hbt_gap_min_val")
-                           if hbt_gap_min_on else None)
-        with be4:
-            _gmax = settings.get("main_elo_gap_max")
-            hbt_gap_max_on = st.checkbox(
-                "Max |ΔELO|", value=_gmax is not None, key="hbt_gap_max_on",
-            )
-            hbt_gap_max = (st.slider("Max gap", 100, 500, int(_gmax or 300),
-                                      20, key="hbt_gap_max_val")
-                           if hbt_gap_max_on else None)
+                # ── Quick presets ──────────────────────────────────────────────
+                _render_preset_buttons(port, key_prefix="port", save_fn=pf.save_portfolio)
 
-        if st.button("🔄  Run Simulation", key="run_hbt", type="primary"):
-            with st.spinner("Running EV simulation on historical match data..."):
-                bt_df = backtest_models(df, df_features, test_weeks=hbt_weeks)
-                _bt_markets = set(settings.get("auto_markets", list(pf.PROFITABLE_MARKETS)))
-                _detect_main = None if hbt_detect_src == "(same as place)" else str(hbt_detect_src)
-                # When U2.5 toggle is on, force-add it to the market set and apply its gates
-                if hbt_u25_gates:
-                    _bt_markets = set(_bt_markets) | {"under25"}
-                    _market_gates = {"under25": {"min_prob": 0.50, "min_ev": 0.05}}
-                else:
-                    _market_gates = settings.get("market_gates")
-                log_df, summary = pf.ev_backtest_simulate(
-                    bt_df, df,
-                    min_ev_pct=float(hbt_min_ev),
-                    kelly_frac=float(hbt_kelly),
-                    max_stake_pct=float(hbt_max_stake) / 100.0,
-                    initial_bankroll=float(hbt_bankroll),
-                    allowed_markets=_bt_markets,
-                    min_prob=float(hbt_min_prob) / 100.0,
-                    skip_late_season=bool(hbt_skip_late),
-                    skip_home_title_race=bool(hbt_skip_title),
-                    odds_source=str(hbt_odds_src),
-                    detect_source=_detect_main,
-                    enable_simultaneous_correction=bool(hbt_sim_main),
-                    market_gates=_market_gates,
-                    # Honest calibration: fitted strictly BEFORE the eval window
-                    # (never the live cached_calibrators — those overlap it)
-                    calibrators=cached_honest_calibrators(len(df), int(hbt_weeks)),
-                    # Optional Phase 4 + ELO filters (default OFF)
-                    banned_dows=set(hbt_banned_dows) if hbt_banned_dows else None,
-                    banned_months=set(hbt_banned_months) if hbt_banned_months else None,
-                    max_ev_pct=(hbt_max_ev / 100.0 if hbt_max_ev is not None else None),
-                    min_team_elo=float(hbt_min_te) if hbt_min_te is not None else None,
-                    max_team_elo=float(hbt_max_te) if hbt_max_te is not None else None,
-                    elo_gap_min=float(hbt_gap_min) if hbt_gap_min is not None else None,
-                    elo_gap_max=float(hbt_gap_max) if hbt_gap_max is not None else None,
-                    # No-history gate, mirroring live so the backtest measures
-                    # the gate as it actually runs
-                    min_team_matches=settings.get("min_team_matches"),
-                    df_features=df_features,
+                # ── Section: Stake & Bankroll ──────────────────────────────────
+                _section_header("💰  Stake & Bankroll", "How much you bet, sized by Kelly")
+                sb1, sb2, sb3 = st.columns(3)
+                with sb1:
+                    new_initial = st.number_input(
+                        "Starting Budget (£)", 100.0, 100_000.0,
+                        float(port["initial_bankroll"]), 100.0, key="port_budget",
+                    )
+                with sb2:
+                    new_kelly = st.select_slider(
+                        "Kelly Fraction",
+                        # The saved value is always an option: a fraction set outside
+                        # the presets (Mock Two's 0.45) would otherwise crash the page.
+                        options=sorted({0.25, 0.45, 0.5, 0.75, 1.0, float(kelly_frac)}),
+                        value=kelly_frac, key="port_kelly",
+                        format_func=lambda x: f"{int(x*100)}%",
+                    )
+                with sb3:
+                    new_max_stake = st.slider(
+                        "Max Stake (% of bankroll)", 5, 50,
+                        int(settings.get("max_stake_pct", 0.33) * 100),
+                        key="port_maxstake",
+                        help="Hard cap on a single bet. WF-validated saturation: 33%.",
+                    )
+
+                # ── Section: Edge Gates ────────────────────────────────────────
+                _section_header("🎯  Edge Gates",
+                                "Default thresholds — per-market overrides set in Markets section below")
+                eg1, eg2, eg3 = st.columns([2, 2, 3])
+                with eg1:
+                    new_min_ev = st.slider("Min EV (default, %)", 1, 60,
+                        int(min_ev * 100), key="port_minev")
+                with eg2:
+                    new_min_prob = st.slider("Min Prob Gate (%)", 10, 80,
+                        int(settings.get("min_prob", 0.30) * 100), key="port_minprob",
+                        help="Reject long-shots even with +EV. WF-validated optimum: 30%.")
+                with eg3:
+                    _raw_floor_now = settings.get("min_raw_draw_prob")
+                    new_raw_floor = st.slider("Raw Draw Floor (%)", 0, 45,
+                        int(round(float(_raw_floor_now or 0) * 100)), key="port_rawfloor",
+                        help="Floor on the model's OWN draw probability, before the trailing "
+                             "calibrator touches it. 0 = off. Validated at 30% on 22 Sep 2026: "
+                             "worst season -6.3k -> -2.1k, max drawdown 83% -> 66%.")
+                    st.markdown(
+                        f'<div style="font-size:0.78rem;color:#c9d0dc;line-height:1.5">'
+                        f'📋 A bet must clear: probability ≥ <b style="color:#a78bfa">{new_min_prob}%</b> '
+                        f'AND EV ≥ <b style="color:#a78bfa">+{new_min_ev}%</b>'
+                        + (f' AND raw draw ≥ <b style="color:#a78bfa">{new_raw_floor}%</b>' if new_raw_floor else '')
+                        + ' (unless market_gates overrides for U2.5/etc.)</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Section: Markets ───────────────────────────────────────────
+                _section_header("📊  Markets",
+                                "Which markets auto-bet considers + per-market gates")
+                _all_markets = {"D": "Draw", "over25": "Over 2.5", "under25": "Under 2.5",
+                                "H": "Home Win", "A": "Away Win"}
+                _current_auto_mkts = settings.get("auto_markets", list(pf.PROFITABLE_MARKETS))
+                mk1, mk2, mk3, mk4, mk5 = st.columns(5)
+                _new_auto_mkts = []
+                for col, (code, label) in zip([mk1, mk2, mk3, mk4, mk5], _all_markets.items()):
+                    with col:
+                        checked = st.checkbox(
+                            label, value=code in _current_auto_mkts, key=f"mkt_toggle_{code}",
+                            help="Profitable" if code in pf.PROFITABLE_MARKETS else "Loses money in backtest",
+                        )
+                        if checked:
+                            _new_auto_mkts.append(code)
+
+                _existing_gates = settings.get("market_gates") or {}
+                new_u25_gates = st.toggle(
+                    "🎚️ Use separate Under 2.5 gates (mp=50%, mev=5%)",
+                    value="under25" in _existing_gates,
+                    key="port_u25_gates",
+                    help=("Adds U2.5 to auto-bet with its own thresholds — raw U2.5 wins "
+                          "~52% but its EV distribution is much tighter than draws; the "
+                          "40% global EV gate would exclude all U2.5 candidates."),
                 )
-                st.session_state["_hbt_log"]     = log_df
-                st.session_state["_hbt_summary"] = summary
 
-        if "_hbt_summary" in st.session_state:
-            summary = st.session_state["_hbt_summary"]
-            log_df  = st.session_state["_hbt_log"]
-
-            if "error" in summary:
-                st.error(summary["error"])
-            else:
-                sim_profit = summary["profit"]
-                sim_roi    = summary["roi"]
-                sim_col    = "#00e676" if sim_profit >= 0 else "#ff6fa1"
-
-                ms1, ms2, ms3, ms4, ms5 = st.columns(5)
-                with ms1: st.metric("Final Bankroll", f"£{summary['final']:,.0f}",
-                                    f"{md.fmt_money(sim_profit)}")
-                with ms2: st.metric("ROI", f"{'+'  if sim_roi >= 0 else ''}{sim_roi:.1f}%")
-                with ms3:
-                    _skipped = summary.get("skipped_min_prob", 0)
-                    st.metric(
-                        "Total Bets", str(summary["n_bets"]),
-                        f"−{_skipped} below min-prob" if _skipped else None,
-                        delta_color="off",
+                # ── Section: Filters ───────────────────────────────────────────
+                _section_header("🚫  Filters",
+                                "Skip systematically losing patterns identified in walk-forward")
+                f1, f2, _ = st.columns([1, 1.5, 2])
+                with f1:
+                    new_skip_late = st.toggle(
+                        "Skip Mar-Apr",
+                        value=bool(settings.get("skip_late_season", True)),
+                        key="port_skip_late",
+                        help="0/7 wins across 2024-25 + 2025-26 in March-April. "
+                             "(May was previously bundled in but is now allowed.)",
                     )
-                with ms4: st.metric("Win Rate", f"{summary['win_rate']:.0f}%")
-                with ms5: st.metric("Avg Odds", f"{summary['avg_odds']:.2f}")
-
-                if not log_df.empty:
-                    _init_br = summary["initial"]
-                    x_h = list(range(len(log_df) + 1))
-                    y_h = [float(_init_br)] + [float(v) for v in log_df["Bankroll"].tolist()]
-                    line_col = "#00e676" if y_h[-1] >= _init_br else "#ff6fa1"
-
-                    fig_hbt = go.Figure()
-
-                    # Insert baseline-crossing points so green/red fills don't bleed
-                    # past the actual line on segments that straddle the baseline.
-                    x_exp: list[float] = [x_h[0]]
-                    y_exp: list[float] = [y_h[0]]
-                    for i in range(1, len(y_h)):
-                        y_prev, y_cur = y_h[i - 1], y_h[i]
-                        if (y_prev - _init_br) * (y_cur - _init_br) < 0:
-                            t = (_init_br - y_prev) / (y_cur - y_prev)
-                            x_cross = x_h[i - 1] + t * (x_h[i] - x_h[i - 1])
-                            x_exp.append(x_cross); y_exp.append(_init_br)
-                        x_exp.append(x_h[i]); y_exp.append(y_cur)
-
-                    y_up = [max(v, _init_br) for v in y_exp]
-                    y_dn = [min(v, _init_br) for v in y_exp]
-                    baseline = [_init_br] * len(y_exp)
-
-                    # Green fill from baseline up to bankroll where bankroll ≥ baseline
-                    fig_hbt.add_trace(go.Scatter(
-                        x=x_exp, y=baseline, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        hoverinfo="skip", showlegend=False,
-                    ))
-                    fig_hbt.add_trace(go.Scatter(
-                        x=x_exp, y=y_up, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
-                        hoverinfo="skip", showlegend=False,
-                    ))
-                    # Red fill from baseline down to bankroll where bankroll ≤ baseline
-                    fig_hbt.add_trace(go.Scatter(
-                        x=x_exp, y=baseline, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        hoverinfo="skip", showlegend=False,
-                    ))
-                    fig_hbt.add_trace(go.Scatter(
-                        x=x_exp, y=y_dn, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
-                        hoverinfo="skip", showlegend=False,
-                    ))
-
-                    # Baseline line + label
-                    fig_hbt.add_hline(
-                        y=_init_br, line_color="rgba(255,255,255,0.30)", line_dash="dot",
-                        annotation_text=f"Start £{_init_br:,.0f}",
-                        annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
-                        annotation_position="top left",
+                with f2:
+                    new_skip_title = st.toggle(
+                        "Skip home_title_race",
+                        value=bool(settings.get("skip_home_title_race", False)),
+                        key="port_skip_title",
+                        help="Title-chasing home teams almost never draw.",
                     )
 
-                    # Soft halo + main line with win/loss markers
-                    deltas = [0.0] + [y_h[i] - y_h[i - 1] for i in range(1, len(y_h))]
-                    marker_symbols = ["circle"] + [
-                        "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
-                        for d in deltas[1:]
-                    ]
-                    marker_colors = ["#8892a4"] + [
-                        "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
-                        for d in deltas[1:]
-                    ]
-                    marker_sizes = [0] + [11 if d != 0 else 5 for d in deltas[1:]]
-                    hover_texts = ["Start"] + [
-                        ("▲ WON "  + f"+£{d:,.2f}") if d > 0 else
-                        ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
-                        "No change"
-                        for d in deltas[1:]
-                    ]
+                # ── Section: Optional Phase 4 / multi-season filters (Main) ─────
+                _section_header("🧠  Optional escape-hatch filters (defaults OFF)",
+                                "Toggle ON if you want to trade peak profit for floor protection. "
+                                "Current Main produces £85k 2025-26 peak with all OFF; "
+                                "ELO floor 1500 caps that to £35k but never crashes.")
+                _all_dows_m   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                _all_months_m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                mf1, mf2 = st.columns(2)
+                with mf1:
+                    new_main_banned_dows = st.multiselect(
+                        "Banned days of week",
+                        options=_all_dows_m,
+                        default=list(settings.get("main_banned_dows", [])),
+                        key="port_main_banned_dows",
+                        help="Mon+Fri were validated as losing on Mock Two but didn't "
+                             "transfer cleanly to Main on multi-season; OFF by default.",
+                    )
+                    new_main_banned_months = st.multiselect(
+                        "Banned months",
+                        options=_all_months_m,
+                        default=list(settings.get("main_banned_months", [])),
+                        key="port_main_banned_months",
+                        help="Octoberban was overfit; left as opt-in.",
+                    )
+                with mf2:
+                    _main_max_ev_cur = settings.get("main_max_ev_pct")
+                    new_main_max_ev_on = st.toggle(
+                        "Cap claimed EV (overconfidence guard)",
+                        value=_main_max_ev_cur is not None,
+                        key="port_main_max_ev_on",
+                        help="Phase 1 found high-EV bets calibrate worst.",
+                    )
+                    new_main_max_ev = (
+                        st.slider("Max EV cap (%)", 40, 200,
+                                  int((_main_max_ev_cur or 1.0) * 100), 5,
+                                  key="port_main_max_ev_val")
+                        if new_main_max_ev_on else None
+                    )
 
-                    fig_hbt.add_trace(go.Scatter(
-                        x=x_h, y=y_h, mode="lines",
-                        line=dict(color=f"rgba({_hex_to_rgb(line_col)},0.30)", width=10),
-                        hoverinfo="skip", showlegend=False,
-                    ))
-                    fig_hbt.add_trace(go.Scatter(
-                        x=x_h, y=y_h, mode="lines+markers",
-                        line=dict(color=line_col, width=3.2, shape="linear"),
-                        marker=dict(
-                            symbol=marker_symbols, size=marker_sizes,
-                            color=marker_colors,
-                            line=dict(color="#0a0e1a", width=1.2),
-                        ),
-                        text=hover_texts,
-                        hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
-                                       "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b><extra></extra>"),
-                        hoverlabel=dict(
-                            bgcolor="#1a1d27", bordercolor=line_col,
-                            font=dict(size=14, family="Inter", color="#e8eaf0"),
-                        ),
-                        showlegend=False,
-                    ))
+                # Main ELO-profile filter
+                st.markdown(
+                    '<div style="margin-top:0.7rem;padding-top:0.5rem;'
+                    'border-top:1px dashed rgba(0,229,255,0.20);'
+                    'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
+                    'text-transform:uppercase;color:#00e5ff">'
+                    '🎯 ELO-profile filter (Mock Two grid winner: min team ELO 1500)'
+                    '</div>', unsafe_allow_html=True,
+                )
+                mec1, mec2 = st.columns(2)
+                with mec1:
+                    _mte_cur = settings.get("main_min_team_elo")
+                    new_main_min_te_on = st.toggle(
+                        "Min team ELO floor",
+                        value=_mte_cur is not None,
+                        key="port_main_min_te_on",
+                        help="Skip if either team's ELO is below this. Mock Two grid "
+                             "winner: 1500. Caps Main's £85k peak at ~£35k but eliminates crashes.",
+                    )
+                    new_main_min_te = (
+                        st.slider("Min ELO", 1300, 1700, int(_mte_cur or 1500), 10,
+                                  key="port_main_min_te_val")
+                        if new_main_min_te_on else None
+                    )
+                    _mgmin_cur = settings.get("main_elo_gap_min")
+                    new_main_gap_min_on = st.toggle(
+                        "Min |ΔELO| (skip too-close)",
+                        value=_mgmin_cur is not None, key="port_main_gap_min_on",
+                    )
+                    new_main_gap_min = (
+                        st.slider("Min gap", 20, 200, int(_mgmin_cur or 80), 10,
+                                  key="port_main_gap_min_val")
+                        if new_main_gap_min_on else None
+                    )
+                with mec2:
+                    _mxte_cur = settings.get("main_max_team_elo")
+                    new_main_max_te_on = st.toggle(
+                        "Max team ELO ceiling",
+                        value=_mxte_cur is not None, key="port_main_max_te_on",
+                    )
+                    new_main_max_te = (
+                        st.slider("Max ELO", 1700, 2100, int(_mxte_cur or 1900), 10,
+                                  key="port_main_max_te_val")
+                        if new_main_max_te_on else None
+                    )
+                    _mgmax_cur = settings.get("main_elo_gap_max")
+                    new_main_gap_max_on = st.toggle(
+                        "Max |ΔELO| (skip lopsided)",
+                        value=_mgmax_cur is not None, key="port_main_gap_max_on",
+                    )
+                    new_main_gap_max = (
+                        st.slider("Max gap", 100, 500, int(_mgmax_cur or 300), 20,
+                                  key="port_main_gap_max_val")
+                        if new_main_gap_max_on else None
+                    )
 
-                    # Peak / Low / NOW badges
-                    peak_idx   = int(np.argmax(y_h))
-                    trough_idx = int(np.argmin(y_h))
-                    if peak_idx > 0 and y_h[peak_idx] > _init_br * 1.05:
-                        fig_hbt.add_annotation(
-                            x=x_h[peak_idx], y=y_h[peak_idx],
-                            text=f"<b>Peak</b><br>£{y_h[peak_idx]:,.0f}",
-                            showarrow=True, arrowhead=2, arrowcolor="#00e676",
-                            arrowsize=1.2, arrowwidth=1.5, ax=0, ay=-38,
-                            font=dict(size=12, color="#00e676", family="Inter"),
-                            bgcolor="rgba(0,230,118,0.10)",
-                            bordercolor="rgba(0,230,118,0.4)",
-                            borderpad=4, borderwidth=1,
+                # ── Section: Auto-Bet ──────────────────────────────────────────
+                _section_header("🤖  Auto-Bet",
+                                "Automatic placement when gates and market filter pass")
+                ab1, ab2 = st.columns(2)
+                with ab1:
+                    new_auto_enabled = st.toggle(
+                        "Auto-Bet enabled",
+                        value=settings.get("auto_bet_enabled", False),
+                        key="port_auto_enabled",
+                        help="Automatically place Kelly bets when all gates pass",
+                    )
+                with ab2:
+                    new_auto_thresh = st.slider(
+                        "Auto-Bet EV Threshold (%)", 1, 60,
+                        int(settings.get("auto_bet_threshold", 0.40) * 100),
+                        key="port_auto_thresh",
+                        help="Only auto-bet when model EV is this high. Optimum: 40%.",
+                    )
+                new_use_sim = st.toggle(
+                    "Sim-bet correction (reduce stakes when ≥2 bets settle same day)",
+                    value=bool(settings.get("use_simultaneous_kelly", True)),
+                    key="port_use_sim",
+                    help="Mock Two has it built-in; this enables on Main.",
+                )
+                if new_auto_enabled:
+                    st.markdown(
+                        f'<div style="padding:0.5rem 0.8rem;background:rgba(0,230,118,0.06);'
+                        f'border-left:3px solid #00e676;border-radius:6px;font-size:0.78rem;color:#e8eaf0">'
+                        f'✅ Auto-bet ON — will place Kelly bets when EV ≥ +{new_auto_thresh}%, '
+                        f'prob ≥ {new_min_prob}% (or per-market overrides), market in '
+                        f'{{{", ".join(_new_auto_mkts) or "(none)"}}}, plus filters.</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Section: Calibration ───────────────────────────────────────
+                _section_header("📐  Calibration", "Probability adjustment from backtest fit")
+                new_use_cal = st.toggle(
+                    "Apply isotonic probability calibration",
+                    value=settings.get("use_calibrated_probs", True),
+                    key="port_use_cal",
+                    help="Fit on backtest data — corrects systematic over/under-confidence.",
+                )
+
+                # ── Section: API ───────────────────────────────────────────────
+                _section_header("🔌  Live Odds API",
+                                "The Odds API key (free tier — 500 req/month)")
+                api_c1, api_c2 = st.columns([2, 3])
+                with api_c1:
+                    new_api_key = st.text_input(
+                        "API Key", value=api_key, type="password", key="port_apikey",
+                        help="Free key from the-odds-api.com",
+                        label_visibility="collapsed",
+                    )
+                with api_c2:
+                    _usage = pf.get_api_usage()
+                    _usage_pct = _usage["count"] / _usage["cap"] * 100 if _usage["cap"] > 0 else 0
+                    _usage_col = "#00e676" if _usage_pct < 50 else ("#ffd600" if _usage_pct < 80 else "#ff6fa1")
+                    st.markdown(
+                        f'<div style="font-size:0.78rem;color:#c9d0dc;padding-top:0.5rem">'
+                        f'<span style="color:{_usage_col};font-weight:700">'
+                        f'📊 {_usage["count"]}/{_usage["cap"]} calls this month '
+                        f'({_usage["remaining"]} left)</span> · Cache: {pf._CACHE_HOURS}h</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown('<div style="margin-top:1rem"></div>', unsafe_allow_html=True)
+                save_c, reset_c, _ = st.columns([1, 1, 4])
+                with save_c:
+                    if st.button("💾 Save Settings", key="save_port_settings"):
+                        port["settings"]["min_ev"]              = new_min_ev / 100
+                        port["settings"]["kelly_fraction"]      = new_kelly
+                        port["settings"]["odds_api_key"]        = new_api_key
+                        port["settings"]["auto_bet_enabled"]    = new_auto_enabled
+                        port["settings"]["auto_bet_threshold"]  = new_auto_thresh / 100
+                        port["settings"]["auto_markets"]        = _new_auto_mkts
+                        port["settings"]["min_prob"]            = new_min_prob / 100
+                        port["settings"]["min_raw_draw_prob"]   = (new_raw_floor / 100) if new_raw_floor else None
+                        port["settings"]["use_calibrated_probs"] = new_use_cal
+                        port["settings"]["max_stake_pct"]       = new_max_stake / 100
+                        port["settings"]["skip_late_season"]    = new_skip_late
+                        port["settings"]["skip_home_title_race"] = new_skip_title
+                        port["settings"]["use_simultaneous_kelly"] = new_use_sim
+                        # Optional Main filters (default OFF — escape hatches)
+                        port["settings"]["main_banned_dows"]   = list(new_main_banned_dows)
+                        port["settings"]["main_banned_months"] = list(new_main_banned_months)
+                        port["settings"]["main_max_ev_pct"]    = (
+                            float(new_main_max_ev) / 100 if new_main_max_ev is not None else None
                         )
-                    if (trough_idx > 0 and y_h[trough_idx] < _init_br * 0.95
-                            and trough_idx != peak_idx):
-                        fig_hbt.add_annotation(
-                            x=x_h[trough_idx], y=y_h[trough_idx],
-                            text=f"<b>Low</b><br>£{y_h[trough_idx]:,.0f}",
-                            showarrow=True, arrowhead=2, arrowcolor="#ff4081",
-                            arrowsize=1.2, arrowwidth=1.5, ax=0, ay=38,
-                            font=dict(size=12, color="#ff4081", family="Inter"),
-                            bgcolor="rgba(255,64,129,0.10)",
-                            bordercolor="rgba(255,64,129,0.4)",
-                            borderpad=4, borderwidth=1,
+                        port["settings"]["main_min_team_elo"]  = (
+                            float(new_main_min_te) if new_main_min_te is not None else None
                         )
-                    fig_hbt.add_annotation(
-                        x=x_h[-1], y=y_h[-1],
-                        text=f"<b>NOW · £{y_h[-1]:,.0f}</b>",
-                        showarrow=False, xshift=15,
-                        font=dict(size=14, color="#fff", family="Inter"),
-                        bgcolor=line_col, bordercolor=line_col,
-                        borderpad=8, borderwidth=2, xanchor="left",
+                        port["settings"]["main_max_team_elo"]  = (
+                            float(new_main_max_te) if new_main_max_te is not None else None
+                        )
+                        port["settings"]["main_elo_gap_min"]   = (
+                            float(new_main_gap_min) if new_main_gap_min is not None else None
+                        )
+                        port["settings"]["main_elo_gap_max"]   = (
+                            float(new_main_gap_max) if new_main_gap_max is not None else None
+                        )
+                        # Per-market gates: when U2.5 is enabled, register its own gates
+                        # AND add it to the auto_markets list so it can clear the market filter.
+                        if new_u25_gates:
+                            port["settings"]["market_gates"] = {
+                                "under25": {"min_prob": 0.50, "min_ev": 0.05},
+                            }
+                            if "under25" not in _new_auto_mkts:
+                                _new_auto_mkts.append("under25")
+                            port["settings"]["auto_markets"] = _new_auto_mkts
+                        else:
+                            port["settings"].pop("market_gates", None)
+                        # Only rebase an untouched portfolio. This used to check for
+                        # settled bets alone, so saving settings with money still on
+                        # the table reset the bankroll and silently refunded every
+                        # pending stake — observed 2026-08-09, £1,042.64 handed back
+                        # while the bet was still live.
+                        if not port["bets"]:
+                            port["initial_bankroll"] = new_initial
+                            port["bankroll"]         = new_initial
+                        pf.save_portfolio(port)
+                        st.success("Settings saved!")
+                        st.rerun()
+                with reset_c:
+                    if st.button("🗑️ Reset Portfolio", key="reset_port", type="secondary"):
+                        st.session_state["_port_confirm_reset"] = True
+                if st.session_state.get("_port_confirm_reset"):
+                    st.warning("⚠️ This will delete ALL bets and reset your bankroll. Are you sure?")
+                    cy, cn, _ = st.columns([1, 1, 4])
+                    with cy:
+                        if st.button("Yes, reset", key="port_yes"):
+                            fresh = {
+                                "initial_bankroll": new_initial,
+                                "bankroll":         new_initial,
+                                "bets":             [],
+                                "settings": {
+                                    "min_ev":          new_min_ev / 100,
+                                    "kelly_fraction":  new_kelly,
+                                    "max_stake_pct":   0.10,
+                                    "odds_api_key":    new_api_key,
+                                },
+                            }
+                            pf.save_portfolio(fresh)
+                            st.session_state["_port_confirm_reset"] = False
+                            st.rerun()
+                    with cn:
+                        if st.button("Cancel", key="port_no"):
+                            st.session_state["_port_confirm_reset"] = False
+                            st.rerun()
+
+        if n_settled > 0:
+            st.success(f"✅ Auto-settled {n_settled} bet{'s' if n_settled > 1 else ''}!")
+
+    # ── Auto-bet (fires on every page load if enabled + API key set) ──────
+    auto_enabled   = settings.get("auto_bet_enabled", False)
+    auto_threshold = float(settings.get("auto_bet_threshold", 0.15))
+    # Auto-bet no longer fires from inside this tab. Until 22 Sep 2026 a second,
+    # unlogged copy of the placement loop lived here: it took no auto-bet lock,
+    # wrote nothing to activity.log, skipped the no-history gate, priced only
+    # Main, and read fixtures 30 days ahead where the shared run reads 7. On
+    # 22 Sep it placed three Main bets on fixtures 18 days away that the shared
+    # run had just reported as "No upcoming fixtures". Every placement now goes
+    # through _session_auto_bet_run (app load and the hourly runner), so there
+    # is exactly one gate list, one lock and one log.
+
+    with _t_over:
+        # ── P&L Hero ─────────────────────────────────────────────────────────
+        profit   = stats["profit"]
+        bankroll = stats["bankroll"]
+        roi      = stats["roi"]
+        pending_bets  = [b for b in port["bets"] if b["status"] == "pending"]
+        pending_stake = sum(b["stake"] for b in pending_bets)
+
+        if stats["n_settled"] == 0 and not pending_bets:
+            hero_class = "pnl-neutral"
+        elif profit >= 0:
+            hero_class = "pnl-profit"
+        else:
+            hero_class = "pnl-loss"
+
+        sign   = "+" if profit >= 0 else ""
+        arrow  = "▲" if profit >= 0 else "▼"
+
+        # ── Story-driven journey: Started → Now → Potential ──────────────────
+        initial = port["initial_bankroll"]
+        wealth_now = bankroll + pending_stake  # cash + capital locked in pending
+        # Best case: all pending win → bankroll + sum(stake * odds)
+        best_case  = bankroll + sum(b["stake"] * b["odds"] for b in pending_bets)
+        # Worst case: all pending lose → bankroll stays as-is (stakes already deducted)
+        worst_case = bankroll
+        profit_pct = (profit / initial * 100) if initial else 0
+        delta_col  = "#00e676" if profit >= 0 else "#ff6fa1"
+        delta_arrow = "▲" if profit >= 0 else "▼"
+
+        st.markdown(f"""
+        <div class="pnl-hero {hero_class}">
+            <div class="pnl-tag">📊 MOCK PORTFOLIO · PAPER BETS ONLY · NOT REAL MONEY</div>
+            <div class="pnl-amount">{md.fmt_money(profit, pence=True)}</div>
+            <div class="pnl-subtitle">
+                {arrow} {sign}{roi:.1f}% ROI on settled bets
+            </div>
+        </div>
+
+        <div class="pnl-journey">
+          <div class="pj-step pj-start">
+            <div class="pj-lbl">STARTED WITH</div>
+            <div class="pj-val">£{initial:,.0f}</div>
+            <div class="pj-sub">initial bankroll</div>
+          </div>
+          <div class="pj-arrow"><span style="color:{delta_col}">{delta_arrow}</span>
+            <span class="pj-arrow-sub" style="color:{delta_col}">
+              {md.fmt_money(profit)}<br>({sign}{profit_pct:.1f}%)
+            </span>
+          </div>
+          <div class="pj-step pj-now">
+            <div class="pj-lbl">CURRENT WEALTH</div>
+            <div class="pj-val">£{wealth_now:,.0f}</div>
+            <div class="pj-sub">
+              £{bankroll:,.0f} cash &nbsp;+&nbsp;
+              <span style="color:#ffd600">£{pending_stake:,.0f} pending</span>
+            </div>
+          </div>
+          <div class="pj-arrow pj-arrow-future">
+            <div class="pj-future-lbl">{stats['n_pending']} bet{'s' if stats['n_pending']!=1 else ''} could resolve to</div>
+          </div>
+          <div class="pj-step pj-future">
+            <div class="pj-future-row">
+              <div class="pj-future-half pj-future-win">
+                <div class="pj-future-lbl-small">IF ALL WIN</div>
+                <div class="pj-future-val pj-future-win-val">£{best_case:,.0f}</div>
+              </div>
+              <div class="pj-future-half pj-future-lose">
+                <div class="pj-future-lbl-small">IF ALL LOSE</div>
+                <div class="pj-future-val pj-future-lose-val">£{worst_case:,.0f}</div>
+              </div>
+            </div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        # ── Stats row ─────────────────────────────────────────────────────────
+        def _stat(val, lbl, color="#e8eaf0"):
+            return (f'<div class="pstat-card">'
+                    f'<div class="pstat-val" style="color:{color}">{val}</div>'
+                    f'<div class="pstat-lbl">{lbl}</div></div>')
+
+        roi_col  = "#00e676" if roi >= 0 else "#ff6fa1"
+        ev_col   = "#7c4dff"
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1: st.markdown(_stat(f"£{bankroll:,.0f}", "BANKROLL"), unsafe_allow_html=True)
+        with c2: st.markdown(_stat(str(stats["n_settled"]), "SETTLED"), unsafe_allow_html=True)
+        with c3: st.markdown(_stat(f"{stats['win_rate']:.0f}%", "WIN RATE"), unsafe_allow_html=True)
+        with c4: st.markdown(_stat(f"{sign}{roi:.1f}%", "ROI", roi_col), unsafe_allow_html=True)
+        with c5: st.markdown(_stat(f"+{stats['avg_ev_pct']:.1f}%" if stats["avg_ev_pct"] >= 0 else f"{stats['avg_ev_pct']:.1f}%", "AVG MODEL EV", ev_col), unsafe_allow_html=True)
+
+        st.markdown('<div class="divider" style="margin:1.2rem 0"></div>', unsafe_allow_html=True)
+
+        # ── Bankroll chart (full width) ───────────────────────────────────────
+        st.markdown('<p class="section-label">📈  BANKROLL HISTORY</p>', unsafe_allow_html=True)
+        _bankroll_chart_scopes(port, pending_bets, bankroll)
+
+        _render_risk_edge_strip(port)
+
+    with _t_open:
+        # ── Pending bets — singles only; accas live in their own section below ──
+        pending_singles = [b for b in pending_bets if b.get("type") != "acca"]
+        pending_accas   = [b for b in pending_bets if b.get("type") == "acca"]
+
+        st.markdown('<div class="divider" style="margin:1.5rem 0 1rem"></div>', unsafe_allow_html=True)
+        st.markdown('<p class="section-label">⏳  PENDING BETS · Singles</p>', unsafe_allow_html=True)
+
+        if pending_singles:
+            mkt_colors = {"H": "#3d6eff", "D": "#ffd600", "A": "#ff4081",
+                          "over25": "#7c4dff", "under25": "#00e5ff"}
+
+            def _render_pending_card(bet: dict) -> None:
+                _pending_card(bet, port, pf.save_portfolio, "main")
+
+            # Most-recent 8 single bets, rendered two per row
+            recent = pending_singles[-8:]
+            for i in range(0, len(recent), 2):
+                cols = st.columns(2)
+                with cols[0]:
+                    _render_pending_card(recent[i])
+                if i + 1 < len(recent):
+                    with cols[1]:
+                        _render_pending_card(recent[i + 1])
+        else:
+            st.markdown(
+                '<p style="color:#9aa6ba;font-size:0.9rem;text-align:center;padding:2.5rem 0">'
+                'No pending single bets</p>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
+
+        # ── Next matchday · what Main would bet ─────────────────────────────
+        # Rebuilt 25 Sep 2026. The old Value Bet Scanner repriced every market with
+        # no gates, so it offered home/away/over "value" with Kelly stakes the
+        # strategy never places, and draws that fail the raw floor. Verdicts now
+        # come from matchday_state, a dry run of the real auto-bet.
+        st.markdown('<p class="section-label">📡  NEXT MATCHDAY · WHAT MAIN WOULD BET</p>',
+                    unsafe_allow_html=True)
+        _mk = " and ".join(md.MARKET_LABELS.get(m, m) for m in settings.get("auto_markets", []))
+        st.markdown(
+            '<div class="scan-explainer">Each verdict is a dry run of the live auto-bet '
+            f'on a copy of this portfolio: the same gates, caps and stakes. The strategy '
+            f'bets <b>{_mk}</b> only. Other markets appear when you switch on '
+            '"Show every market", for information, with no stake.</div>',
+            unsafe_allow_html=True)
+        show_all = st.toggle("Show every market", key="scan_show_all", value=False)
+
+        state = matchday_state(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m,
+                               draw_fc, teams, elo_dict)
+        verdicts = state["verdicts"]["main"]
+        live_odds = state["odds"]
+        if not state["preds"]:
+            st.info("No upcoming fixtures in the next 30 days.")
+        else:
+            current_date = None
+            for q in state["preds"]:
+                home, away = q["home"], q["away"]
+                p_h, p_d, p_a = q["main"]["home_win"], q["main"]["draw"], q["main"]["away_win"]
+                p_o25 = q["p_o25"]
+                api_odds = live_odds.get((home, away), {})
+                fix_key = f"{home}_{away}".replace(" ", "").replace("'", "").replace("-", "")
+                date_str = q["date"]
+                fdate = q["fix_date"]
+                if fdate != current_date:
+                    current_date = fdate
+                    st.markdown(
+                        f'<p class="scan-day">{current_date.strftime("%A %-d %B")}</p>',
+                        unsafe_allow_html=True)
+                _fixture_card(q, state, key="pf", lines=("main",))
+                if show_all and api_odds:
+                    st.markdown(_market_grid_html(home, away, p_h, p_d, p_a, p_o25, api_odds),
+                                unsafe_allow_html=True)
+
+                # Bet slip expander — bigger, more prominent label
+                with st.expander(f"✍️  Manual bet · {home} v {away}", expanded=False):
+                    mkt_options = [
+                        f"Home Win ({home})", "Draw", f"Away Win ({away})",
+                        "Over 2.5 Goals", "Under 2.5 Goals",
+                    ]
+                    # Pre-select the best EV market
+                    _mkt_evs = [
+                        ("H",      p_h,     api_odds.get("H", 2.0)),
+                        ("D",      p_d,     api_odds.get("D", 3.0)),
+                        ("A",      p_a,     api_odds.get("A", 3.0)),
+                        ("over25", p_o25,   api_odds.get("over25", 2.0)),
+                        ("under25",1-p_o25, api_odds.get("under25", 2.0)),
+                    ]
+                    _best_idx = max(range(len(_mkt_evs)),
+                                    key=lambda i: pf.compute_ev(_mkt_evs[i][1], _mkt_evs[i][2]))
+                    bc1, bc2, bc3, bc4 = st.columns([3, 2, 2, 2])
+                    with bc1:
+                        mkt_sel = st.selectbox("Market", mkt_options, index=_best_idx, key=f"mkt_{fix_key}")
+                        if "Home" in mkt_sel:
+                            mkt_code, prob_sel, sel_label = "H",       p_h,       f"Home Win ({home})"
+                        elif "Away" in mkt_sel:
+                            mkt_code, prob_sel, sel_label = "A",       p_a,       f"Away Win ({away})"
+                        elif "Over" in mkt_sel:
+                            mkt_code, prob_sel, sel_label = "over25",  p_o25,     "Over 2.5 Goals"
+                        elif "Under" in mkt_sel:
+                            mkt_code, prob_sel, sel_label = "under25", 1-p_o25,   "Under 2.5 Goals"
+                        else:
+                            mkt_code, prob_sel, sel_label = "D",       p_d,       "Draw"
+                    with bc2:
+                        _ou_key = "over25" if "Over" in mkt_sel else "under25"
+                        _default_o = float(api_odds.get(mkt_code, api_odds.get(_ou_key, 2.0))) if api_odds else 2.0
+                        odds_inp = st.number_input(
+                            "Decimal Odds", 1.01, 200.0, _default_o, 0.05,
+                            key=f"odds_{fix_key}", format="%.2f",
+                        )
+                    with bc3:
+                        ev_val    = pf.compute_ev(prob_sel, odds_inp)
+                        kelly_rec = pf.kelly_stake_amount(prob_sel, odds_inp, bankroll,
+                                                          kelly_frac, max_stake_pct)
+                        stake_inp = st.number_input(
+                            "Stake (£)", 1.0, max(float(bankroll), 1.0),
+                            max(float(kelly_rec), 1.0), 1.0,
+                            key=f"stake_{fix_key}", format="%.2f",
+                        )
+                    with bc4:
+                        ev_color = "#00e676" if ev_val >= min_ev else ("#ffd600" if ev_val >= 0 else "#ff6fa1")
+                        st.markdown(f"""
+                        <div style="padding-top:0.25rem">
+                            <div style="font-size:0.78rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Model EV</div>
+                            <div style="font-size:1.5rem;font-weight:800;color:{ev_color}">
+                                {"+" if ev_val >= 0 else ""}{ev_val*100:.1f}%
+                            </div>
+                            <div style="font-size:0.78rem;color:#b8c0d0">Kelly: £{kelly_rec:.0f}</div>
+                            <div style="font-size:0.78rem;color:#b8c0d0">Implied: {pf.implied_prob(odds_inp)*100:.1f}%</div>
+                        </div>""", unsafe_allow_html=True)
+
+                    if ev_val < 0:
+                        st.warning("⚠️ Negative EV — model says these odds aren't value.")
+                    elif 0 <= ev_val < min_ev:
+                        st.info(f"ℹ️ Below your +{int(min_ev*100)}% threshold but still positive EV.")
+
+                    already = any(
+                        b.get("type") != "acca"
+                        and b["status"] == "pending"
+                        and b["home"] == home and b["away"] == away
+                        and b["market"] == mkt_code
+                        for b in port["bets"]
+                    )
+                    if already:
+                        st.warning("⚠️ Already have a pending bet on this market.")
+                    elif stake_inp > bankroll:
+                        st.error(f"Insufficient bankroll — £{bankroll:.2f} available.")
+                    else:
+                        pot_return = round(stake_inp * odds_inp, 2)
+                        pot_profit = round(pot_return - stake_inp, 2)
+                        st.markdown(
+                            f'<div class="bet-return-box">'
+                            f'<div>'
+                            f'<div style="font-size:0.88rem;color:#b8c0d0;text-transform:uppercase;letter-spacing:1px">Potential Return</div>'
+                            f'<div class="bet-return-total">£{pot_return:,.2f}</div>'
+                            f'</div>'
+                            f'<div class="bet-return-detail">+£{pot_profit:,.2f} profit</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(f"✅  Place £{stake_inp:.0f} on {sel_label}",
+                                     key=f"place_{fix_key}_{mkt_code}", type="primary"):
+                            pf.place_bet(port, home, away, date_str, mkt_code, sel_label,
+                                         prob_sel, odds_inp, stake_inp)
+                            pf.save_portfolio(port)
+                            st.success(f"🎯 Bet placed! £{stake_inp:.0f} on {sel_label} @ {odds_inp:.2f}")
+                            st.rerun()
+
+
+        st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
+
+    with _t_hist:
+        _bet_history(port, "main", "BET HISTORY · Singles")
+
+        st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
+
+        _clv_section(port, df)
+
+    with _t_set:
+        # ── Historical EV Backtest ────────────────────────────────────────────
+        with st.expander("📜  Historical EV Backtest — could you beat the bookies on past data?", expanded=False):
+            st.markdown("""
+            <div style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem;line-height:1.6">
+                Simulates what would have happened if you had placed Kelly-sized bets on every match
+                where the <b style="color:#ccd">DC + XGB + Draw Specialist</b> ensemble identified a
+                value opportunity vs actual <b style="color:#ccd">Bet365 closing odds</b> from our
+                historical CSV data.
+                Training is strictly cut off before each test window — no data leakage.
+                Results directly answer: <i>does our model have long-run edge over the bookmaker?</i>
+            </div>""", unsafe_allow_html=True)
+
+            # ── Quick presets ─────────────────────────────────────────────
+            _render_backtest_presets("hbt")
+
+            # Multi-season note (matches Mock Two)
+            st.markdown(
+                '<div style="background:linear-gradient(135deg,rgba(0,229,255,0.07),rgba(124,77,255,0.04));'
+                'border-left:3px solid #00e5ff;border-radius:8px;padding:0.7rem 1rem;'
+                'margin-bottom:0.9rem;font-size:0.82rem;color:#cdd;line-height:1.5">'
+                '💡 <b style="color:#00e5ff">Multi-season backtests:</b> '
+                "test_weeks ≥ 80 spans more than one season. Recent seasons are "
+                "the most representative — older data includes teams since "
+                "relegated/promoted, and ELO ratings stabilise as more matches "
+                "accumulate. <b>2025-26 is most predictive of next season's "
+                "behaviour.</b> Defaults below match your saved live config."
+                '</div>', unsafe_allow_html=True,
+            )
+
+            hc1, hc2, hc3, hc4, hc5, hc6 = st.columns(6)
+            with hc1:
+                hbt_weeks  = st.slider("Test Window (weeks)", 8, 200, 40,
+                                        key="hbt_weeks",
+                                        help="Default 40 ≈ one full season back from "
+                                             "the latest match (Aug–May). 27 ≈ recent "
+                                             "6 months (mid-season view). Beyond ~52 "
+                                             "the single-split design goes stale — "
+                                             "the model trains only on pre-window data.")
+            with hc2:
+                hbt_min_ev = st.slider("Min EV (%)", 1, 60,
+                                        int(float(settings.get("min_ev", 0.40)) * 100),
+                                        key="hbt_minev")
+            with hc3:
+                hbt_min_prob = st.slider(
+                    "Min Prob Gate (%)", 0, 80,
+                    int(settings.get("min_prob", 0.30) * 100),
+                    key="hbt_minprob",
+                    help="Reject candidates whose model probability is below this floor.",
+                )
+            with hc4:
+                _kf = float(settings.get("kelly_fraction", 1.0))
+                _kf_options = [0.25, 0.5, 0.75, 1.0]
+                _kf_default = min(_kf_options, key=lambda x: abs(x - _kf))
+                hbt_kelly  = st.select_slider(
+                    "Kelly Fraction", _kf_options, _kf_default, key="hbt_kelly",
+                    format_func=lambda x: f"{int(x*100)}%",
+                )
+            with hc5:
+                hbt_max_stake = st.slider(
+                    "Max Stake (% of bankroll)", 5, 50,
+                    int(settings.get("max_stake_pct", 0.33) * 100),
+                    key="hbt_maxstake",
+                    help="Cap on a single bet. 33% = practical saturation.",
+                )
+            with hc6:
+                hbt_bankroll = st.number_input(
+                    "Bankroll (£)", 100.0, 100000.0, 10000.0, 1000.0,
+                    key="hbt_bankroll", format="%.0f",
+                )
+
+            fc1, fc2, fc3, fc4 = st.columns([1.1, 1.3, 1.2, 1])
+            with fc1:
+                hbt_skip_late = st.checkbox(
+                    "Skip Mar-Apr",
+                    value=bool(settings.get("skip_late_season", True)),
+                    key="hbt_skip_late",
+                    help="0/7 wins across 2024-25 + 2025-26 in March-April. "
+                         "(May was previously bundled in but is now allowed.)",
+                )
+            with fc2:
+                hbt_skip_title = st.checkbox(
+                    "Skip home_title_race",
+                    value=bool(settings.get("skip_home_title_race", False)),
+                    key="hbt_skip_title",
+                    help="0/6 wins when home team chasing title (2025-26).",
+                )
+            with fc3:
+                hbt_sim_main = st.checkbox(
+                    "Sim-bet correction",
+                    value=bool(settings.get("use_simultaneous_kelly", True)),
+                    key="hbt_sim",
+                    help="Reduce stake when multiple bets settle the same day.",
+                )
+            with fc4:
+                _odds_options = ["B365", "Max", "Avg", "PS"]
+                hbt_odds_src = st.selectbox(
+                    "Place at",
+                    options=_odds_options,
+                    index=_odds_options.index("Max"),
+                    key="hbt_odds_src",
+                    help="The price you actually win at if your bet hits. "
+                         "Multi-season grid optimum: Max (best CLV when paired with PS).",
+                )
+
+            # Markets row — U2.5 separate-gates toggle
+            mc1, mc2 = st.columns([1.5, 3])
+            with mc1:
+                hbt_u25_gates = st.checkbox(
+                    "Include Under 2.5 (separate gates)",
+                    value="under25" in (settings.get("market_gates") or {}),
+                    key="hbt_u25_gates",
+                    help="Adds U2.5 to the simulated market set with mp=50%, mev=5%.",
+                )
+            with mc2:
+                if hbt_u25_gates:
+                    st.markdown(
+                        '<div style="font-size:0.86rem;color:#a78bfa;padding-top:0.55rem">'
+                        'Backtest will include <b>Draw + Under 2.5</b> with separate per-market gates '
+                        '(U2.5: mp ≥ 50%, ev ≥ 5%).</div>',
+                        unsafe_allow_html=True,
                     )
 
-                    fig_hbt.update_layout(
-                        **{k: v for k, v in DARK.items() if k != "margin"},
-                        height=460, showlegend=False,
-                        margin=dict(t=40, b=40, l=20, r=140),
-                        xaxis=dict(
-                            title=dict(text="BET NUMBER",
-                                       font=dict(size=12, color="#7c4dff", family="Inter"),
-                                       standoff=18),
-                            showgrid=False, showticklabels=True,
-                            tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
-                            zeroline=False,
-                        ),
-                        yaxis=dict(
-                            title=dict(text="BANKROLL",
-                                       font=dict(size=12, color="#7c4dff", family="Inter"),
-                                       standoff=14),
-                            gridcolor="rgba(255,255,255,0.05)",
-                            tickprefix="£",
-                            tickfont=dict(size=14, color="#cdd", family="Inter"),
-                            zeroline=False, tickformat=",.0f",
-                        ),
-                    )
-                    st.plotly_chart(fig_hbt, use_container_width=True, config={"displayModeBar": False})
+            _detect_options = ["(same as place)", "B365", "Max", "Avg", "PS"]
+            hbt_detect_src = st.selectbox(
+                "Detect EV against (optional — leave 'same as place' for single-source)",
+                options=_detect_options,
+                index=_detect_options.index("PS"),
+                key="hbt_detect_src",
+                help="Multi-season grid optimum: detect at PS, place at Max.",
+            )
 
-                    _render_backtest_clv_trend(log_df, df, key_prefix="hbt")
+            # ── Optional Phase 4 / ELO filter controls — defaulted from settings ──
+            st.markdown(
+                '<div style="margin:0.7rem 0 0.4rem;padding-top:0.6rem;'
+                'border-top:1px dashed rgba(0,229,255,0.25);'
+                'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
+                'text-transform:uppercase;color:#00e5ff">'
+                '🧠 Optional escape-hatch filters (defaults match saved live settings)'
+                '</div>', unsafe_allow_html=True,
+            )
+            _all_dows_h   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            _all_months_h = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            bf1, bf2, bf3 = st.columns([1.2, 1.2, 1.6])
+            with bf1:
+                hbt_banned_dows = st.multiselect(
+                    "Banned days (DOW)",
+                    options=_all_dows_h,
+                    default=list(settings.get("main_banned_dows", [])),
+                    key="hbt_banned_dows",
+                )
+            with bf2:
+                hbt_banned_months = st.multiselect(
+                    "Banned months",
+                    options=_all_months_h,
+                    default=list(settings.get("main_banned_months", [])),
+                    key="hbt_banned_months",
+                )
+            with bf3:
+                _max_ev_default = settings.get("main_max_ev_pct")
+                hbt_max_ev_on = st.checkbox(
+                    "Cap claimed EV (overconfidence guard)",
+                    value=_max_ev_default is not None,
+                    key="hbt_max_ev_on",
+                )
+                hbt_max_ev = (
+                    st.slider("Max EV cap (%)", 40, 200,
+                              int((_max_ev_default or 1.0) * 100), 5,
+                              key="hbt_max_ev_val")
+                    if hbt_max_ev_on else None
+                )
 
-                    disp_cols = ["Date", "Match", "Market", "Model%", "Implied%",
-                                 "EV", "Odds", "Stake", "Result", "Profit", "Bankroll"]
-                    st.dataframe(
-                        log_df[[c for c in disp_cols if c in log_df.columns]],
-                        use_container_width=True,
-                        hide_index=True,
-                        height=min(400, 60 + len(log_df) * 35),
-                        column_config={
-                            "Bankroll": st.column_config.NumberColumn("Bankroll", format="£%.2f"),
-                            "Stake":    st.column_config.NumberColumn("Stake",    format="£%.2f"),
-                            "Profit":   st.column_config.NumberColumn("P&L",      format="£%.2f"),
-                        },
+            # ELO-profile filter row
+            st.markdown(
+                '<div style="margin-top:0.7rem;font-size:0.78rem;font-weight:700;'
+                'color:#a78bfa">🎯 ELO-profile filter (Mock Two grid winner: 1500)</div>',
+                unsafe_allow_html=True,
+            )
+            be1, be2, be3, be4 = st.columns(4)
+            with be1:
+                _mte = settings.get("main_min_team_elo")
+                hbt_min_te_on = st.checkbox(
+                    "Min team ELO floor", value=_mte is not None,
+                    key="hbt_min_te_on",
+                    help="Skip if either team is below this ELO. Trade peak £85k for £6k floor.",
+                )
+                hbt_min_te = (st.slider("Min ELO", 1300, 1700, int(_mte or 1500),
+                                         10, key="hbt_min_te_val")
+                              if hbt_min_te_on else None)
+            with be2:
+                _mxe = settings.get("main_max_team_elo")
+                hbt_max_te_on = st.checkbox(
+                    "Max team ELO ceiling", value=_mxe is not None,
+                    key="hbt_max_te_on",
+                )
+                hbt_max_te = (st.slider("Max ELO", 1700, 2100, int(_mxe or 1900),
+                                         10, key="hbt_max_te_val")
+                              if hbt_max_te_on else None)
+            with be3:
+                _gmin = settings.get("main_elo_gap_min")
+                hbt_gap_min_on = st.checkbox(
+                    "Min |ΔELO|", value=_gmin is not None, key="hbt_gap_min_on",
+                )
+                hbt_gap_min = (st.slider("Min gap", 20, 200, int(_gmin or 80),
+                                          10, key="hbt_gap_min_val")
+                               if hbt_gap_min_on else None)
+            with be4:
+                _gmax = settings.get("main_elo_gap_max")
+                hbt_gap_max_on = st.checkbox(
+                    "Max |ΔELO|", value=_gmax is not None, key="hbt_gap_max_on",
+                )
+                hbt_gap_max = (st.slider("Max gap", 100, 500, int(_gmax or 300),
+                                          20, key="hbt_gap_max_val")
+                               if hbt_gap_max_on else None)
+
+            if st.button("🔄  Run Simulation", key="run_hbt", type="primary"):
+                with st.spinner("Running EV simulation on historical match data..."):
+                    bt_df = backtest_models(df, df_features, test_weeks=hbt_weeks)
+                    _bt_markets = set(settings.get("auto_markets", list(pf.PROFITABLE_MARKETS)))
+                    _detect_main = None if hbt_detect_src == "(same as place)" else str(hbt_detect_src)
+                    # When U2.5 toggle is on, force-add it to the market set and apply its gates
+                    if hbt_u25_gates:
+                        _bt_markets = set(_bt_markets) | {"under25"}
+                        _market_gates = {"under25": {"min_prob": 0.50, "min_ev": 0.05}}
+                    else:
+                        _market_gates = settings.get("market_gates")
+                    log_df, summary = pf.ev_backtest_simulate(
+                        bt_df, df,
+                        min_ev_pct=float(hbt_min_ev),
+                        kelly_frac=float(hbt_kelly),
+                        max_stake_pct=float(hbt_max_stake) / 100.0,
+                        initial_bankroll=float(hbt_bankroll),
+                        allowed_markets=_bt_markets,
+                        min_prob=float(hbt_min_prob) / 100.0,
+                        skip_late_season=bool(hbt_skip_late),
+                        skip_home_title_race=bool(hbt_skip_title),
+                        odds_source=str(hbt_odds_src),
+                        detect_source=_detect_main,
+                        enable_simultaneous_correction=bool(hbt_sim_main),
+                        market_gates=_market_gates,
+                        # Honest calibration: fitted strictly BEFORE the eval window
+                        # (never the live cached_calibrators — those overlap it)
+                        calibrators=cached_honest_calibrators(len(df), int(hbt_weeks)),
+                        # Optional Phase 4 + ELO filters (default OFF)
+                        banned_dows=set(hbt_banned_dows) if hbt_banned_dows else None,
+                        banned_months=set(hbt_banned_months) if hbt_banned_months else None,
+                        max_ev_pct=(hbt_max_ev / 100.0 if hbt_max_ev is not None else None),
+                        min_team_elo=float(hbt_min_te) if hbt_min_te is not None else None,
+                        max_team_elo=float(hbt_max_te) if hbt_max_te is not None else None,
+                        elo_gap_min=float(hbt_gap_min) if hbt_gap_min is not None else None,
+                        elo_gap_max=float(hbt_gap_max) if hbt_gap_max is not None else None,
+                        # No-history gate, mirroring live so the backtest measures
+                        # the gate as it actually runs
+                        min_team_matches=settings.get("min_team_matches"),
+                        df_features=df_features,
                     )
+                    st.session_state["_hbt_log"]     = log_df
+                    st.session_state["_hbt_summary"] = summary
+
+            if "_hbt_summary" in st.session_state:
+                summary = st.session_state["_hbt_summary"]
+                log_df  = st.session_state["_hbt_log"]
+
+                if "error" in summary:
+                    st.error(summary["error"])
+                else:
+                    sim_profit = summary["profit"]
+                    sim_roi    = summary["roi"]
+                    sim_col    = "#00e676" if sim_profit >= 0 else "#ff6fa1"
+
+                    ms1, ms2, ms3, ms4, ms5 = st.columns(5)
+                    with ms1: st.metric("Final Bankroll", f"£{summary['final']:,.0f}",
+                                        f"{md.fmt_money(sim_profit)}")
+                    with ms2: st.metric("ROI", f"{'+'  if sim_roi >= 0 else ''}{sim_roi:.1f}%")
+                    with ms3:
+                        _skipped = summary.get("skipped_min_prob", 0)
+                        st.metric(
+                            "Total Bets", str(summary["n_bets"]),
+                            f"−{_skipped} below min-prob" if _skipped else None,
+                            delta_color="off",
+                        )
+                    with ms4: st.metric("Win Rate", f"{summary['win_rate']:.0f}%")
+                    with ms5: st.metric("Avg Odds", f"{summary['avg_odds']:.2f}")
+
+                    if not log_df.empty:
+                        _init_br = summary["initial"]
+                        x_h = list(range(len(log_df) + 1))
+                        y_h = [float(_init_br)] + [float(v) for v in log_df["Bankroll"].tolist()]
+                        line_col = "#00e676" if y_h[-1] >= _init_br else "#ff6fa1"
+
+                        fig_hbt = go.Figure()
+
+                        # Insert baseline-crossing points so green/red fills don't bleed
+                        # past the actual line on segments that straddle the baseline.
+                        x_exp: list[float] = [x_h[0]]
+                        y_exp: list[float] = [y_h[0]]
+                        for i in range(1, len(y_h)):
+                            y_prev, y_cur = y_h[i - 1], y_h[i]
+                            if (y_prev - _init_br) * (y_cur - _init_br) < 0:
+                                t = (_init_br - y_prev) / (y_cur - y_prev)
+                                x_cross = x_h[i - 1] + t * (x_h[i] - x_h[i - 1])
+                                x_exp.append(x_cross); y_exp.append(_init_br)
+                            x_exp.append(x_h[i]); y_exp.append(y_cur)
+
+                        y_up = [max(v, _init_br) for v in y_exp]
+                        y_dn = [min(v, _init_br) for v in y_exp]
+                        baseline = [_init_br] * len(y_exp)
+
+                        # Green fill from baseline up to bankroll where bankroll ≥ baseline
+                        fig_hbt.add_trace(go.Scatter(
+                            x=x_exp, y=baseline, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            hoverinfo="skip", showlegend=False,
+                        ))
+                        fig_hbt.add_trace(go.Scatter(
+                            x=x_exp, y=y_up, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
+                            hoverinfo="skip", showlegend=False,
+                        ))
+                        # Red fill from baseline down to bankroll where bankroll ≤ baseline
+                        fig_hbt.add_trace(go.Scatter(
+                            x=x_exp, y=baseline, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            hoverinfo="skip", showlegend=False,
+                        ))
+                        fig_hbt.add_trace(go.Scatter(
+                            x=x_exp, y=y_dn, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
+                            hoverinfo="skip", showlegend=False,
+                        ))
+
+                        # Baseline line + label
+                        fig_hbt.add_hline(
+                            y=_init_br, line_color="rgba(255,255,255,0.30)", line_dash="dot",
+                            annotation_text=f"Start £{_init_br:,.0f}",
+                            annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
+                            annotation_position="top left",
+                        )
+
+                        # Soft halo + main line with win/loss markers
+                        deltas = [0.0] + [y_h[i] - y_h[i - 1] for i in range(1, len(y_h))]
+                        marker_symbols = ["circle"] + [
+                            "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
+                            for d in deltas[1:]
+                        ]
+                        marker_colors = ["#8892a4"] + [
+                            "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
+                            for d in deltas[1:]
+                        ]
+                        marker_sizes = [0] + [11 if d != 0 else 5 for d in deltas[1:]]
+                        hover_texts = ["Start"] + [
+                            ("▲ WON "  + f"+£{d:,.2f}") if d > 0 else
+                            ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
+                            "No change"
+                            for d in deltas[1:]
+                        ]
+
+                        fig_hbt.add_trace(go.Scatter(
+                            x=x_h, y=y_h, mode="lines",
+                            line=dict(color=f"rgba({_hex_to_rgb(line_col)},0.30)", width=10),
+                            hoverinfo="skip", showlegend=False,
+                        ))
+                        fig_hbt.add_trace(go.Scatter(
+                            x=x_h, y=y_h, mode="lines+markers",
+                            line=dict(color=line_col, width=3.2, shape="linear"),
+                            marker=dict(
+                                symbol=marker_symbols, size=marker_sizes,
+                                color=marker_colors,
+                                line=dict(color="#0a0e1a", width=1.2),
+                            ),
+                            text=hover_texts,
+                            hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
+                                           "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b><extra></extra>"),
+                            hoverlabel=dict(
+                                bgcolor="#1a1d27", bordercolor=line_col,
+                                font=dict(size=14, family="Inter", color="#e8eaf0"),
+                            ),
+                            showlegend=False,
+                        ))
+
+                        # Peak / Low / NOW badges
+                        peak_idx   = int(np.argmax(y_h))
+                        trough_idx = int(np.argmin(y_h))
+                        if peak_idx > 0 and y_h[peak_idx] > _init_br * 1.05:
+                            fig_hbt.add_annotation(
+                                x=x_h[peak_idx], y=y_h[peak_idx],
+                                text=f"<b>Peak</b><br>£{y_h[peak_idx]:,.0f}",
+                                showarrow=True, arrowhead=2, arrowcolor="#00e676",
+                                arrowsize=1.2, arrowwidth=1.5, ax=0, ay=-38,
+                                font=dict(size=12, color="#00e676", family="Inter"),
+                                bgcolor="rgba(0,230,118,0.10)",
+                                bordercolor="rgba(0,230,118,0.4)",
+                                borderpad=4, borderwidth=1,
+                            )
+                        if (trough_idx > 0 and y_h[trough_idx] < _init_br * 0.95
+                                and trough_idx != peak_idx):
+                            fig_hbt.add_annotation(
+                                x=x_h[trough_idx], y=y_h[trough_idx],
+                                text=f"<b>Low</b><br>£{y_h[trough_idx]:,.0f}",
+                                showarrow=True, arrowhead=2, arrowcolor="#ff4081",
+                                arrowsize=1.2, arrowwidth=1.5, ax=0, ay=38,
+                                font=dict(size=12, color="#ff4081", family="Inter"),
+                                bgcolor="rgba(255,64,129,0.10)",
+                                bordercolor="rgba(255,64,129,0.4)",
+                                borderpad=4, borderwidth=1,
+                            )
+                        fig_hbt.add_annotation(
+                            x=x_h[-1], y=y_h[-1],
+                            text=f"<b>NOW · £{y_h[-1]:,.0f}</b>",
+                            showarrow=False, xshift=15,
+                            font=dict(size=14, color="#fff", family="Inter"),
+                            bgcolor=line_col, bordercolor=line_col,
+                            borderpad=8, borderwidth=2, xanchor="left",
+                        )
+
+                        fig_hbt.update_layout(
+                            **{k: v for k, v in DARK.items() if k != "margin"},
+                            height=460, showlegend=False,
+                            margin=dict(t=40, b=40, l=20, r=140),
+                            xaxis=dict(
+                                title=dict(text="BET NUMBER",
+                                           font=dict(size=12, color="#7c4dff", family="Inter"),
+                                           standoff=18),
+                                showgrid=False, showticklabels=True,
+                                tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
+                                zeroline=False,
+                            ),
+                            yaxis=dict(
+                                title=dict(text="BANKROLL",
+                                           font=dict(size=12, color="#7c4dff", family="Inter"),
+                                           standoff=14),
+                                gridcolor="rgba(255,255,255,0.05)",
+                                tickprefix="£",
+                                tickfont=dict(size=14, color="#cdd", family="Inter"),
+                                zeroline=False, tickformat=",.0f",
+                            ),
+                        )
+                        st.plotly_chart(fig_hbt, use_container_width=True, config={"displayModeBar": False})
+
+                        _render_backtest_clv_trend(log_df, df, key_prefix="hbt")
+
+                        disp_cols = ["Date", "Match", "Market", "Model%", "Implied%",
+                                     "EV", "Odds", "Stake", "Result", "Profit", "Bankroll"]
+                        st.dataframe(
+                            log_df[[c for c in disp_cols if c in log_df.columns]],
+                            use_container_width=True,
+                            hide_index=True,
+                            height=min(400, 60 + len(log_df) * 35),
+                            column_config={
+                                "Bankroll": st.column_config.NumberColumn("Bankroll", format="£%.2f"),
+                                "Stake":    st.column_config.NumberColumn("Stake",    format="£%.2f"),
+                                "Profit":   st.column_config.NumberColumn("P&L",      format="£%.2f"),
+                            },
+                        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -8085,581 +8140,588 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     except Exception:
         calibrators = {}
 
-    # ── Header: research-track tagline + γ readout ────────────────────────
-    gamma_val = dc_kn_r.get("gamma", 0.0)
-    gamma_col = "#00e676" if gamma_val > 0.02 else ("#ffd600" if gamma_val > -0.02 else "#ff6fa1")
-    st.markdown(
-        f'<div style="padding:0.9rem 1.1rem;border-radius:10px;'
-        f'background:linear-gradient(135deg,rgba(124,77,255,0.10),rgba(0,229,255,0.04));'
-        f'border:1px solid rgba(124,77,255,0.25);margin-bottom:1.2rem">'
-        f'<div style="font-size:0.86rem;letter-spacing:3px;color:#a78bfa;font-weight:700;'
-        f'text-transform:uppercase;margin-bottom:0.4rem">🧪  Research-Track Portfolio</div>'
-        f'<div style="font-size:0.94rem;color:#e8eaf0;line-height:1.5">'
-        f'Dixon-Coles <b>+ Karlis-Ntzoufras γ-inflation</b> (γ={gamma_val:+.4f} '
-        f'<span style="color:{gamma_col}">'
-        f'{"⬆ inflating draws" if gamma_val > 0.02 else "⬇ deflating draws" if gamma_val < -0.02 else "≈ near zero"}'
-        f'</span>) &nbsp;·&nbsp; '
-        f'{_mt_sizing_blurb(port2)}</div>'
-        f'<div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.4rem">'
-        f'Runs beside Main on the same fixtures. The end-of-season gap in CLV and '
-        f'P&amp;L decides what graduates to Main.</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    _track_settings_change("mt", port2)
+    _t_over, _t_open, _t_hist, _t_set = st.tabs(
+        ["Overview", "Open bets", "History and CLV", "Settings and research"])
 
-    # ── A/B Comparison header — main vs Mock Two ──────────────────────────
-    main_stats = pf.portfolio_stats(main_port)
-    mt_stats   = pf.portfolio_stats(port2)
-    main_clv   = pf.clv_summary(main_port)
-    mt_clv     = pf.clv_summary(port2)
-
-    st.markdown('<p class="section-label">⚖️  A/B Compare · Main vs Research-Track</p>',
-                unsafe_allow_html=True)
-    cmp_cols = st.columns(2)
-    for col, label, color, st_dict, cl_dict, port_dict, accent in [
-        (cmp_cols[0], "MAIN PORTFOLIO", "#3d6eff", main_stats, main_clv, main_port, "#3d6eff"),
-        (cmp_cols[1], "MOCK TWO (research)", "#7c4dff", mt_stats, mt_clv, port2, "#7c4dff"),
-    ]:
-        profit = st_dict["profit"]
-        roi    = st_dict["roi"]
-        sign   = "+" if profit >= 0 else ""
-        prof_col = "#00e676" if profit >= 0 else "#ff6fa1"
-        clv_med  = (cl_dict["median_clv"] * 100) if cl_dict["n"] > 0 else None
-        clv_col  = ("#00e676" if (clv_med or 0) >= 1 else "#ffd600" if (clv_med or 0) >= 0 else "#ff6fa1") if clv_med is not None else "#556"
-        clv_str  = f"{clv_med:+.2f}%" if clv_med is not None else "—"
-        with col:
-            st.markdown(f"""<div style="padding:1rem 1.2rem;border-radius:10px;
-                background:rgba(255,255,255,0.02);border-left:4px solid {accent}">
-                <div style="font-size:0.84rem;letter-spacing:2px;color:{accent};font-weight:800">{label}</div>
-                <div style="display:flex;gap:1.4rem;align-items:baseline;margin-top:0.5rem;flex-wrap:wrap">
-                    <div>
-                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">P&amp;L</div>
-                        <div style="font-size:1.7rem;font-weight:900;color:{prof_col}">{md.fmt_money(profit)}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">ROI</div>
-                        <div style="font-size:1.2rem;font-weight:700;color:{prof_col}">{sign}{roi:.1f}%</div>
-                    </div>
-                    <div>
-                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">SETTLED</div>
-                        <div style="font-size:1.2rem;font-weight:700;color:#e8eaf0">{st_dict["n_settled"]}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">MEDIAN CLV</div>
-                        <div style="font-size:1.2rem;font-weight:700;color:{clv_col}">{clv_str}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">BANKROLL</div>
-                        <div style="font-size:1.2rem;font-weight:700;color:#e8eaf0">£{st_dict["bankroll"]:,.0f}</div>
-                    </div>
-                </div>
-            </div>""", unsafe_allow_html=True)
-    # Verdict
-    delta_roi = mt_stats["roi"] - main_stats["roi"]
-    delta_clv = ((mt_clv["median_clv"] or 0) - (main_clv["median_clv"] or 0)) * 100
-    if mt_stats["n_settled"] >= 5 or main_stats["n_settled"] >= 5:
-        verd_col = "#00e676" if delta_roi > 0 else ("#ffd600" if delta_roi > -2 else "#ff6fa1")
-        verd_msg = (
-            f"Research track {'leading' if delta_roi > 0 else 'trailing'} main by "
-            f"{abs(delta_roi):.1f}pp ROI &nbsp;·&nbsp; CLV gap {delta_clv:+.2f}pp"
-        )
-        sample_msg = (f"Both portfolios still small-sample — verdict needs ≥50 settled bets to mean much."
-                      if min(mt_stats["n_settled"], main_stats["n_settled"]) < 50
-                      else "Sample is large enough to read directionally.")
+    with _t_over:
+        # ── Header: research-track tagline + γ readout ────────────────────────
+        gamma_val = dc_kn_r.get("gamma", 0.0)
+        gamma_col = "#00e676" if gamma_val > 0.02 else ("#ffd600" if gamma_val > -0.02 else "#ff6fa1")
         st.markdown(
-            f'<div style="padding:0.7rem 1rem;margin-top:0.6rem;'
-            f'background:rgba(124,77,255,0.06);border-left:3px solid {verd_col};'
-            f'border-radius:6px;font-size:0.84rem;color:#e8eaf0">'
-            f'<b style="color:{verd_col}">{verd_msg}</b> '
-            f'&nbsp;·&nbsp; <span style="color:#c9d0dc">{sample_msg}</span></div>',
+            f'<div style="padding:0.9rem 1.1rem;border-radius:10px;'
+            f'background:linear-gradient(135deg,rgba(124,77,255,0.10),rgba(0,229,255,0.04));'
+            f'border:1px solid rgba(124,77,255,0.25);margin-bottom:1.2rem">'
+            f'<div style="font-size:0.86rem;letter-spacing:3px;color:#a78bfa;font-weight:700;'
+            f'text-transform:uppercase;margin-bottom:0.4rem">🧪  Research-Track Portfolio</div>'
+            f'<div style="font-size:0.94rem;color:#e8eaf0;line-height:1.5">'
+            f'Dixon-Coles <b>+ Karlis-Ntzoufras γ-inflation</b> (γ={gamma_val:+.4f} '
+            f'<span style="color:{gamma_col}">'
+            f'{"⬆ inflating draws" if gamma_val > 0.02 else "⬇ deflating draws" if gamma_val < -0.02 else "≈ near zero"}'
+            f'</span>) &nbsp;·&nbsp; '
+            f'{_mt_sizing_blurb(port2)}</div>'
+            f'<div style="font-size:0.82rem;color:#c9d0dc;margin-top:0.4rem">'
+            f'Runs beside Main on the same fixtures. The end-of-season gap in CLV and '
+            f'P&amp;L decides what graduates to Main.</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div class="divider" style="margin:1.4rem 0"></div>', unsafe_allow_html=True)
+        # ── A/B Comparison header — main vs Mock Two ──────────────────────────
+        main_stats = pf.portfolio_stats(main_port)
+        mt_stats   = pf.portfolio_stats(port2)
+        main_clv   = pf.clv_summary(main_port)
+        mt_clv     = pf.clv_summary(port2)
 
-    # ── Settings panel (Mock Two only) ────────────────────────────────────
-    # ── Status chip — current Mock Two config at a glance ────────────────
-    _render_settings_chip(port2, label_prefix="p2")
-
-    # ── Phase 4 findings expander — explain the validated config ─────────
-    with st.expander("🧠  How this config was chosen", expanded=False):
-        _label  = port2["settings"].get("v2_settings_label", "—")
-        _source = port2["settings"].get("v2_settings_source", "—")
-        st.markdown(
-            '<div style="background:linear-gradient(135deg,rgba(0,230,118,0.08),rgba(124,77,255,0.04));'
-            'border:1px solid rgba(0,230,118,0.25);border-left:5px solid #00e676;'
-            'border-radius:14px;padding:1.1rem 1.3rem;margin-bottom:1rem;'
-            'font-size:0.92rem;line-height:1.55;color:#cdd">'
-            f'<b style="color:#00e676">Deployed config:</b> '
-            f'<code style="background:rgba(0,0,0,0.25);padding:2px 8px;border-radius:6px;'
-            f'color:#00e5ff;font-size:0.84rem">{_label}</code><br>'
-            f'<b style="color:#a78bfa">52-week WF result:</b> '
-            f'£10k → <b style="color:#e8eaf0">£631,537</b> '
-            f'<span style="color:#c9d0dc">(+96% ROI, 33% max DD, 35 bets, 49% win)</span><br>'
-            f'<b style="color:#a78bfa">vs Main baseline:</b> '
-            f'£59,320 (+24% ROI, 65% max DD) → <b style="color:#00e676">10× profit, half the DD</b><br>'
-            f'<b style="color:#a78bfa">vs £93k ceiling:</b> 6.8× past target<br>'
-            f'<span style="color:#c9d0dc;font-size:0.84rem">'
-            f'Source: <code>data/diagnostics/{_source}.json</code></span>'
-            '</div>', unsafe_allow_html=True,
-        )
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.markdown(
-                '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
-                'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
-                'Phase 1 — top loss leaks</p>', unsafe_allow_html=True,
+        st.markdown('<p class="section-label">⚖️  A/B Compare · Main vs Research-Track</p>',
+                    unsafe_allow_html=True)
+        cmp_cols = st.columns(2)
+        for col, label, color, st_dict, cl_dict, port_dict, accent in [
+            (cmp_cols[0], "MAIN PORTFOLIO", "#3d6eff", main_stats, main_clv, main_port, "#3d6eff"),
+            (cmp_cols[1], "MOCK TWO (research)", "#7c4dff", mt_stats, mt_clv, port2, "#7c4dff"),
+        ]:
+            profit = st_dict["profit"]
+            roi    = st_dict["roi"]
+            sign   = "+" if profit >= 0 else ""
+            prof_col = "#00e676" if profit >= 0 else "#ff6fa1"
+            clv_med  = (cl_dict["median_clv"] * 100) if cl_dict["n"] > 0 else None
+            clv_col  = ("#00e676" if (clv_med or 0) >= 1 else "#ffd600" if (clv_med or 0) >= 0 else "#ff6fa1") if clv_med is not None else "#556"
+            clv_str  = f"{clv_med:+.2f}%" if clv_med is not None else "—"
+            with col:
+                st.markdown(f"""<div style="padding:1rem 1.2rem;border-radius:10px;
+                    background:rgba(255,255,255,0.02);border-left:4px solid {accent}">
+                    <div style="font-size:0.84rem;letter-spacing:2px;color:{accent};font-weight:800">{label}</div>
+                    <div style="display:flex;gap:1.4rem;align-items:baseline;margin-top:0.5rem;flex-wrap:wrap">
+                        <div>
+                            <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">P&amp;L</div>
+                            <div style="font-size:1.7rem;font-weight:900;color:{prof_col}">{md.fmt_money(profit)}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">ROI</div>
+                            <div style="font-size:1.2rem;font-weight:700;color:{prof_col}">{sign}{roi:.1f}%</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">SETTLED</div>
+                            <div style="font-size:1.2rem;font-weight:700;color:#e8eaf0">{st_dict["n_settled"]}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">MEDIAN CLV</div>
+                            <div style="font-size:1.2rem;font-weight:700;color:{clv_col}">{clv_str}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.8rem;color:#b8c0d0;letter-spacing:1px">BANKROLL</div>
+                            <div style="font-size:1.2rem;font-weight:700;color:#e8eaf0">£{st_dict["bankroll"]:,.0f}</div>
+                        </div>
+                    </div>
+                </div>""", unsafe_allow_html=True)
+        # Verdict
+        delta_roi = mt_stats["roi"] - main_stats["roi"]
+        delta_clv = ((mt_clv["median_clv"] or 0) - (main_clv["median_clv"] or 0)) * 100
+        if mt_stats["n_settled"] >= 5 or main_stats["n_settled"] >= 5:
+            verd_col = "#00e676" if delta_roi > 0 else ("#ffd600" if delta_roi > -2 else "#ff6fa1")
+            verd_msg = (
+                f"Research track {'leading' if delta_roi > 0 else 'trailing'} main by "
+                f"{abs(delta_roi):.1f}pp ROI &nbsp;·&nbsp; CLV gap {delta_clv:+.2f}pp"
             )
-            _phase1_losses = [
-                ("Everton",       6, -23629, -69.8),
-                ("Nott'm Forest", 7, -15829, -74.6),
-                ("Aston Villa",   5, -15687, -72.3),
-                ("Fulham",        9,  -9684, -38.1),
-                ("Crystal Palace",1,  -9311,-100.0),
-                ("Leeds",         1,  -4260,-100.0),
-            ]
-            _rows = "".join([
-                f'<tr><td>{t}</td><td style="text-align:right">{n}</td>'
-                f'<td style="text-align:right;color:#ff6fa1">£{p:,.0f}</td>'
-                f'<td style="text-align:right;color:#ff6fa1">{r:+.1f}%</td></tr>'
-                for t, n, p, r in _phase1_losses
-            ])
+            sample_msg = (f"Both portfolios still small-sample — verdict needs ≥50 settled bets to mean much."
+                          if min(mt_stats["n_settled"], main_stats["n_settled"]) < 50
+                          else "Sample is large enough to read directionally.")
             st.markdown(
-                '<table style="width:100%;font-size:0.86rem;color:#cdd;'
-                'border-collapse:collapse;font-variant-numeric:tabular-nums">'
-                '<thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">'
-                '<th style="text-align:left;padding-bottom:0.4rem">TEAM</th>'
-                '<th style="text-align:right">N</th>'
-                '<th style="text-align:right">P&amp;L</th>'
-                '<th style="text-align:right">ROI</th></tr></thead>'
-                f'<tbody>{_rows}</tbody></table>', unsafe_allow_html=True,
-            )
-            st.markdown(
-                '<p style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
-                'These six teams alone leaked <b style="color:#ff6fa1">−£77.4k</b> '
-                "of the 52-week sample. Worth filtering on paper — but the "
-                "rolling team-ROI filter <i>failed walk-forward</i> "
-                "(reactive, blacklists too late). Keep visible for analysis "
-                "but don't deploy as a gate.</p>",
+                f'<div style="padding:0.7rem 1rem;margin-top:0.6rem;'
+                f'background:rgba(124,77,255,0.06);border-left:3px solid {verd_col};'
+                f'border-radius:6px;font-size:0.84rem;color:#e8eaf0">'
+                f'<b style="color:{verd_col}">{verd_msg}</b> '
+                f'&nbsp;·&nbsp; <span style="color:#c9d0dc">{sample_msg}</span></div>',
                 unsafe_allow_html=True,
             )
 
-        with c2:
+        st.markdown('<div class="divider" style="margin:1.4rem 0"></div>', unsafe_allow_html=True)
+
+    with _t_set:
+        # ── Settings panel (Mock Two only) ────────────────────────────────────
+        # ── Status chip — current Mock Two config at a glance ────────────────
+        _render_settings_chip(port2, label_prefix="p2")
+
+        # ── Phase 4 findings expander — explain the validated config ─────────
+        with st.expander("🧠  How this config was chosen", expanded=False):
+            _label  = port2["settings"].get("v2_settings_label", "—")
+            _source = port2["settings"].get("v2_settings_source", "—")
             st.markdown(
-                '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
-                'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
-                'Top 5 walk-forward variants</p>', unsafe_allow_html=True,
-            )
-            _phase4_top = [
-                ("dowMF + ev≤1.00 + octX + mp30", 680390, 41.4, 63),
-                ("dowMF + ev≤1.00 + octX + mp32", 631537, 32.8, 96, "★ deployed"),
-                ("dowMFS + ev≤1.00 + octX + mp30", 543839, 41.1, 105),
-                ("dowMF + ev free + octX + mp32", 479291, 32.8, 95),
-                ("dowMFS + ev≤1.00 + oct keep + mp30", 427047, 41.1, 103),
-            ]
-            _rows4 = ""
-            for entry in _phase4_top:
-                tag = entry[4] if len(entry) > 4 else ""
-                tag_html = (f'<span style="color:#00e676;font-weight:700;'
-                            f'font-size:0.78rem;margin-left:0.3rem">{tag}</span>'
-                            if tag else "")
-                _rows4 += (
-                    f'<tr><td style="font-size:0.78rem">{entry[0]}{tag_html}</td>'
-                    f'<td style="text-align:right;color:#00e676">£{entry[1]:,.0f}</td>'
-                    f'<td style="text-align:right">{entry[2]:.1f}%</td>'
-                    f'<td style="text-align:right;color:#a78bfa">+{entry[3]}%</td></tr>'
-                )
-            st.markdown(
-                '<table style="width:100%;font-size:0.86rem;color:#cdd;'
-                'border-collapse:collapse;font-variant-numeric:tabular-nums">'
-                '<thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">'
-                '<th style="text-align:left;padding-bottom:0.4rem">CONFIG</th>'
-                '<th style="text-align:right">FINAL</th>'
-                '<th style="text-align:right">DD</th>'
-                '<th style="text-align:right">ROI</th></tr></thead>'
-                f'<tbody>{_rows4}</tbody></table>', unsafe_allow_html=True,
-            )
-            st.markdown(
-                '<p style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
-                "Filters that <b style='color:#ff6fa1'>failed</b> WF: "
-                "team-ROI blacklist, drawdown stake throttle, min-prob ≥ 0.40, "
-                "stacking everything. Why deploy a smaller-profit variant? "
-                "Lower DD = higher staying power if the winning regime breaks.</p>",
-                unsafe_allow_html=True,
-            )
-
-    with st.expander("⚙️  Mock Two Settings — research-track switches", expanded=False):
-
-        # ── Quick presets ──────────────────────────────────────────────
-        _render_preset_buttons(port2, key_prefix="p2", save_fn=pf.save_portfolio_two)
-
-        # ── Section: Stake & Bankroll ──────────────────────────────────
-        _section_header("💰  Stake & Bankroll", "How much you bet, sized by Kelly")
-        sb1, sb2, sb3 = st.columns(3)
-        with sb1:
-            new_init = st.number_input("Starting Bankroll (£)", 100.0, 100_000.0,
-                                        float(port2["initial_bankroll"]), 100.0,
-                                        key="p2_budget")
-        with sb2:
-            new_kelly = st.select_slider("Base Kelly Fraction",
-                options=sorted({0.25, 0.45, 0.5, 0.75, 1.0,
-                                float(settings["kelly_fraction"])}),
-                value=float(settings["kelly_fraction"]), key="p2_kelly",
-                format_func=lambda x: f"{int(x*100)}%",
-                help="Pre-shrinkage Kelly. Baker-McHale shrinks further from this.")
-        with sb3:
-            new_max_stake = st.slider("Max Stake (% of bankroll)", 5, 50,
-                int(settings.get("max_stake_pct", 0.33) * 100), key="p2_maxstake",
-                help="33% = WF saturation point.")
-
-        # ── Section: Edge Gates ────────────────────────────────────────
-        _section_header("🎯  Edge Gates",
-                        "Default thresholds — per-market overrides via U2.5 toggle below")
-        eg1, eg2 = st.columns(2)
-        with eg1:
-            new_min_ev = st.slider("Min EV (default, %)", 1, 60,
-                int(settings["min_ev"] * 100), key="p2_minev")
-        with eg2:
-            new_min_prob = st.slider("Min Prob Gate (%)", 10, 80,
-                int(settings["min_prob"] * 100), key="p2_minprob")
-            new_raw_floor2 = st.slider("Raw Draw Floor (%)", 0, 45,
-                int(round(float(settings.get("min_raw_draw_prob") or 0) * 100)),
-                key="p2_rawfloor",
-                help="Floor on the model's OWN draw probability, before the trailing "
-                     "calibrator touches it. 0 = off. See scripts/validate_raw_floor.py.")
-
-        # ── Section: Markets ───────────────────────────────────────────
-        _section_header("📊  Markets",
-                        "Which markets auto-bet considers + per-market gates")
-        _existing_gates2 = settings.get("market_gates") or {}
-        new_u25_gates2 = st.toggle(
-            "🎚️ Use separate Under 2.5 gates (mp=50%, mev=5%)",
-            value="under25" in _existing_gates2,
-            key="p2_u25_gates",
-            help="Adds U2.5 with its own thresholds; lets the V2 stack extract "
-                 "value from a market the global EV gate would exclude.",
-        )
-
-        # ── Section: Filters ───────────────────────────────────────────
-        _section_header("🚫  Filters",
-                        "Skip systematically losing patterns")
-        f1, f2, _ = st.columns([1, 1.5, 2])
-        with f1:
-            new_skip_late = st.toggle("Skip Mar-May",
-                value=bool(settings.get("skip_late_season", True)), key="p2_skip_late",
-                help="0/7 wins in Mar-Apr across 2 seasons.")
-        with f2:
-            new_skip_title = st.toggle("Skip home_title_race",
-                value=bool(settings.get("skip_home_title_race", False)),
-                key="p2_skip_title",
-                help="Only proven on 2025-26.")
-
-        # ── Section: Phase 4 validated filters ─────────────────────────
-        _section_header("🧠  Walk-forward filters",
-                        "Walk-forward validated levers — DOW + Month + Max-EV")
-        _all_dows   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        _all_months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        pf1, pf2 = st.columns(2)
-        with pf1:
-            new_banned_dows = st.multiselect(
-                "Banned days of week",
-                options=_all_dows,
-                default=list(settings.get("v2_banned_dows", [])),
-                key="p2_banned_dows",
-                help=("Walk-forward winner: skip Mon+Fri (Phase 1 saw 0/6 across 2 "
-                      "seasons). Adding Sun reduces n but raises win rate."),
-            )
-            new_banned_months = st.multiselect(
-                "Banned months",
-                options=_all_months,
-                default=list(settings.get("v2_banned_months", [])),
-                key="p2_banned_months",
-                help=("Walk-forward winner: ban Oct (Phase 1 saw 0/5 ROI -100%). "
-                      "Skip Mar-May still controlled by `Skip Mar-May` toggle "
-                      "above (a separate code path)."),
-            )
-        with pf2:
-            _max_ev_cur = settings.get("v2_max_ev_pct")
-            new_max_ev_on = st.toggle(
-                "Cap claimed EV (overconfidence guard)",
-                value=_max_ev_cur is not None,
-                key="p2_max_ev_on",
-                help=("Phase 1 found EV bucket 0.50–0.60 had ROI −33.7% — "
-                      "model gets *over-confident* at high EV. Cap stops the "
-                      "biggest fake edges from getting full Kelly stake."),
-            )
-            if new_max_ev_on:
-                new_max_ev = st.slider(
-                    "Max EV cap (%)",
-                    min_value=40, max_value=200, step=5,
-                    value=int((_max_ev_cur if _max_ev_cur is not None else 1.0) * 100),
-                    key="p2_max_ev_val",
-                    help="Walk-forward best at 100%. Tighter caps at 50–80% also win.",
-                )
-            else:
-                new_max_ev = None
-
-        # ── ELO-profile filter (multi-season grid winner) ──────────────
-        st.markdown(
-            '<div style="margin-top:0.9rem;padding-top:0.6rem;'
-            'border-top:1px dashed rgba(0,229,255,0.25);'
-            'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
-            'text-transform:uppercase;color:#00e5ff">'
-            '🎯 ELO-profile filter (deployed: min team ELO 1500)'
-            '</div>', unsafe_allow_html=True,
-        )
-        ec1, ec2 = st.columns(2)
-        with ec1:
-            _min_te_cur = settings.get("v2_min_team_elo")
-            new_min_te_on = st.toggle(
-                "Min team ELO floor",
-                value=_min_te_cur is not None,
-                key="p2_min_te_on",
-                help=("Skip matches where EITHER team's ELO is below this. "
-                      "Multi-season grid winner: 1500. Survives 4/4 seasons "
-                      "with no crashes (£5,647 worst case vs £1,505 baseline)."),
-            )
-            new_min_te = (st.slider("Min team ELO",
-                                     min_value=1300, max_value=1700, step=10,
-                                     value=int(_min_te_cur or 1500),
-                                     key="p2_min_te_val")
-                          if new_min_te_on else None)
-
-            _gap_min_cur = settings.get("v2_elo_gap_min")
-            new_gap_min_on = st.toggle(
-                "Min ELO gap (skip too-close)",
-                value=_gap_min_cur is not None,
-                key="p2_gap_min_on",
-                help="Skip matches where |home_elo - away_elo| is below this.",
-            )
-            new_gap_min = (st.slider("Min |ΔELO|",
-                                      min_value=20, max_value=200, step=10,
-                                      value=int(_gap_min_cur or 80),
-                                      key="p2_gap_min_val")
-                           if new_gap_min_on else None)
-        with ec2:
-            _max_te_cur = settings.get("v2_max_team_elo")
-            new_max_te_on = st.toggle(
-                "Max team ELO ceiling",
-                value=_max_te_cur is not None,
-                key="p2_max_te_on",
-                help="Skip matches where EITHER team's ELO is above this "
-                     "(rare use — top-vs-top games).",
-            )
-            new_max_te = (st.slider("Max team ELO",
-                                     min_value=1700, max_value=2100, step=10,
-                                     value=int(_max_te_cur or 1900),
-                                     key="p2_max_te_val")
-                          if new_max_te_on else None)
-
-            _gap_max_cur = settings.get("v2_elo_gap_max")
-            new_gap_max_on = st.toggle(
-                "Max ELO gap (skip lopsided)",
-                value=_gap_max_cur is not None,
-                key="p2_gap_max_on",
-                help="Skip matches where |home_elo - away_elo| is above this.",
-            )
-            new_gap_max = (st.slider("Max |ΔELO|",
-                                      min_value=100, max_value=500, step=20,
-                                      value=int(_gap_max_cur or 300),
-                                      key="p2_gap_max_val")
-                           if new_gap_max_on else None)
-
-        # ── Experimental (failed WF) — gated by a checkbox to keep the panel
-        # tidy; can't use st.expander here because we're already inside one.
-        st.markdown(
-            '<div style="margin-top:0.8rem;padding-top:0.8rem;'
-            'border-top:1px dashed rgba(255,255,255,0.08)"></div>',
-            unsafe_allow_html=True,
-        )
-        _show_exp = st.checkbox(
-            "🧪 Show experimental filters (failed walk-forward)",
-            value=bool(settings.get("v2_team_roi_filter", False)
-                       or settings.get("v2_drawdown_throttle", False)),
-            key="p2_show_experimental",
-            help=("These filters looked promising in Phase 1 diagnostics but did "
-                  "NOT improve OOS profit in walk-forward. Hidden by default."),
-        )
-        if _show_exp:
-            st.markdown(
-                '<div style="font-size:0.82rem;color:#cdd;margin-bottom:0.6rem">'
-                "Toggle on if you want to experiment further; otherwise leave off "
-                "and they'll persist as <code>False</code> in your settings."
+                '<div style="background:linear-gradient(135deg,rgba(0,230,118,0.08),rgba(124,77,255,0.04));'
+                'border:1px solid rgba(0,230,118,0.25);border-left:5px solid #00e676;'
+                'border-radius:14px;padding:1.1rem 1.3rem;margin-bottom:1rem;'
+                'font-size:0.92rem;line-height:1.55;color:#cdd">'
+                f'<b style="color:#00e676">Deployed config:</b> '
+                f'<code style="background:rgba(0,0,0,0.25);padding:2px 8px;border-radius:6px;'
+                f'color:#00e5ff;font-size:0.84rem">{_label}</code><br>'
+                f'<b style="color:#a78bfa">52-week WF result:</b> '
+                f'£10k → <b style="color:#e8eaf0">£631,537</b> '
+                f'<span style="color:#c9d0dc">(+96% ROI, 33% max DD, 35 bets, 49% win)</span><br>'
+                f'<b style="color:#a78bfa">vs Main baseline:</b> '
+                f'£59,320 (+24% ROI, 65% max DD) → <b style="color:#00e676">10× profit, half the DD</b><br>'
+                f'<b style="color:#a78bfa">vs £93k ceiling:</b> 6.8× past target<br>'
+                f'<span style="color:#c9d0dc;font-size:0.84rem">'
+                f'Source: <code>data/diagnostics/{_source}.json</code></span>'
                 '</div>', unsafe_allow_html=True,
             )
-            ef1, ef2 = st.columns(2)
-            with ef1:
-                new_team_filter = st.toggle(
-                    "Team-ROI filter",
-                    value=bool(settings.get("v2_team_roi_filter", False)),
-                    key="p2_team_filter",
-                    help="Blacklist teams with bad historical draw-bet ROI.",
-                )
-                new_team_thr = st.slider(
-                    "Team-ROI threshold (%)",
-                    min_value=-100, max_value=0, step=5,
-                    value=int(float(settings.get("v2_team_roi_threshold", -25.0))),
-                    key="p2_team_thr",
-                    disabled=not new_team_filter,
-                )
-                new_team_min_n = st.slider(
-                    "Min bets before filtering",
-                    min_value=2, max_value=10, step=1,
-                    value=int(settings.get("v2_team_roi_min_n", 3)),
-                    key="p2_team_min_n",
-                    disabled=not new_team_filter,
-                )
-            with ef2:
-                new_dd_throttle = st.toggle(
-                    "Drawdown stake throttle",
-                    value=bool(settings.get("v2_drawdown_throttle", False)),
-                    key="p2_dd_throttle",
-                    help="Shrink stake during drawdowns.",
-                )
-                new_dd_at = st.slider(
-                    "Throttle at drawdown (%)",
-                    min_value=10, max_value=50, step=5,
-                    value=int(float(settings.get("v2_drawdown_at_pct", 0.20)) * 100),
-                    key="p2_dd_at",
-                    disabled=not new_dd_throttle,
-                )
-                new_dd_min = st.slider(
-                    "Min stake factor (Kelly multiplier)",
-                    min_value=0.10, max_value=1.00, step=0.05,
-                    value=float(settings.get("v2_drawdown_min_factor", 0.25)),
-                    key="p2_dd_min",
-                    disabled=not new_dd_throttle,
-                )
-        else:
-            # Preserve existing values when the section is hidden — so saving
-            # without toggling doesn't blank out user-set experimental settings.
-            new_team_filter = bool(settings.get("v2_team_roi_filter", False))
-            new_team_thr    = float(settings.get("v2_team_roi_threshold", -25.0))
-            new_team_min_n  = int(settings.get("v2_team_roi_min_n", 3))
-            new_dd_throttle = bool(settings.get("v2_drawdown_throttle", False))
-            new_dd_at       = float(settings.get("v2_drawdown_at_pct", 0.20)) * 100
-            new_dd_min      = float(settings.get("v2_drawdown_min_factor", 0.25))
 
-        # ── Section: Auto-Bet ──────────────────────────────────────────
-        _section_header("🤖  Auto-Bet",
-                        "Automatic placement using the research-track stack")
-        ab1, ab2 = st.columns(2)
-        with ab1:
-            new_auto_en = st.toggle("Auto-Bet enabled",
-                value=settings.get("auto_bet_enabled", False), key="p2_auto",
-                help="Auto-place research-track Kelly bets when API odds available")
-        with ab2:
-            new_auto_thr = st.slider("Auto-Bet EV (%)", 1, 60,
-                int(settings.get("auto_bet_threshold", 0.40) * 100), key="p2_thr")
+            c1, c2 = st.columns(2)
 
-        # ── Section: Research-Track Stack ──────────────────────────────
-        _section_header("🧪  Research-Track Stack",
-                        "Mock Two's distinguishing model + sizing logic")
-        sw1, sw2, sw3 = st.columns(3)
-        with sw1:
-            new_use_kn = st.toggle("🧬 K-N γ-inflation",
-                value=settings.get("use_kn_model", True), key="p2_kn",
-                help="Karlis-Ntzoufras diagonal inflation model")
-        with sw2:
-            new_use_uncert = st.toggle("📐 Uncertainty Kelly",
-                value=settings.get("use_uncertainty_kelly", True), key="p2_uncert",
-                help="Baker-McHale shrinkage by per-bin Var(p̂)")
-        with sw3:
-            new_use_sim = st.toggle("🔗 Simultaneous-bet Kelly",
-                value=settings.get("use_simultaneous_kelly", True), key="p2_sim",
-                help="Reduce stakes when multiple bets settle concurrently")
+            with c1:
+                st.markdown(
+                    '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
+                    'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
+                    'Phase 1 — top loss leaks</p>', unsafe_allow_html=True,
+                )
+                _phase1_losses = [
+                    ("Everton",       6, -23629, -69.8),
+                    ("Nott'm Forest", 7, -15829, -74.6),
+                    ("Aston Villa",   5, -15687, -72.3),
+                    ("Fulham",        9,  -9684, -38.1),
+                    ("Crystal Palace",1,  -9311,-100.0),
+                    ("Leeds",         1,  -4260,-100.0),
+                ]
+                _rows = "".join([
+                    f'<tr><td>{t}</td><td style="text-align:right">{n}</td>'
+                    f'<td style="text-align:right;color:#ff6fa1">£{p:,.0f}</td>'
+                    f'<td style="text-align:right;color:#ff6fa1">{r:+.1f}%</td></tr>'
+                    for t, n, p, r in _phase1_losses
+                ])
+                st.markdown(
+                    '<table style="width:100%;font-size:0.86rem;color:#cdd;'
+                    'border-collapse:collapse;font-variant-numeric:tabular-nums">'
+                    '<thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">'
+                    '<th style="text-align:left;padding-bottom:0.4rem">TEAM</th>'
+                    '<th style="text-align:right">N</th>'
+                    '<th style="text-align:right">P&amp;L</th>'
+                    '<th style="text-align:right">ROI</th></tr></thead>'
+                    f'<tbody>{_rows}</tbody></table>', unsafe_allow_html=True,
+                )
+                st.markdown(
+                    '<p style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
+                    'These six teams alone leaked <b style="color:#ff6fa1">−£77.4k</b> '
+                    "of the 52-week sample. Worth filtering on paper — but the "
+                    "rolling team-ROI filter <i>failed walk-forward</i> "
+                    "(reactive, blacklists too late). Keep visible for analysis "
+                    "but don't deploy as a gate.</p>",
+                    unsafe_allow_html=True,
+                )
 
-        # ── Section: API note ──────────────────────────────────────────
-        _section_header("🔌  Live Odds API", "Reuses Main's API key + cache")
-        st.markdown(
-            f'<div style="font-size:0.78rem;color:#c9d0dc;line-height:1.5">'
-            f'API key + monthly usage are shared with the Main portfolio — '
-            f'no separate configuration needed here.</div>',
-            unsafe_allow_html=True,
-        )
+            with c2:
+                st.markdown(
+                    '<p style="font-size:0.84rem;font-weight:800;color:#a78bfa;'
+                    'letter-spacing:1.4px;text-transform:uppercase;margin-bottom:0.5rem">'
+                    'Top 5 walk-forward variants</p>', unsafe_allow_html=True,
+                )
+                _phase4_top = [
+                    ("dowMF + ev≤1.00 + octX + mp30", 680390, 41.4, 63),
+                    ("dowMF + ev≤1.00 + octX + mp32", 631537, 32.8, 96, "★ deployed"),
+                    ("dowMFS + ev≤1.00 + octX + mp30", 543839, 41.1, 105),
+                    ("dowMF + ev free + octX + mp32", 479291, 32.8, 95),
+                    ("dowMFS + ev≤1.00 + oct keep + mp30", 427047, 41.1, 103),
+                ]
+                _rows4 = ""
+                for entry in _phase4_top:
+                    tag = entry[4] if len(entry) > 4 else ""
+                    tag_html = (f'<span style="color:#00e676;font-weight:700;'
+                                f'font-size:0.78rem;margin-left:0.3rem">{tag}</span>'
+                                if tag else "")
+                    _rows4 += (
+                        f'<tr><td style="font-size:0.78rem">{entry[0]}{tag_html}</td>'
+                        f'<td style="text-align:right;color:#00e676">£{entry[1]:,.0f}</td>'
+                        f'<td style="text-align:right">{entry[2]:.1f}%</td>'
+                        f'<td style="text-align:right;color:#a78bfa">+{entry[3]}%</td></tr>'
+                    )
+                st.markdown(
+                    '<table style="width:100%;font-size:0.86rem;color:#cdd;'
+                    'border-collapse:collapse;font-variant-numeric:tabular-nums">'
+                    '<thead><tr style="color:#a78bfa;font-size:0.78rem;letter-spacing:1.2px">'
+                    '<th style="text-align:left;padding-bottom:0.4rem">CONFIG</th>'
+                    '<th style="text-align:right">FINAL</th>'
+                    '<th style="text-align:right">DD</th>'
+                    '<th style="text-align:right">ROI</th></tr></thead>'
+                    f'<tbody>{_rows4}</tbody></table>', unsafe_allow_html=True,
+                )
+                st.markdown(
+                    '<p style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
+                    "Filters that <b style='color:#ff6fa1'>failed</b> WF: "
+                    "team-ROI blacklist, drawdown stake throttle, min-prob ≥ 0.40, "
+                    "stacking everything. Why deploy a smaller-profit variant? "
+                    "Lower DD = higher staying power if the winning regime breaks.</p>",
+                    unsafe_allow_html=True,
+                )
 
-        st.markdown('<div style="margin-top:1rem"></div>', unsafe_allow_html=True)
-        save_c, reset_c, _ = st.columns([1, 1, 4])
-        with save_c:
-            if st.button("💾 Save Mock Two Settings", key="p2_save"):
-                port2["initial_bankroll"]              = new_init
-                port2["settings"]["min_ev"]            = new_min_ev / 100
-                port2["settings"]["kelly_fraction"]    = new_kelly
-                port2["settings"]["min_prob"]          = new_min_prob / 100
-                port2["settings"]["min_raw_draw_prob"] = (new_raw_floor2 / 100) if new_raw_floor2 else None
-                port2["settings"]["use_kn_model"]      = new_use_kn
-                port2["settings"]["use_uncertainty_kelly"]  = new_use_uncert
-                port2["settings"]["use_simultaneous_kelly"] = new_use_sim
-                port2["settings"]["auto_bet_enabled"]  = new_auto_en
-                port2["settings"]["auto_bet_threshold"] = new_auto_thr / 100
-                port2["settings"]["max_stake_pct"]     = new_max_stake / 100
-                port2["settings"]["skip_late_season"]  = new_skip_late
-                port2["settings"]["skip_home_title_race"] = new_skip_title
-                # Phase 4 validated filters
-                port2["settings"]["v2_banned_dows"]   = list(new_banned_dows)
-                port2["settings"]["v2_banned_months"] = list(new_banned_months)
-                port2["settings"]["v2_max_ev_pct"]    = (
-                    float(new_max_ev) / 100 if new_max_ev is not None else None
+        if _settings_lock("mt", port2):
+            with st.expander("⚙️  Mock Two Settings — research-track switches", expanded=False):
+
+                # ── Quick presets ──────────────────────────────────────────────
+                _render_preset_buttons(port2, key_prefix="p2", save_fn=pf.save_portfolio_two)
+
+                # ── Section: Stake & Bankroll ──────────────────────────────────
+                _section_header("💰  Stake & Bankroll", "How much you bet, sized by Kelly")
+                sb1, sb2, sb3 = st.columns(3)
+                with sb1:
+                    new_init = st.number_input("Starting Bankroll (£)", 100.0, 100_000.0,
+                                                float(port2["initial_bankroll"]), 100.0,
+                                                key="p2_budget")
+                with sb2:
+                    new_kelly = st.select_slider("Base Kelly Fraction",
+                        options=sorted({0.25, 0.45, 0.5, 0.75, 1.0,
+                                        float(settings["kelly_fraction"])}),
+                        value=float(settings["kelly_fraction"]), key="p2_kelly",
+                        format_func=lambda x: f"{int(x*100)}%",
+                        help="Pre-shrinkage Kelly. Baker-McHale shrinks further from this.")
+                with sb3:
+                    new_max_stake = st.slider("Max Stake (% of bankroll)", 5, 50,
+                        int(settings.get("max_stake_pct", 0.33) * 100), key="p2_maxstake",
+                        help="33% = WF saturation point.")
+
+                # ── Section: Edge Gates ────────────────────────────────────────
+                _section_header("🎯  Edge Gates",
+                                "Default thresholds — per-market overrides via U2.5 toggle below")
+                eg1, eg2 = st.columns(2)
+                with eg1:
+                    new_min_ev = st.slider("Min EV (default, %)", 1, 60,
+                        int(settings["min_ev"] * 100), key="p2_minev")
+                with eg2:
+                    new_min_prob = st.slider("Min Prob Gate (%)", 10, 80,
+                        int(settings["min_prob"] * 100), key="p2_minprob")
+                    new_raw_floor2 = st.slider("Raw Draw Floor (%)", 0, 45,
+                        int(round(float(settings.get("min_raw_draw_prob") or 0) * 100)),
+                        key="p2_rawfloor",
+                        help="Floor on the model's OWN draw probability, before the trailing "
+                             "calibrator touches it. 0 = off. See scripts/validate_raw_floor.py.")
+
+                # ── Section: Markets ───────────────────────────────────────────
+                _section_header("📊  Markets",
+                                "Which markets auto-bet considers + per-market gates")
+                _existing_gates2 = settings.get("market_gates") or {}
+                new_u25_gates2 = st.toggle(
+                    "🎚️ Use separate Under 2.5 gates (mp=50%, mev=5%)",
+                    value="under25" in _existing_gates2,
+                    key="p2_u25_gates",
+                    help="Adds U2.5 with its own thresholds; lets the V2 stack extract "
+                         "value from a market the global EV gate would exclude.",
                 )
-                # Multi-season grid winner: ELO-profile filters
-                port2["settings"]["v2_min_team_elo"] = (
-                    float(new_min_te) if new_min_te is not None else None
+
+                # ── Section: Filters ───────────────────────────────────────────
+                _section_header("🚫  Filters",
+                                "Skip systematically losing patterns")
+                f1, f2, _ = st.columns([1, 1.5, 2])
+                with f1:
+                    new_skip_late = st.toggle("Skip Mar-May",
+                        value=bool(settings.get("skip_late_season", True)), key="p2_skip_late",
+                        help="0/7 wins in Mar-Apr across 2 seasons.")
+                with f2:
+                    new_skip_title = st.toggle("Skip home_title_race",
+                        value=bool(settings.get("skip_home_title_race", False)),
+                        key="p2_skip_title",
+                        help="Only proven on 2025-26.")
+
+                # ── Section: Phase 4 validated filters ─────────────────────────
+                _section_header("🧠  Walk-forward filters",
+                                "Walk-forward validated levers — DOW + Month + Max-EV")
+                _all_dows   = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                _all_months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                pf1, pf2 = st.columns(2)
+                with pf1:
+                    new_banned_dows = st.multiselect(
+                        "Banned days of week",
+                        options=_all_dows,
+                        default=list(settings.get("v2_banned_dows", [])),
+                        key="p2_banned_dows",
+                        help=("Walk-forward winner: skip Mon+Fri (Phase 1 saw 0/6 across 2 "
+                              "seasons). Adding Sun reduces n but raises win rate."),
+                    )
+                    new_banned_months = st.multiselect(
+                        "Banned months",
+                        options=_all_months,
+                        default=list(settings.get("v2_banned_months", [])),
+                        key="p2_banned_months",
+                        help=("Walk-forward winner: ban Oct (Phase 1 saw 0/5 ROI -100%). "
+                              "Skip Mar-May still controlled by `Skip Mar-May` toggle "
+                              "above (a separate code path)."),
+                    )
+                with pf2:
+                    _max_ev_cur = settings.get("v2_max_ev_pct")
+                    new_max_ev_on = st.toggle(
+                        "Cap claimed EV (overconfidence guard)",
+                        value=_max_ev_cur is not None,
+                        key="p2_max_ev_on",
+                        help=("Phase 1 found EV bucket 0.50–0.60 had ROI −33.7% — "
+                              "model gets *over-confident* at high EV. Cap stops the "
+                              "biggest fake edges from getting full Kelly stake."),
+                    )
+                    if new_max_ev_on:
+                        new_max_ev = st.slider(
+                            "Max EV cap (%)",
+                            min_value=40, max_value=200, step=5,
+                            value=int((_max_ev_cur if _max_ev_cur is not None else 1.0) * 100),
+                            key="p2_max_ev_val",
+                            help="Walk-forward best at 100%. Tighter caps at 50–80% also win.",
+                        )
+                    else:
+                        new_max_ev = None
+
+                # ── ELO-profile filter (multi-season grid winner) ──────────────
+                st.markdown(
+                    '<div style="margin-top:0.9rem;padding-top:0.6rem;'
+                    'border-top:1px dashed rgba(0,229,255,0.25);'
+                    'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
+                    'text-transform:uppercase;color:#00e5ff">'
+                    '🎯 ELO-profile filter (deployed: min team ELO 1500)'
+                    '</div>', unsafe_allow_html=True,
                 )
-                port2["settings"]["v2_max_team_elo"] = (
-                    float(new_max_te) if new_max_te is not None else None
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    _min_te_cur = settings.get("v2_min_team_elo")
+                    new_min_te_on = st.toggle(
+                        "Min team ELO floor",
+                        value=_min_te_cur is not None,
+                        key="p2_min_te_on",
+                        help=("Skip matches where EITHER team's ELO is below this. "
+                              "Multi-season grid winner: 1500. Survives 4/4 seasons "
+                              "with no crashes (£5,647 worst case vs £1,505 baseline)."),
+                    )
+                    new_min_te = (st.slider("Min team ELO",
+                                             min_value=1300, max_value=1700, step=10,
+                                             value=int(_min_te_cur or 1500),
+                                             key="p2_min_te_val")
+                                  if new_min_te_on else None)
+
+                    _gap_min_cur = settings.get("v2_elo_gap_min")
+                    new_gap_min_on = st.toggle(
+                        "Min ELO gap (skip too-close)",
+                        value=_gap_min_cur is not None,
+                        key="p2_gap_min_on",
+                        help="Skip matches where |home_elo - away_elo| is below this.",
+                    )
+                    new_gap_min = (st.slider("Min |ΔELO|",
+                                              min_value=20, max_value=200, step=10,
+                                              value=int(_gap_min_cur or 80),
+                                              key="p2_gap_min_val")
+                                   if new_gap_min_on else None)
+                with ec2:
+                    _max_te_cur = settings.get("v2_max_team_elo")
+                    new_max_te_on = st.toggle(
+                        "Max team ELO ceiling",
+                        value=_max_te_cur is not None,
+                        key="p2_max_te_on",
+                        help="Skip matches where EITHER team's ELO is above this "
+                             "(rare use — top-vs-top games).",
+                    )
+                    new_max_te = (st.slider("Max team ELO",
+                                             min_value=1700, max_value=2100, step=10,
+                                             value=int(_max_te_cur or 1900),
+                                             key="p2_max_te_val")
+                                  if new_max_te_on else None)
+
+                    _gap_max_cur = settings.get("v2_elo_gap_max")
+                    new_gap_max_on = st.toggle(
+                        "Max ELO gap (skip lopsided)",
+                        value=_gap_max_cur is not None,
+                        key="p2_gap_max_on",
+                        help="Skip matches where |home_elo - away_elo| is above this.",
+                    )
+                    new_gap_max = (st.slider("Max |ΔELO|",
+                                              min_value=100, max_value=500, step=20,
+                                              value=int(_gap_max_cur or 300),
+                                              key="p2_gap_max_val")
+                                   if new_gap_max_on else None)
+
+                # ── Experimental (failed WF) — gated by a checkbox to keep the panel
+                # tidy; can't use st.expander here because we're already inside one.
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding-top:0.8rem;'
+                    'border-top:1px dashed rgba(255,255,255,0.08)"></div>',
+                    unsafe_allow_html=True,
                 )
-                port2["settings"]["v2_elo_gap_min"]  = (
-                    float(new_gap_min) if new_gap_min is not None else None
+                _show_exp = st.checkbox(
+                    "🧪 Show experimental filters (failed walk-forward)",
+                    value=bool(settings.get("v2_team_roi_filter", False)
+                               or settings.get("v2_drawdown_throttle", False)),
+                    key="p2_show_experimental",
+                    help=("These filters looked promising in Phase 1 diagnostics but did "
+                          "NOT improve OOS profit in walk-forward. Hidden by default."),
                 )
-                port2["settings"]["v2_elo_gap_max"]  = (
-                    float(new_gap_max) if new_gap_max is not None else None
-                )
-                # Experimental (failed WF)
-                port2["settings"]["v2_team_roi_filter"]    = bool(new_team_filter)
-                port2["settings"]["v2_team_roi_threshold"] = float(new_team_thr)
-                port2["settings"]["v2_team_roi_min_n"]     = int(new_team_min_n)
-                port2["settings"]["v2_drawdown_throttle"]  = bool(new_dd_throttle)
-                port2["settings"]["v2_drawdown_at_pct"]    = float(new_dd_at) / 100
-                port2["settings"]["v2_drawdown_min_factor"] = float(new_dd_min)
-                # Per-market U2.5 gates: when on, register the gates AND add to auto_markets
-                if new_u25_gates2:
-                    port2["settings"]["market_gates"] = {
-                        "under25": {"min_prob": 0.50, "min_ev": 0.05},
-                    }
-                    _existing_mkts = port2["settings"].get("auto_markets", ["D"])
-                    if "under25" not in _existing_mkts:
-                        _existing_mkts = list(_existing_mkts) + ["under25"]
-                        port2["settings"]["auto_markets"] = _existing_mkts
+                if _show_exp:
+                    st.markdown(
+                        '<div style="font-size:0.82rem;color:#cdd;margin-bottom:0.6rem">'
+                        "Toggle on if you want to experiment further; otherwise leave off "
+                        "and they'll persist as <code>False</code> in your settings."
+                        '</div>', unsafe_allow_html=True,
+                    )
+                    ef1, ef2 = st.columns(2)
+                    with ef1:
+                        new_team_filter = st.toggle(
+                            "Team-ROI filter",
+                            value=bool(settings.get("v2_team_roi_filter", False)),
+                            key="p2_team_filter",
+                            help="Blacklist teams with bad historical draw-bet ROI.",
+                        )
+                        new_team_thr = st.slider(
+                            "Team-ROI threshold (%)",
+                            min_value=-100, max_value=0, step=5,
+                            value=int(float(settings.get("v2_team_roi_threshold", -25.0))),
+                            key="p2_team_thr",
+                            disabled=not new_team_filter,
+                        )
+                        new_team_min_n = st.slider(
+                            "Min bets before filtering",
+                            min_value=2, max_value=10, step=1,
+                            value=int(settings.get("v2_team_roi_min_n", 3)),
+                            key="p2_team_min_n",
+                            disabled=not new_team_filter,
+                        )
+                    with ef2:
+                        new_dd_throttle = st.toggle(
+                            "Drawdown stake throttle",
+                            value=bool(settings.get("v2_drawdown_throttle", False)),
+                            key="p2_dd_throttle",
+                            help="Shrink stake during drawdowns.",
+                        )
+                        new_dd_at = st.slider(
+                            "Throttle at drawdown (%)",
+                            min_value=10, max_value=50, step=5,
+                            value=int(float(settings.get("v2_drawdown_at_pct", 0.20)) * 100),
+                            key="p2_dd_at",
+                            disabled=not new_dd_throttle,
+                        )
+                        new_dd_min = st.slider(
+                            "Min stake factor (Kelly multiplier)",
+                            min_value=0.10, max_value=1.00, step=0.05,
+                            value=float(settings.get("v2_drawdown_min_factor", 0.25)),
+                            key="p2_dd_min",
+                            disabled=not new_dd_throttle,
+                        )
                 else:
-                    port2["settings"].pop("market_gates", None)
-                pf.save_portfolio_two(port2)
-                st.success("✅ Mock Two settings saved.")
-                st.rerun()
-        with reset_c:
-            if st.session_state.get("_p2_confirm_reset", False):
-                yc, nc = st.columns(2)
-                with yc:
-                    if st.button("Reset", key="p2_reset_yes", type="primary"):
-                        fresh = {
-                            "initial_bankroll": new_init,
-                            "bankroll":         new_init,
-                            "bets":             [],
-                            "settings": port2["settings"],
-                        }
-                        pf.save_portfolio_two(fresh)
-                        st.session_state["_p2_confirm_reset"] = False
+                    # Preserve existing values when the section is hidden — so saving
+                    # without toggling doesn't blank out user-set experimental settings.
+                    new_team_filter = bool(settings.get("v2_team_roi_filter", False))
+                    new_team_thr    = float(settings.get("v2_team_roi_threshold", -25.0))
+                    new_team_min_n  = int(settings.get("v2_team_roi_min_n", 3))
+                    new_dd_throttle = bool(settings.get("v2_drawdown_throttle", False))
+                    new_dd_at       = float(settings.get("v2_drawdown_at_pct", 0.20)) * 100
+                    new_dd_min      = float(settings.get("v2_drawdown_min_factor", 0.25))
+
+                # ── Section: Auto-Bet ──────────────────────────────────────────
+                _section_header("🤖  Auto-Bet",
+                                "Automatic placement using the research-track stack")
+                ab1, ab2 = st.columns(2)
+                with ab1:
+                    new_auto_en = st.toggle("Auto-Bet enabled",
+                        value=settings.get("auto_bet_enabled", False), key="p2_auto",
+                        help="Auto-place research-track Kelly bets when API odds available")
+                with ab2:
+                    new_auto_thr = st.slider("Auto-Bet EV (%)", 1, 60,
+                        int(settings.get("auto_bet_threshold", 0.40) * 100), key="p2_thr")
+
+                # ── Section: Research-Track Stack ──────────────────────────────
+                _section_header("🧪  Research-Track Stack",
+                                "Mock Two's distinguishing model + sizing logic")
+                sw1, sw2, sw3 = st.columns(3)
+                with sw1:
+                    new_use_kn = st.toggle("🧬 K-N γ-inflation",
+                        value=settings.get("use_kn_model", True), key="p2_kn",
+                        help="Karlis-Ntzoufras diagonal inflation model")
+                with sw2:
+                    new_use_uncert = st.toggle("📐 Uncertainty Kelly",
+                        value=settings.get("use_uncertainty_kelly", True), key="p2_uncert",
+                        help="Baker-McHale shrinkage by per-bin Var(p̂)")
+                with sw3:
+                    new_use_sim = st.toggle("🔗 Simultaneous-bet Kelly",
+                        value=settings.get("use_simultaneous_kelly", True), key="p2_sim",
+                        help="Reduce stakes when multiple bets settle concurrently")
+
+                # ── Section: API note ──────────────────────────────────────────
+                _section_header("🔌  Live Odds API", "Reuses Main's API key + cache")
+                st.markdown(
+                    f'<div style="font-size:0.78rem;color:#c9d0dc;line-height:1.5">'
+                    f'API key + monthly usage are shared with the Main portfolio — '
+                    f'no separate configuration needed here.</div>',
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown('<div style="margin-top:1rem"></div>', unsafe_allow_html=True)
+                save_c, reset_c, _ = st.columns([1, 1, 4])
+                with save_c:
+                    if st.button("💾 Save Mock Two Settings", key="p2_save"):
+                        port2["initial_bankroll"]              = new_init
+                        port2["settings"]["min_ev"]            = new_min_ev / 100
+                        port2["settings"]["kelly_fraction"]    = new_kelly
+                        port2["settings"]["min_prob"]          = new_min_prob / 100
+                        port2["settings"]["min_raw_draw_prob"] = (new_raw_floor2 / 100) if new_raw_floor2 else None
+                        port2["settings"]["use_kn_model"]      = new_use_kn
+                        port2["settings"]["use_uncertainty_kelly"]  = new_use_uncert
+                        port2["settings"]["use_simultaneous_kelly"] = new_use_sim
+                        port2["settings"]["auto_bet_enabled"]  = new_auto_en
+                        port2["settings"]["auto_bet_threshold"] = new_auto_thr / 100
+                        port2["settings"]["max_stake_pct"]     = new_max_stake / 100
+                        port2["settings"]["skip_late_season"]  = new_skip_late
+                        port2["settings"]["skip_home_title_race"] = new_skip_title
+                        # Phase 4 validated filters
+                        port2["settings"]["v2_banned_dows"]   = list(new_banned_dows)
+                        port2["settings"]["v2_banned_months"] = list(new_banned_months)
+                        port2["settings"]["v2_max_ev_pct"]    = (
+                            float(new_max_ev) / 100 if new_max_ev is not None else None
+                        )
+                        # Multi-season grid winner: ELO-profile filters
+                        port2["settings"]["v2_min_team_elo"] = (
+                            float(new_min_te) if new_min_te is not None else None
+                        )
+                        port2["settings"]["v2_max_team_elo"] = (
+                            float(new_max_te) if new_max_te is not None else None
+                        )
+                        port2["settings"]["v2_elo_gap_min"]  = (
+                            float(new_gap_min) if new_gap_min is not None else None
+                        )
+                        port2["settings"]["v2_elo_gap_max"]  = (
+                            float(new_gap_max) if new_gap_max is not None else None
+                        )
+                        # Experimental (failed WF)
+                        port2["settings"]["v2_team_roi_filter"]    = bool(new_team_filter)
+                        port2["settings"]["v2_team_roi_threshold"] = float(new_team_thr)
+                        port2["settings"]["v2_team_roi_min_n"]     = int(new_team_min_n)
+                        port2["settings"]["v2_drawdown_throttle"]  = bool(new_dd_throttle)
+                        port2["settings"]["v2_drawdown_at_pct"]    = float(new_dd_at) / 100
+                        port2["settings"]["v2_drawdown_min_factor"] = float(new_dd_min)
+                        # Per-market U2.5 gates: when on, register the gates AND add to auto_markets
+                        if new_u25_gates2:
+                            port2["settings"]["market_gates"] = {
+                                "under25": {"min_prob": 0.50, "min_ev": 0.05},
+                            }
+                            _existing_mkts = port2["settings"].get("auto_markets", ["D"])
+                            if "under25" not in _existing_mkts:
+                                _existing_mkts = list(_existing_mkts) + ["under25"]
+                                port2["settings"]["auto_markets"] = _existing_mkts
+                        else:
+                            port2["settings"].pop("market_gates", None)
+                        pf.save_portfolio_two(port2)
+                        st.success("✅ Mock Two settings saved.")
                         st.rerun()
-                with nc:
-                    if st.button("Cancel", key="p2_reset_no"):
-                        st.session_state["_p2_confirm_reset"] = False
-                        st.rerun()
-            else:
-                if st.button("🔄 Reset Mock Two", key="p2_reset"):
-                    st.session_state["_p2_confirm_reset"] = True
-                    st.rerun()
+                with reset_c:
+                    if st.session_state.get("_p2_confirm_reset", False):
+                        yc, nc = st.columns(2)
+                        with yc:
+                            if st.button("Reset", key="p2_reset_yes", type="primary"):
+                                fresh = {
+                                    "initial_bankroll": new_init,
+                                    "bankroll":         new_init,
+                                    "bets":             [],
+                                    "settings": port2["settings"],
+                                }
+                                pf.save_portfolio_two(fresh)
+                                st.session_state["_p2_confirm_reset"] = False
+                                st.rerun()
+                        with nc:
+                            if st.button("Cancel", key="p2_reset_no"):
+                                st.session_state["_p2_confirm_reset"] = False
+                                st.rerun()
+                    else:
+                        if st.button("🔄 Reset Mock Two", key="p2_reset"):
+                            st.session_state["_p2_confirm_reset"] = True
+                            st.rerun()
 
     # ── Auto-bet (research-track stack) ────────────────────────────────────
     auto_enabled   = settings.get("auto_bet_enabled", False)
@@ -8667,1021 +8729,851 @@ def tab_portfolio_two(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,
     # Auto-bet no longer fires from inside this tab either; see the note in
     # tab_portfolio. Mock Two is placed by _session_auto_bet_run alongside Main.
 
-    # ── Mock Two stats row ────────────────────────────────────────────────
-    profit2   = mt_stats["profit"]
-    bankroll2 = mt_stats["bankroll"]
-    roi2      = mt_stats["roi"]
-    pending2  = [b for b in port2["bets"] if b["status"] == "pending"]
-    pending_stake2 = sum(b["stake"] for b in pending2)
-    sign2     = "+" if profit2 >= 0 else ""
+    with _t_over:
+        # ── Mock Two stats row ────────────────────────────────────────────────
+        profit2   = mt_stats["profit"]
+        bankroll2 = mt_stats["bankroll"]
+        roi2      = mt_stats["roi"]
+        pending2  = [b for b in port2["bets"] if b["status"] == "pending"]
+        pending_stake2 = sum(b["stake"] for b in pending2)
+        sign2     = "+" if profit2 >= 0 else ""
 
-    if mt_stats["n_settled"] == 0 and not pending2:
-        hero_class2 = "pnl-neutral"
-    elif profit2 >= 0:
-        hero_class2 = "pnl-profit"
-    else:
-        hero_class2 = "pnl-loss"
-    arrow2 = "▲" if profit2 >= 0 else "▼"
-
-    st.markdown(f"""
-    <div class="pnl-hero {hero_class2}">
-        <div class="pnl-tag">🧪 MOCK PORTFOLIO TWO · RESEARCH TRACK · NOT REAL MONEY</div>
-        <div class="pnl-amount">{md.fmt_money(profit2, pence=True)}</div>
-        <div class="pnl-subtitle">
-            {arrow2} {sign2}{roi2:.1f}% ROI &nbsp;·&nbsp;
-            £{bankroll2:,.2f} bankroll &nbsp;·&nbsp;
-            {mt_stats['n_pending']} pending (£{pending_stake2:.0f} at risk)
-        </div>
-    </div>""", unsafe_allow_html=True)
-
-    def _stat2(val, lbl, color="#e8eaf0"):
-        return (f'<div class="pstat-card">'
-                f'<div class="pstat-val" style="color:{color}">{val}</div>'
-                f'<div class="pstat-lbl">{lbl}</div></div>')
-    roi_col2 = "#00e676" if roi2 >= 0 else "#ff6fa1"
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: st.markdown(_stat2(f"£{bankroll2:,.0f}", "BANKROLL"), unsafe_allow_html=True)
-    with c2: st.markdown(_stat2(str(mt_stats["n_settled"]), "SETTLED"), unsafe_allow_html=True)
-    with c3: st.markdown(_stat2(f"{mt_stats['win_rate']:.0f}%", "WIN RATE"), unsafe_allow_html=True)
-    with c4: st.markdown(_stat2(f"{sign2}{roi2:.1f}%", "ROI", roi_col2), unsafe_allow_html=True)
-    with c5: st.markdown(_stat2(f"+{mt_stats['avg_ev_pct']:.1f}%" if mt_stats["avg_ev_pct"] >= 0
-                                else f"{mt_stats['avg_ev_pct']:.1f}%",
-                                "AVG MODEL EV", "#7c4dff"), unsafe_allow_html=True)
-
-    st.markdown('<div class="divider" style="margin:1.2rem 0"></div>', unsafe_allow_html=True)
-
-    # ── Mock Two bankroll history chart (Main parity) ─────────────────────
-    history2 = pf.bankroll_history(port2)
-    if len(history2) >= 2:
-        st.markdown('<p class="section-label">📈  Mock Two Bankroll Journey</p>',
-                    unsafe_allow_html=True)
-        init_br_p2 = float(port2["initial_bankroll"])
-        x_vals_p2  = history2["idx"].tolist()
-        y_vals_p2  = history2["bankroll"].tolist()
-        labels_p2  = history2["label"].tolist()
-        line_col_p2 = "#00e676" if y_vals_p2[-1] >= init_br_p2 else "#ff6fa1"
-
-        fig_p2 = go.Figure()
-
-        # Insert baseline-crossing points so green/red fills don't bleed
-        x_exp_p2: list[float] = [x_vals_p2[0]]
-        y_exp_p2: list[float] = [y_vals_p2[0]]
-        for i in range(1, len(y_vals_p2)):
-            y_prev, y_cur = y_vals_p2[i - 1], y_vals_p2[i]
-            if (y_prev - init_br_p2) * (y_cur - init_br_p2) < 0:
-                t = (init_br_p2 - y_prev) / (y_cur - y_prev)
-                x_cross = x_vals_p2[i - 1] + t * (x_vals_p2[i] - x_vals_p2[i - 1])
-                x_exp_p2.append(x_cross); y_exp_p2.append(init_br_p2)
-            x_exp_p2.append(x_vals_p2[i]); y_exp_p2.append(y_cur)
-
-        y_up_p2 = [max(v, init_br_p2) for v in y_exp_p2]
-        y_dn_p2 = [min(v, init_br_p2) for v in y_exp_p2]
-        baseline_p2 = [init_br_p2] * len(y_exp_p2)
-
-        # Green above
-        fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=baseline_p2, mode="lines",
-            line=dict(width=0, color="rgba(0,0,0,0)"),
-            hoverinfo="skip", showlegend=False))
-        fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=y_up_p2, mode="lines",
-            line=dict(width=0, color="rgba(0,0,0,0)"),
-            fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
-            hoverinfo="skip", showlegend=False))
-        # Red below
-        fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=baseline_p2, mode="lines",
-            line=dict(width=0, color="rgba(0,0,0,0)"),
-            hoverinfo="skip", showlegend=False))
-        fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=y_dn_p2, mode="lines",
-            line=dict(width=0, color="rgba(0,0,0,0)"),
-            fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
-            hoverinfo="skip", showlegend=False))
-
-        # Baseline line + label
-        fig_p2.add_hline(
-            y=init_br_p2, line_color="rgba(255,255,255,0.30)", line_dash="dot",
-            annotation_text=f"Start £{init_br_p2:,.0f}",
-            annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
-            annotation_position="top left",
-        )
-
-        # Halo + main line with win/loss markers
-        deltas_p2 = [0.0] + [y_vals_p2[i] - y_vals_p2[i - 1]
-                              for i in range(1, len(y_vals_p2))]
-        marker_symbols_p2 = ["circle"] + [
-            "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
-            for d in deltas_p2[1:]
-        ]
-        marker_colors_p2 = ["#8892a4"] + [
-            "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
-            for d in deltas_p2[1:]
-        ]
-        marker_sizes_p2 = [0] + [13 if d != 0 else 6 for d in deltas_p2[1:]]
-        hover_texts_p2 = ["Start"] + [
-            ("▲ WON " + f"+£{d:,.2f}") if d > 0 else
-            ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
-            "No change"
-            for d in deltas_p2[1:]
-        ]
-
-        fig_p2.add_trace(go.Scatter(x=x_vals_p2, y=y_vals_p2, mode="lines",
-            line=dict(color=f"rgba({_hex_to_rgb(line_col_p2)},0.30)", width=10),
-            hoverinfo="skip", showlegend=False))
-        fig_p2.add_trace(go.Scatter(
-            x=x_vals_p2, y=y_vals_p2, mode="lines+markers",
-            line=dict(color=line_col_p2, width=3.5, shape="linear"),
-            marker=dict(symbol=marker_symbols_p2, size=marker_sizes_p2,
-                        color=marker_colors_p2,
-                        line=dict(color="#0a0e1a", width=1.5)),
-            text=hover_texts_p2,
-            hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
-                           "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b>"
-                           "<extra></extra>"),
-            hoverlabel=dict(bgcolor="#1a1d27", bordercolor=line_col_p2,
-                            font=dict(size=14, family="Inter", color="#e8eaf0")),
-            showlegend=False,
-        ))
-
-        # Peak / Low / NOW badges
-        peak_idx_p2   = int(np.argmax(y_vals_p2))
-        trough_idx_p2 = int(np.argmin(y_vals_p2))
-        _peak_near_now_p2 = ((len(y_vals_p2) - 1 - peak_idx_p2) * 850
-                             / max(len(y_vals_p2), 1) < 170)
-        if (peak_idx_p2 > 0 and not _peak_near_now_p2
-                and y_vals_p2[peak_idx_p2] > init_br_p2 * 1.05):
-            fig_p2.add_annotation(
-                x=x_vals_p2[peak_idx_p2], y=y_vals_p2[peak_idx_p2],
-                text=f"<b>Peak</b><br>£{y_vals_p2[peak_idx_p2]:,.0f}",
-                showarrow=True, arrowhead=2, arrowcolor="#00e676",
-                arrowsize=1.2, arrowwidth=1.5, ax=0, ay=-38,
-                font=dict(size=12, color="#00e676", family="Inter"),
-                bgcolor="rgba(0,230,118,0.10)",
-                bordercolor="rgba(0,230,118,0.4)",
-                borderpad=4, borderwidth=1,
-            )
-        if (trough_idx_p2 > 0 and y_vals_p2[trough_idx_p2] < init_br_p2 * 0.95
-                and trough_idx_p2 != peak_idx_p2):
-            fig_p2.add_annotation(
-                x=x_vals_p2[trough_idx_p2], y=y_vals_p2[trough_idx_p2],
-                text=f"<b>Low</b><br>£{y_vals_p2[trough_idx_p2]:,.0f}",
-                showarrow=True, arrowhead=2, arrowcolor="#ff4081",
-                arrowsize=1.2, arrowwidth=1.5, ax=0, ay=38,
-                font=dict(size=12, color="#ff4081", family="Inter"),
-                bgcolor="rgba(255,64,129,0.10)",
-                bordercolor="rgba(255,64,129,0.4)",
-                borderpad=4, borderwidth=1,
-            )
-        # NOW badge: moves off to the left when the pending projection owns
-        # the space to the right (same rule as Main's chart).
-        if any(b["status"] == "pending" and b.get("type") != "acca"
-               for b in port2["bets"]):
-            _ax, _ay = now_badge_offset(
-                rising=len(y_vals_p2) < 2 or y_vals_p2[-1] >= y_vals_p2[-2])
-            fig_p2.add_annotation(
-                x=x_vals_p2[-1], y=y_vals_p2[-1],
-                text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
-                showarrow=True, ax=_ax, ay=_ay, arrowcolor=line_col_p2,
-                arrowwidth=1.5, arrowhead=0, xanchor="right",
-                font=dict(size=14, color="#fff", family="Inter"),
-                bgcolor=line_col_p2, bordercolor=line_col_p2,
-                borderpad=8, borderwidth=2,
-            )
+        if mt_stats["n_settled"] == 0 and not pending2:
+            hero_class2 = "pnl-neutral"
+        elif profit2 >= 0:
+            hero_class2 = "pnl-profit"
         else:
-            fig_p2.add_annotation(
-                x=x_vals_p2[-1], y=y_vals_p2[-1],
-                text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
-                showarrow=False, xshift=15,
-                font=dict(size=14, color="#fff", family="Inter"),
-                bgcolor=line_col_p2, bordercolor=line_col_p2,
-                borderpad=8, borderwidth=2, xanchor="left",
-            )
+            hero_class2 = "pnl-loss"
+        arrow2 = "▲" if profit2 >= 0 else "▼"
 
-        # ── Mock Two pending bets projection ───────────────────────────
-        # Same projection logic as Main: starts from LAST SETTLED bet's
-        # bankroll (not current cash) so the lines visually continue from
-        # the chart. Math: profit_if_won = stake*(odds-1), loss = -stake.
-        # Terminal values match the gross-return formulation.
-        pending2_for_proj = [b for b in port2["bets"]
-                             if b["status"] == "pending" and b.get("type") != "acca"]
-        if pending2_for_proj:
-            n_pend_p2 = len(pending2_for_proj)
-            pending_sorted_p2 = sorted(
-                pending2_for_proj,
-                key=lambda b: (b.get("date") or "", b.get("placed_at") or ""),
-            )
-            last_settled_p2 = y_vals_p2[-1]  # already the last settled bankroll
-            x_proj_p2 = list(range(x_vals_p2[-1], x_vals_p2[-1] + n_pend_p2 + 1))
-            best_y_p2  = [last_settled_p2]
-            exp_y_p2   = [last_settled_p2]
-            worst_y_p2 = [last_settled_p2]
-            for b in pending_sorted_p2:
-                stake = float(b["stake"])
-                odds  = float(b["odds"])
-                p_win = float(b.get("model_prob") or 0.0)
-                profit_win  = stake * (odds - 1)
-                profit_loss = -stake
-                exp_change  = p_win * profit_win + (1.0 - p_win) * profit_loss
-                best_y_p2.append(round(best_y_p2[-1]   + profit_win,  2))
-                worst_y_p2.append(round(worst_y_p2[-1] + profit_loss, 2))
-                exp_y_p2.append (round(exp_y_p2[-1]    + exp_change,  2))
-
-            # Best (all pending win)
-            fig_p2.add_trace(go.Scatter(
-                x=x_proj_p2, y=best_y_p2, mode="lines+markers",
-                line=dict(color="#00e676", width=2.2, dash="dot"),
-                marker=dict(size=[0] + [8] * n_pend_p2,
-                            color="#00e676", symbol="diamond"),
-                hovertemplate=("<b>Pending #%{x}</b><br>"
-                               "If all win → £%{y:,.2f}<extra></extra>"),
-                showlegend=False,
-            ))
-            # Expected (model-weighted)
-            fig_p2.add_trace(go.Scatter(
-                x=x_proj_p2, y=exp_y_p2, mode="lines+markers",
-                line=dict(color="#00e5ff", width=2.5, dash="dash"),
-                marker=dict(size=[0] + [8] * n_pend_p2,
-                            color="#00e5ff", symbol="circle"),
-                hovertemplate=("<b>Pending #%{x}</b><br>"
-                               "Expected → £%{y:,.2f}<extra></extra>"),
-                showlegend=False,
-            ))
-            # Worst (all lose)
-            fig_p2.add_trace(go.Scatter(
-                x=x_proj_p2, y=worst_y_p2, mode="lines+markers",
-                line=dict(color="#ff4081", width=2.2, dash="dot"),
-                marker=dict(size=[0] + [8] * n_pend_p2,
-                            color="#ff4081", symbol="x"),
-                hovertemplate=("<b>Pending #%{x}</b><br>"
-                               "If all lose → £%{y:,.2f}<extra></extra>"),
-                showlegend=False,
-            ))
-            # Endpoint annotations
-            _ends_p2 = ((best_y_p2[-1],  "#00e676", "If all win"),
-                        (exp_y_p2[-1],   "#00e5ff", "Expected"),
-                        (worst_y_p2[-1], "#ff4081", "If all lose"))
-            _all_y2 = list(y_vals_p2) + best_y_p2 + worst_y_p2 + exp_y_p2
-            _lo2, _hi2 = min(_all_y2), max(_all_y2)
-            _pad2 = (_hi2 - _lo2) * 0.06
-            _shifts_p2 = spread_label_shifts([e[0] for e in _ends_p2],
-                                             _lo2 - _pad2, _hi2 + _pad2,
-                                             plot_px=340, min_gap_px=46)
-            for (y_val, color, label), _sh in zip(_ends_p2, _shifts_p2):
-                fig_p2.add_annotation(
-                    x=x_proj_p2[-1], y=y_val, yshift=_sh,
-                    text=f"<b>{label}<br>£{y_val:,.0f}</b>",
-                    showarrow=False, xshift=12,
-                    font=dict(size=11, color=color, family="Inter"),
-                    bgcolor=f"rgba({_hex_to_rgb(color)},0.10)",
-                    bordercolor=f"rgba({_hex_to_rgb(color)},0.4)",
-                    borderpad=5, borderwidth=1, xanchor="left",
-                )
-            # Vertical separator settled → pending
-            fig_p2.add_vline(
-                x=x_vals_p2[-1], line_color="rgba(255,255,255,0.15)",
-                line_dash="dot",
-            )
-            fig_p2.add_annotation(
-                x=x_vals_p2[-1], y=1.0, yref="paper",
-                text="settled  →  pending",
-                showarrow=False, yshift=-6,
-                font=dict(size=11, color="#7c4dff", family="Inter"),
-            )
-
-        fig_p2.update_layout(
-            **{k: v for k, v in DARK.items() if k != "margin"},
-            height=460, showlegend=False,
-            margin=dict(t=40, b=40, l=20, r=140),
-            xaxis=dict(
-                title=dict(text="BET NUMBER",
-                           font=dict(size=12, color="#7c4dff", family="Inter"),
-                           standoff=18),
-                showgrid=False, showticklabels=True,
-                tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
-                zeroline=False,
-            ),
-            yaxis=dict(
-                title=dict(text="BANKROLL",
-                           font=dict(size=12, color="#7c4dff", family="Inter"),
-                           standoff=14),
-                gridcolor="rgba(255,255,255,0.05)",
-                tickprefix="£",
-                tickfont=dict(size=14, color="#cdd", family="Inter"),
-                zeroline=False, tickformat=",.0f",
-            ),
-        )
-        st.plotly_chart(fig_p2, use_container_width=True,
-                        config={"displayModeBar": False})
-        st.markdown('<div class="divider" style="margin:1rem 0"></div>', unsafe_allow_html=True)
-
-    _render_risk_edge_strip(port2)
-
-    # ── Mock Two CLV diagnostics ──────────────────────────────────────────
-    if mt_clv["n"] > 0:
-        st.markdown('<p class="section-label">📐  CLV vs the closing price · Mock Two</p>',
-                    unsafe_allow_html=True)
-        _med  = mt_clv["median_clv"] * 100
-        _mean = mt_clv["mean_clv"] * 100
-        _pos  = mt_clv["pct_positive"]
-        _med_col = "#00e676" if _med >= 1.0 else ("#ffd600" if _med >= 0 else "#ff6fa1")
-        cv1, cv2, cv3, cv4 = st.columns(4)
-        with cv1: st.markdown(_stat2(f"{_med:+.2f}%", "MEDIAN CLV", _med_col), unsafe_allow_html=True)
-        with cv2: st.markdown(_stat2(f"{_mean:+.2f}%", "MEAN CLV", _med_col), unsafe_allow_html=True)
-        with cv3: st.markdown(_stat2(f"{_pos:.0f}%", "% POSITIVE",
-            "#00e676" if _pos >= 55 else "#ffd600" if _pos >= 45 else "#ff6fa1"), unsafe_allow_html=True)
-        with cv4: st.markdown(_stat2(f"{mt_clv['n']}", "TAGGED"), unsafe_allow_html=True)
-        _render_clv_trend(port2, key_prefix="mt")
-        st.markdown('<div class="divider" style="margin:1rem 0"></div>', unsafe_allow_html=True)
-
-    # ── Mock Two Pending Bets — pend-card-v2 style (parity with Main) ────
-    pending2_singles = [b for b in pending2 if b.get("type") != "acca"]
-    if pending2_singles:
-        st.markdown('<p class="section-label">⏳  MOCK TWO PENDING BETS</p>',
-                    unsafe_allow_html=True)
-        mkt_colors_p2 = {"H": "#3d6eff", "D": "#ffd600", "A": "#ff4081",
-                         "over25": "#7c4dff", "under25": "#00e5ff"}
-
-        def _render_p2_pending_card(bet: dict) -> None:
-            ev_pct = bet.get("ev", 0) * 100
-            _pot_ret    = round(bet["stake"] * bet["odds"], 2)
-            _pot_profit = round(_pot_ret - bet["stake"], 2)
-            mc = mkt_colors_p2.get(bet["market"], "#aab")
-            try:
-                _d = pd.to_datetime(bet.get("date") or bet.get("placed_at"))
-                _date_short = _d.strftime("%a %-d %b")
-            except Exception:
-                _date_short = (bet.get("date") or "")[:10]
-            _model_p    = bet.get("model_prob", 0) * 100
-            _profit_pct = round((_pot_profit / max(bet["stake"], 0.01)) * 100, 0)
-            # v2 audit chips — only render when the stack actually adjusted
-            audit_chips = []
-            if bet.get("v2_kelly_shrinkage") is not None:
-                audit_chips.append(
-                    f'<span class="pend-v2-stat">'
-                    f'<div class="pend-v2-stat-lbl">SHRINK</div>'
-                    f'<div class="pend-v2-stat-val pend-v2-model">'
-                    f'{bet["v2_kelly_shrinkage"]:.2f}</div></span>'
-                )
-            if bet.get("v2_sim_factor") is not None and abs(bet["v2_sim_factor"] - 1.0) > 0.001:
-                audit_chips.append(
-                    f'<span class="pend-v2-stat">'
-                    f'<div class="pend-v2-stat-lbl">SIM ×</div>'
-                    f'<div class="pend-v2-stat-val pend-v2-model">'
-                    f'{bet["v2_sim_factor"]:.2f}</div></span>'
-                )
-            audit_html = "".join(audit_chips)
-            st.markdown(f"""
-            <div class="pend-card-v2">
-                <div class="pend-v2-top">
-                    <span class="pend-v2-date">📅 {_date_short}</span>
-                    <span class="pend-v2-badge" style="color:{mc};border-color:{mc}55;background:rgba({_hex_to_rgb(mc)},0.10)">{bet['market'].upper()}</span>
-                </div>
-                <div class="pend-v2-teams">
-                    <div class="pend-v2-team"><img class="team-badge" src="{_BADGE_URL.get(bet['home'], '')}" width="56" /><span>{bet['home']}</span></div>
-                    <div class="pend-v2-vs">VS</div>
-                    <div class="pend-v2-team"><img class="team-badge" src="{_BADGE_URL.get(bet['away'], '')}" width="56" /><span>{bet['away']}</span></div>
-                </div>
-                <div class="pend-v2-pick" style="color:{mc}">
-                    🎯 {bet['selection']} <span class="pend-v2-at">@</span> <span class="pend-v2-odds">{bet['odds']:.2f}</span>
-                </div>
-                {_bet_tags_html(bet, port2)}
-                {_odds_move_html(bet)}
-                <div class="pend-v2-stats">
-                    <div class="pend-v2-stat">
-                        <div class="pend-v2-stat-lbl">STAKE</div>
-                        <div class="pend-v2-stat-val">£{bet['stake']:,.2f}</div>
-                    </div>
-                    <div class="pend-v2-stat">
-                        <div class="pend-v2-stat-lbl">MODEL (RAW)</div>
-                        <div class="pend-v2-stat-val pend-v2-model">{_model_p:.1f}%</div>
-                    </div>
-                    <div class="pend-v2-stat">
-                        <div class="pend-v2-stat-lbl">EV</div>
-                        <div class="pend-v2-stat-val pend-v2-ev">+{ev_pct:.1f}%</div>
-                    </div>
-                    {audit_html}
-                </div>
-                <div class="pend-v2-return">
-                    <div class="pend-v2-return-block">
-                        <div class="pend-v2-return-lbl">IF IT WINS</div>
-                        <div class="pend-v2-return-val">£{_pot_ret:,.2f}</div>
-                    </div>
-                    <div class="pend-v2-arrow">→</div>
-                    <div class="pend-v2-return-block">
-                        <div class="pend-v2-return-lbl">PROFIT</div>
-                        <div class="pend-v2-return-profit">+£{_pot_profit:,.2f}</div>
-                        <div class="pend-v2-return-pct">+{_profit_pct:.0f}% on stake</div>
-                    </div>
-                </div>
-            </div>""", unsafe_allow_html=True)
-            _cancel_bet_control(bet, port2, pf.save_portfolio_two, "mt", f"p2_cancel_{bet['id']}")
-
-        # Two cards per row, latest 8
-        recent_p2 = pending2_singles[-8:]
-        for i in range(0, len(recent_p2), 2):
-            cols = st.columns(2)
-            with cols[0]:
-                _render_p2_pending_card(recent_p2[i])
-            if i + 1 < len(recent_p2):
-                with cols[1]:
-                    _render_p2_pending_card(recent_p2[i + 1])
-        st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
-
-    # ── Mock Two Bet History — bh-row style (parity with Main) ─────────
-    settled2 = [b for b in port2["bets"]
-                if b["status"] in ("won", "lost") and b.get("type") != "acca"]
-    if settled2:
-        st.markdown('<p class="section-label" id="bet-history-p2">📋  MOCK TWO BET HISTORY · Singles</p>',
-                    unsafe_allow_html=True)
-
-        chrono_p2 = sorted(settled2,
-                           key=lambda b: (b.get("settled_at") or b.get("date") or "",
-                                          b.get("placed_at") or ""))
-        chrono_p2_idx = [(i + 1, b) for i, b in enumerate(chrono_p2)]
-
-        rows_html_p2 = []
-        for bet_idx, b in reversed(chrono_p2_idx):
-            profit_b = b["profit"] or 0.0
-            stake_b  = b["stake"]
-            odds_b   = b["odds"]
-            model_p  = b.get("model_prob") or 0.0
-            implied  = (1.0 / odds_b) if odds_b > 0 else 0.0
-            edge_pp  = (model_p - implied) * 100
-
-            try:
-                d = pd.to_datetime(b.get("date") or b.get("placed_at"))
-                date_short = d.strftime("%-d %b %y")
-            except Exception:
-                date_short = (b.get("date") or "")[:10]
-
-            home, away  = b["home"], b["away"]
-            sel_label   = b["selection"]
-            won = b["status"] == "won"
-            res_html = (f'<span class="bh-result bh-won">✅ WON</span>' if won
-                        else f'<span class="bh-result bh-lost">❌ LOST</span>')
-            pnl_cls = ("bh-pnl-pos" if profit_b > 0
-                       else ("bh-pnl-neg" if profit_b < 0 else "bh-pnl-flat"))
-            pnl_sign = "+" if profit_b >= 0 else "−"
-            pnl_html = (f'<span class="bh-pnl {pnl_cls}">'
-                        f'{md.fmt_money(profit_b, pence=True)}</span>')
-
-            edge_col  = "#00e676" if edge_pp >= 5 else ("#ffd600" if edge_pp >= 0 else "#ff6fa1")
-            edge_html = (
-                f'<div class="bh-edge" title="Model probability vs bookmaker implied probability.">'
-                f'  <div class="bh-edge-row">'
-                f'    <span class="bh-edge-lbl">model raw</span>'
-                f'    <span class="bh-edge-num" style="color:#a78bfa">{model_p*100:.1f}%</span>'
-                f'  </div>'
-                f'  <div class="bh-edge-row">'
-                f'    <span class="bh-edge-lbl">bookie</span>'
-                f'    <span class="bh-edge-num">{implied*100:.1f}%</span>'
-                f'  </div>'
-                f'  <div class="bh-edge-gap" style="color:{edge_col}">+{edge_pp:.1f}pp edge</div>'
-                f'</div>'
-            )
-
-            highlight_idx = st.session_state.get("_bh_p2_highlight")
-            row_cls = "bh-row" + (" bh-row-highlight" if highlight_idx == bet_idx else "")
-
-            rows_html_p2.append(
-                f'<div class="{row_cls}" id="bet-row-p2-{bet_idx}">'
-                f'  <div class="bh-meta"><div class="bh-num">#{bet_idx}</div>'
-                f'    <div class="bh-date">{date_short}</div></div>'
-                f'  <div class="bh-team bh-home"><div class="bh-team-inner">{badge(home, 36)}'
-                f'<span class="bh-name">{home}</span></div></div>'
-                f'  <div class="bh-team bh-away"><div class="bh-team-inner">{badge(away, 36)}'
-                f'<span class="bh-name">{away}</span></div></div>'
-                f'  <div class="bh-pick"><div class="bh-sel">{sel_label}</div>'
-                f'    <div class="bh-odds">{odds_b:.2f}</div></div>'
-                f'  {edge_html}'
-                f'  <div class="bh-stake">£{stake_b:,.2f}</div>'
-                f'  <div class="bh-cell-result">{res_html}</div>'
-                f'  <div class="bh-cell-pnl">{pnl_html}</div>'
-                f'</div>'
-            )
-
-        header_html_p2 = (
-            '<div class="bh-row bh-header">'
-            '<div class="bh-num"># · DATE</div>'
-            '<div class="bh-team">HOME</div>'
-            '<div class="bh-team">AWAY</div>'
-            '<div class="bh-sel">PICK</div>'
-            '<div>WHY WE BET</div>'
-            '<div class="bh-stake">STAKE</div>'
-            '<div class="bh-cell-result">RESULT</div>'
-            '<div class="bh-cell-pnl">P&amp;L</div>'
-            '</div>'
-        )
-
-        st.markdown(
-            '<div class="bh-scroll"><div class="bh-table">'
-            + header_html_p2 + "".join(rows_html_p2)
-            + '</div></div>',
-            unsafe_allow_html=True,
-        )
-    elif not pending2:
-        st.markdown(
-            '<div style="padding:1rem 1.2rem;background:rgba(124,77,255,0.05);'
-            'border-left:3px solid #7c4dff;border-radius:6px;font-size:0.84rem;color:#c9d0dc">'
-            'Mock Two is fresh — no bets placed yet. Toggle <b>Auto-Bet</b> in settings '
-            'and ensure the Odds API key is set in the main portfolio. The research-track '
-            'stack will auto-place qualifying bets on the same fixtures the main portfolio '
-            'considers, but with K-N predictions and uncertainty-shrunk Kelly sizing.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
-
-    # ── Historical EV Backtest — Mock Two engine ─────────────────────────
-    with st.expander("📜  Historical EV Backtest · Mock Two engine (K-N + uncertainty-Kelly)",
-                     expanded=False):
-        st.markdown("""
-        <div style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem;line-height:1.6">
-            Replays the same B365 historical odds as the Main backtest but routes them through
-            the <b style="color:#a78bfa">research-track stack</b>: Karlis-Ntzoufras γ-inflated
-            Dixon-Coles for probabilities, Baker-McHale uncertainty-shrunk Kelly for sizing,
-            and Busseti-Ryu-Boyd simultaneous-bet correction across same-day cards.
-            Side-by-side with the Main result, this answers: <i>does the research stack
-            actually beat the production stack on identical matches?</i>
-            Per-bin variance is fitted in-sample on the same window — directionally honest,
-            but not a true held-out estimator.
+        st.markdown(f"""
+        <div class="pnl-hero {hero_class2}">
+            <div class="pnl-tag">🧪 MOCK PORTFOLIO TWO · RESEARCH TRACK · NOT REAL MONEY</div>
+            <div class="pnl-amount">{md.fmt_money(profit2, pence=True)}</div>
+            <div class="pnl-subtitle">
+                {arrow2} {sign2}{roi2:.1f}% ROI &nbsp;·&nbsp;
+                £{bankroll2:,.2f} bankroll &nbsp;·&nbsp;
+                {mt_stats['n_pending']} pending (£{pending_stake2:.0f} at risk)
+            </div>
         </div>""", unsafe_allow_html=True)
 
-        # ── Quick presets ─────────────────────────────────────────────
-        _render_backtest_presets("hbt2")
+        def _stat2(val, lbl, color="#e8eaf0"):
+            return (f'<div class="pstat-card">'
+                    f'<div class="pstat-val" style="color:{color}">{val}</div>'
+                    f'<div class="pstat-lbl">{lbl}</div></div>')
+        roi_col2 = "#00e676" if roi2 >= 0 else "#ff6fa1"
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1: st.markdown(_stat2(f"£{bankroll2:,.0f}", "BANKROLL"), unsafe_allow_html=True)
+        with c2: st.markdown(_stat2(str(mt_stats["n_settled"]), "SETTLED"), unsafe_allow_html=True)
+        with c3: st.markdown(_stat2(f"{mt_stats['win_rate']:.0f}%", "WIN RATE"), unsafe_allow_html=True)
+        with c4: st.markdown(_stat2(f"{sign2}{roi2:.1f}%", "ROI", roi_col2), unsafe_allow_html=True)
+        with c5: st.markdown(_stat2(f"+{mt_stats['avg_ev_pct']:.1f}%" if mt_stats["avg_ev_pct"] >= 0
+                                    else f"{mt_stats['avg_ev_pct']:.1f}%",
+                                    "AVG MODEL EV", "#7c4dff"), unsafe_allow_html=True)
 
-        # 2025-26 representativeness note — current squads & ELO ratings
-        st.markdown(
-            '<div style="background:linear-gradient(135deg,rgba(0,229,255,0.07),rgba(124,77,255,0.04));'
-            'border-left:3px solid #00e5ff;border-radius:8px;padding:0.7rem 1rem;'
-            'margin-bottom:0.9rem;font-size:0.82rem;color:#cdd;line-height:1.5">'
-            '💡 <b style="color:#00e5ff">Multi-season backtests:</b> '
-            "test_weeks ≥ 80 spans more than one season. Recent seasons are "
-            "the most representative — older data includes teams that have "
-            "since been relegated/promoted, and ELO ratings stabilise as more "
-            "matches accumulate. <b>2025-26 is the most predictive of next "
-            "season's behaviour.</b>"
-            '</div>', unsafe_allow_html=True,
-        )
+        st.markdown('<div class="divider" style="margin:1.2rem 0"></div>', unsafe_allow_html=True)
 
-        h2c1, h2c2, h2c3, h2c4, h2c5, h2c6 = st.columns(6)
-        with h2c1:
-            hbt2_weeks = st.slider("Test Window (weeks)", 8, 200, 52,
-                                    key="hbt2_weeks",
-                                    help="52 = one season. 80–104 covers 1–2 seasons. "
-                                         "150+ covers 3+ seasons but training window "
-                                         "shrinks (we only have ~5 seasons total).")
-        with h2c2:
-            hbt2_min_ev = st.slider("Min EV (%)", 1, 60,
-                                     int(float(settings.get("min_ev", 0.40)) * 100),
-                                     key="hbt2_minev")
-        with h2c3:
-            hbt2_min_prob = st.slider(
-                "Min Prob Gate (%)", 0, 80,
-                int(settings.get("min_prob", 0.30) * 100),
-                key="hbt2_minprob",
-            )
-        with h2c4:
-            _kf = float(settings.get("kelly_fraction", 1.0))
-            _kf_options = [0.25, 0.5, 0.75, 1.0]
-            _kf_default = min(_kf_options, key=lambda x: abs(x - _kf))
-            hbt2_kelly = st.select_slider(
-                "Base Kelly (pre-shrinkage)", _kf_options, _kf_default,
-                key="hbt2_kelly", format_func=lambda x: f"{int(x*100)}%",
-            )
-        with h2c5:
-            hbt2_max_stake = st.slider(
-                "Max Stake (% of bankroll)", 5, 50,
-                int(settings.get("max_stake_pct", 0.33) * 100),
-                key="hbt2_maxstake",
-            )
-        with h2c6:
-            hbt2_bankroll = st.number_input(
-                "Bankroll (£)", 100.0, 100000.0, 10000.0, 1000.0,
-                key="hbt2_bankroll", format="%.0f",
-            )
+        # ── Mock Two bankroll history chart (Main parity) ─────────────────────
+        history2 = pf.bankroll_history(port2)
+        if len(history2) >= 2:
+            st.markdown('<p class="section-label">📈  Mock Two Bankroll Journey</p>',
+                        unsafe_allow_html=True)
+            init_br_p2 = float(port2["initial_bankroll"])
+            x_vals_p2  = history2["idx"].tolist()
+            y_vals_p2  = history2["bankroll"].tolist()
+            labels_p2  = history2["label"].tolist()
+            line_col_p2 = "#00e676" if y_vals_p2[-1] >= init_br_p2 else "#ff6fa1"
 
-        sc1, sc2, sc3, sc4 = st.columns([1.2, 1, 1.3, 1])
-        with sc1:
-            hbt2_sim = st.checkbox("Simultaneous-bet correction",
-                                   value=bool(settings.get("use_simultaneous_kelly", True)),
-                                   key="hbt2_sim")
-        with sc2:
-            hbt2_skip_late = st.checkbox(
-                "Skip Mar-Apr",
-                value=bool(settings.get("skip_late_season", True)),
-                key="hbt2_skip_late",
-                help="0/7 wins in March-April across 2024-25 + 2025-26. "
-                     "(May was previously bundled in but is now allowed.)",
-            )
-        with sc3:
-            hbt2_skip_title = st.checkbox(
-                "Skip home_title_race",
-                value=bool(settings.get("skip_home_title_race", False)),
-                key="hbt2_skip_title",
-                help="0/6 wins when home team chasing title (2025-26).",
-            )
-        with sc4:
-            # Default place-source to Max (multi-season grid winner used Max + PS)
-            _odds_options = ["B365", "Max", "Avg", "PS"]
-            hbt2_odds_src = st.selectbox(
-                "Place at",
-                options=_odds_options,
-                index=_odds_options.index("Max"),
-                key="hbt2_odds_src",
-                help="The price you actually win at if your bet hits. "
-                     "Multi-season grid winner places at Max.",
+            fig_p2 = go.Figure()
+
+            # Insert baseline-crossing points so green/red fills don't bleed
+            x_exp_p2: list[float] = [x_vals_p2[0]]
+            y_exp_p2: list[float] = [y_vals_p2[0]]
+            for i in range(1, len(y_vals_p2)):
+                y_prev, y_cur = y_vals_p2[i - 1], y_vals_p2[i]
+                if (y_prev - init_br_p2) * (y_cur - init_br_p2) < 0:
+                    t = (init_br_p2 - y_prev) / (y_cur - y_prev)
+                    x_cross = x_vals_p2[i - 1] + t * (x_vals_p2[i] - x_vals_p2[i - 1])
+                    x_exp_p2.append(x_cross); y_exp_p2.append(init_br_p2)
+                x_exp_p2.append(x_vals_p2[i]); y_exp_p2.append(y_cur)
+
+            y_up_p2 = [max(v, init_br_p2) for v in y_exp_p2]
+            y_dn_p2 = [min(v, init_br_p2) for v in y_exp_p2]
+            baseline_p2 = [init_br_p2] * len(y_exp_p2)
+
+            # Green above
+            fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=baseline_p2, mode="lines",
+                line=dict(width=0, color="rgba(0,0,0,0)"),
+                hoverinfo="skip", showlegend=False))
+            fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=y_up_p2, mode="lines",
+                line=dict(width=0, color="rgba(0,0,0,0)"),
+                fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
+                hoverinfo="skip", showlegend=False))
+            # Red below
+            fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=baseline_p2, mode="lines",
+                line=dict(width=0, color="rgba(0,0,0,0)"),
+                hoverinfo="skip", showlegend=False))
+            fig_p2.add_trace(go.Scatter(x=x_exp_p2, y=y_dn_p2, mode="lines",
+                line=dict(width=0, color="rgba(0,0,0,0)"),
+                fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
+                hoverinfo="skip", showlegend=False))
+
+            # Baseline line + label
+            fig_p2.add_hline(
+                y=init_br_p2, line_color="rgba(255,255,255,0.30)", line_dash="dot",
+                annotation_text=f"Start £{init_br_p2:,.0f}",
+                annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
+                annotation_position="top left",
             )
 
-        # Default detect-source to PS (multi-season grid winner detects at PS)
-        _detect_options = ["(same as place)", "B365", "Max", "Avg", "PS"]
-        hbt2_detect_src = st.selectbox(
-            "Detect EV against (optional — leave 'same as place' for single-source)",
-            options=_detect_options,
-            index=_detect_options.index("PS"),
-            key="hbt2_detect_src",
-            help="Set to PS for sharp-edge detection (best CLV in WF: +2.68%). "
-                 "Multi-season grid winner detects at PS, places at Max.",
-        )
+            # Halo + main line with win/loss markers
+            deltas_p2 = [0.0] + [y_vals_p2[i] - y_vals_p2[i - 1]
+                                  for i in range(1, len(y_vals_p2))]
+            marker_symbols_p2 = ["circle"] + [
+                "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
+                for d in deltas_p2[1:]
+            ]
+            marker_colors_p2 = ["#8892a4"] + [
+                "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
+                for d in deltas_p2[1:]
+            ]
+            marker_sizes_p2 = [0] + [13 if d != 0 else 6 for d in deltas_p2[1:]]
+            hover_texts_p2 = ["Start"] + [
+                ("▲ WON " + f"+£{d:,.2f}") if d > 0 else
+                ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
+                "No change"
+                for d in deltas_p2[1:]
+            ]
 
-        # Markets row — U2.5 toggle (same as Main expander)
-        m2c1, m2c2 = st.columns([1.5, 3])
-        with m2c1:
-            hbt2_u25_gates = st.checkbox(
-                "Include Under 2.5 (separate gates)",
-                value="under25" in (settings.get("market_gates") or {}),
-                key="hbt2_u25_gates",
-                help="Adds U2.5 to the simulated market set with mp=50%, mev=5%.",
-            )
-        with m2c2:
-            if hbt2_u25_gates:
-                st.markdown(
-                    '<div style="font-size:0.86rem;color:#a78bfa;padding-top:0.55rem">'
-                    'Backtest will include <b>Draw + Under 2.5</b> with separate per-market gates '
-                    '(U2.5: mp ≥ 50%, ev ≥ 5%).</div>',
-                    unsafe_allow_html=True,
+            fig_p2.add_trace(go.Scatter(x=x_vals_p2, y=y_vals_p2, mode="lines",
+                line=dict(color=f"rgba({_hex_to_rgb(line_col_p2)},0.30)", width=10),
+                hoverinfo="skip", showlegend=False))
+            fig_p2.add_trace(go.Scatter(
+                x=x_vals_p2, y=y_vals_p2, mode="lines+markers",
+                line=dict(color=line_col_p2, width=3.5, shape="linear"),
+                marker=dict(symbol=marker_symbols_p2, size=marker_sizes_p2,
+                            color=marker_colors_p2,
+                            line=dict(color="#0a0e1a", width=1.5)),
+                text=hover_texts_p2,
+                hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
+                               "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b>"
+                               "<extra></extra>"),
+                hoverlabel=dict(bgcolor="#1a1d27", bordercolor=line_col_p2,
+                                font=dict(size=14, family="Inter", color="#e8eaf0")),
+                showlegend=False,
+            ))
+
+            # Peak / Low / NOW badges
+            peak_idx_p2   = int(np.argmax(y_vals_p2))
+            trough_idx_p2 = int(np.argmin(y_vals_p2))
+            _peak_near_now_p2 = ((len(y_vals_p2) - 1 - peak_idx_p2) * 850
+                                 / max(len(y_vals_p2), 1) < 170)
+            if (peak_idx_p2 > 0 and not _peak_near_now_p2
+                    and y_vals_p2[peak_idx_p2] > init_br_p2 * 1.05):
+                fig_p2.add_annotation(
+                    x=x_vals_p2[peak_idx_p2], y=y_vals_p2[peak_idx_p2],
+                    text=f"<b>Peak</b><br>£{y_vals_p2[peak_idx_p2]:,.0f}",
+                    showarrow=True, arrowhead=2, arrowcolor="#00e676",
+                    arrowsize=1.2, arrowwidth=1.5, ax=0, ay=-38,
+                    font=dict(size=12, color="#00e676", family="Inter"),
+                    bgcolor="rgba(0,230,118,0.10)",
+                    bordercolor="rgba(0,230,118,0.4)",
+                    borderpad=4, borderwidth=1,
                 )
-
-        # ── Phase 4 validated filters — defaulted from saved settings ──────
-        st.markdown(
-            '<div style="margin:0.9rem 0 0.4rem;padding-top:0.6rem;'
-            'border-top:1px dashed rgba(124,77,255,0.25);'
-            'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
-            'text-transform:uppercase;color:#a78bfa">'
-            '🧠 Walk-forward filters · replay the live config or experiment'
-            '</div>', unsafe_allow_html=True,
-        )
-        _all_dows_bt = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        _all_months_bt = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        pfb1, pfb2, pfb3 = st.columns([1.2, 1.2, 1.6])
-        with pfb1:
-            hbt2_banned_dows = st.multiselect(
-                "Banned days (DOW)",
-                options=_all_dows_bt,
-                default=list(settings.get("v2_banned_dows", [])),
-                key="hbt2_banned_dows",
-                help="Walk-forward winner: Mon+Fri.",
-            )
-        with pfb2:
-            hbt2_banned_months = st.multiselect(
-                "Banned months",
-                options=_all_months_bt,
-                default=list(settings.get("v2_banned_months", [])),
-                key="hbt2_banned_months",
-                help="Walk-forward winner: Oct.",
-            )
-        with pfb3:
-            _max_ev_default = settings.get("v2_max_ev_pct")
-            hbt2_max_ev_on = st.checkbox(
-                "Cap claimed EV (overconfidence guard)",
-                value=_max_ev_default is not None,
-                key="hbt2_max_ev_on",
-                help="Phase 1 found high-EV bucket calibrates badly.",
-            )
-            if hbt2_max_ev_on:
-                hbt2_max_ev = st.slider(
-                    "Max EV cap (%)",
-                    min_value=40, max_value=200, step=5,
-                    value=int((_max_ev_default if _max_ev_default is not None else 1.0) * 100),
-                    key="hbt2_max_ev_val",
+            if (trough_idx_p2 > 0 and y_vals_p2[trough_idx_p2] < init_br_p2 * 0.95
+                    and trough_idx_p2 != peak_idx_p2):
+                fig_p2.add_annotation(
+                    x=x_vals_p2[trough_idx_p2], y=y_vals_p2[trough_idx_p2],
+                    text=f"<b>Low</b><br>£{y_vals_p2[trough_idx_p2]:,.0f}",
+                    showarrow=True, arrowhead=2, arrowcolor="#ff4081",
+                    arrowsize=1.2, arrowwidth=1.5, ax=0, ay=38,
+                    font=dict(size=12, color="#ff4081", family="Inter"),
+                    bgcolor="rgba(255,64,129,0.10)",
+                    bordercolor="rgba(255,64,129,0.4)",
+                    borderpad=4, borderwidth=1,
+                )
+            # NOW badge: moves off to the left when the pending projection owns
+            # the space to the right (same rule as Main's chart).
+            if any(b["status"] == "pending" and b.get("type") != "acca"
+                   for b in port2["bets"]):
+                _ax, _ay = now_badge_offset(
+                    rising=len(y_vals_p2) < 2 or y_vals_p2[-1] >= y_vals_p2[-2])
+                fig_p2.add_annotation(
+                    x=x_vals_p2[-1], y=y_vals_p2[-1],
+                    text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
+                    showarrow=True, ax=_ax, ay=_ay, arrowcolor=line_col_p2,
+                    arrowwidth=1.5, arrowhead=0, xanchor="right",
+                    font=dict(size=14, color="#fff", family="Inter"),
+                    bgcolor=line_col_p2, bordercolor=line_col_p2,
+                    borderpad=8, borderwidth=2,
                 )
             else:
-                hbt2_max_ev = None
+                fig_p2.add_annotation(
+                    x=x_vals_p2[-1], y=y_vals_p2[-1],
+                    text=f"<b>NOW · £{y_vals_p2[-1]:,.0f}</b>",
+                    showarrow=False, xshift=15,
+                    font=dict(size=14, color="#fff", family="Inter"),
+                    bgcolor=line_col_p2, bordercolor=line_col_p2,
+                    borderpad=8, borderwidth=2, xanchor="left",
+                )
 
-        # ── ELO-profile filter controls — defaulted from saved settings ──
-        st.markdown(
-            '<div style="margin:0.7rem 0 0.4rem;padding-top:0.6rem;'
-            'border-top:1px dashed rgba(0,229,255,0.25);'
-            'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
-            'text-transform:uppercase;color:#00e5ff">'
-            '🎯 ELO-profile filter — multi-season grid winner: min team ELO 1500'
-            '</div>', unsafe_allow_html=True,
-        )
-        be1, be2, be3, be4 = st.columns(4)
-        with be1:
-            _min_te = settings.get("v2_min_team_elo")
-            hbt2_min_te_on = st.checkbox(
-                "Min team ELO floor",
-                value=_min_te is not None, key="hbt2_min_te_on",
-                help="Skip if either team's ELO is below this. Grid winner = 1500.",
-            )
-            hbt2_min_te = (st.slider("Min ELO", 1300, 1700, int(_min_te or 1500),
-                                      step=10, key="hbt2_min_te_val")
-                           if hbt2_min_te_on else None)
-        with be2:
-            _max_te = settings.get("v2_max_team_elo")
-            hbt2_max_te_on = st.checkbox(
-                "Max team ELO ceiling",
-                value=_max_te is not None, key="hbt2_max_te_on",
-                help="Skip if either team's ELO is above this (rare).",
-            )
-            hbt2_max_te = (st.slider("Max ELO", 1700, 2100, int(_max_te or 1900),
-                                      step=10, key="hbt2_max_te_val")
-                           if hbt2_max_te_on else None)
-        with be3:
-            _gap_min = settings.get("v2_elo_gap_min")
-            hbt2_gap_min_on = st.checkbox(
-                "Min |ΔELO|", value=_gap_min is not None,
-                key="hbt2_gap_min_on",
-                help="Skip too-close matches (small ELO gap).",
-            )
-            hbt2_gap_min = (st.slider("Min gap", 20, 200, int(_gap_min or 80),
-                                       step=10, key="hbt2_gap_min_val")
-                            if hbt2_gap_min_on else None)
-        with be4:
-            _gap_max = settings.get("v2_elo_gap_max")
-            hbt2_gap_max_on = st.checkbox(
-                "Max |ΔELO|", value=_gap_max is not None,
-                key="hbt2_gap_max_on",
-                help="Skip lopsided matches (large ELO gap).",
-            )
-            hbt2_gap_max = (st.slider("Max gap", 100, 500, int(_gap_max or 300),
-                                       step=20, key="hbt2_gap_max_val")
-                            if hbt2_gap_max_on else None)
+            # ── Mock Two pending bets projection ───────────────────────────
+            # Same projection logic as Main: starts from LAST SETTLED bet's
+            # bankroll (not current cash) so the lines visually continue from
+            # the chart. Math: profit_if_won = stake*(odds-1), loss = -stake.
+            # Terminal values match the gross-return formulation.
+            pending2_for_proj = [b for b in port2["bets"]
+                                 if b["status"] == "pending" and b.get("type") != "acca"]
+            if pending2_for_proj:
+                n_pend_p2 = len(pending2_for_proj)
+                pending_sorted_p2 = sorted(
+                    pending2_for_proj,
+                    key=lambda b: (b.get("date") or "", b.get("placed_at") or ""),
+                )
+                last_settled_p2 = y_vals_p2[-1]  # already the last settled bankroll
+                x_proj_p2 = list(range(x_vals_p2[-1], x_vals_p2[-1] + n_pend_p2 + 1))
+                best_y_p2  = [last_settled_p2]
+                exp_y_p2   = [last_settled_p2]
+                worst_y_p2 = [last_settled_p2]
+                for b in pending_sorted_p2:
+                    stake = float(b["stake"])
+                    odds  = float(b["odds"])
+                    p_win = float(b.get("model_prob") or 0.0)
+                    profit_win  = stake * (odds - 1)
+                    profit_loss = -stake
+                    exp_change  = p_win * profit_win + (1.0 - p_win) * profit_loss
+                    best_y_p2.append(round(best_y_p2[-1]   + profit_win,  2))
+                    worst_y_p2.append(round(worst_y_p2[-1] + profit_loss, 2))
+                    exp_y_p2.append (round(exp_y_p2[-1]    + exp_change,  2))
 
-        if st.button("🔄  Run Mock Two Simulation", key="run_hbt2", type="primary"):
-            with st.spinner("Running K-N + uncertainty-Kelly backtest…"):
-                bt_v2 = backtest_models_v2(df, df_features, test_weeks=hbt2_weeks)
-                _bt_markets = set(settings.get("auto_markets", list(pf.PROFITABLE_MARKETS)))
-                _detect = None if hbt2_detect_src == "(same as place)" else str(hbt2_detect_src)
-                # U2.5 toggle — force-add to allowed markets and apply its gates
+                # Best (all pending win)
+                fig_p2.add_trace(go.Scatter(
+                    x=x_proj_p2, y=best_y_p2, mode="lines+markers",
+                    line=dict(color="#00e676", width=2.2, dash="dot"),
+                    marker=dict(size=[0] + [8] * n_pend_p2,
+                                color="#00e676", symbol="diamond"),
+                    hovertemplate=("<b>Pending #%{x}</b><br>"
+                                   "If all win → £%{y:,.2f}<extra></extra>"),
+                    showlegend=False,
+                ))
+                # Expected (model-weighted)
+                fig_p2.add_trace(go.Scatter(
+                    x=x_proj_p2, y=exp_y_p2, mode="lines+markers",
+                    line=dict(color="#00e5ff", width=2.5, dash="dash"),
+                    marker=dict(size=[0] + [8] * n_pend_p2,
+                                color="#00e5ff", symbol="circle"),
+                    hovertemplate=("<b>Pending #%{x}</b><br>"
+                                   "Expected → £%{y:,.2f}<extra></extra>"),
+                    showlegend=False,
+                ))
+                # Worst (all lose)
+                fig_p2.add_trace(go.Scatter(
+                    x=x_proj_p2, y=worst_y_p2, mode="lines+markers",
+                    line=dict(color="#ff4081", width=2.2, dash="dot"),
+                    marker=dict(size=[0] + [8] * n_pend_p2,
+                                color="#ff4081", symbol="x"),
+                    hovertemplate=("<b>Pending #%{x}</b><br>"
+                                   "If all lose → £%{y:,.2f}<extra></extra>"),
+                    showlegend=False,
+                ))
+                # Endpoint annotations
+                _ends_p2 = ((best_y_p2[-1],  "#00e676", "If all win"),
+                            (exp_y_p2[-1],   "#00e5ff", "Expected"),
+                            (worst_y_p2[-1], "#ff4081", "If all lose"))
+                _all_y2 = list(y_vals_p2) + best_y_p2 + worst_y_p2 + exp_y_p2
+                _lo2, _hi2 = min(_all_y2), max(_all_y2)
+                _pad2 = (_hi2 - _lo2) * 0.06
+                _shifts_p2 = spread_label_shifts([e[0] for e in _ends_p2],
+                                                 _lo2 - _pad2, _hi2 + _pad2,
+                                                 plot_px=340, min_gap_px=46)
+                for (y_val, color, label), _sh in zip(_ends_p2, _shifts_p2):
+                    fig_p2.add_annotation(
+                        x=x_proj_p2[-1], y=y_val, yshift=_sh,
+                        text=f"<b>{label}<br>£{y_val:,.0f}</b>",
+                        showarrow=False, xshift=12,
+                        font=dict(size=11, color=color, family="Inter"),
+                        bgcolor=f"rgba({_hex_to_rgb(color)},0.10)",
+                        bordercolor=f"rgba({_hex_to_rgb(color)},0.4)",
+                        borderpad=5, borderwidth=1, xanchor="left",
+                    )
+                # Vertical separator settled → pending
+                fig_p2.add_vline(
+                    x=x_vals_p2[-1], line_color="rgba(255,255,255,0.15)",
+                    line_dash="dot",
+                )
+                fig_p2.add_annotation(
+                    x=x_vals_p2[-1], y=1.0, yref="paper",
+                    text="settled  →  pending",
+                    showarrow=False, yshift=-6,
+                    font=dict(size=11, color="#7c4dff", family="Inter"),
+                )
+
+            fig_p2.update_layout(
+                **{k: v for k, v in DARK.items() if k != "margin"},
+                height=460, showlegend=False,
+                margin=dict(t=40, b=40, l=20, r=140),
+                xaxis=dict(
+                    title=dict(text="BET NUMBER",
+                               font=dict(size=12, color="#7c4dff", family="Inter"),
+                               standoff=18),
+                    showgrid=False, showticklabels=True,
+                    tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
+                    zeroline=False,
+                ),
+                yaxis=dict(
+                    title=dict(text="BANKROLL",
+                               font=dict(size=12, color="#7c4dff", family="Inter"),
+                               standoff=14),
+                    gridcolor="rgba(255,255,255,0.05)",
+                    tickprefix="£",
+                    tickfont=dict(size=14, color="#cdd", family="Inter"),
+                    zeroline=False, tickformat=",.0f",
+                ),
+            )
+            st.plotly_chart(fig_p2, use_container_width=True,
+                            config={"displayModeBar": False})
+            st.markdown('<div class="divider" style="margin:1rem 0"></div>', unsafe_allow_html=True)
+
+        _render_risk_edge_strip(port2)
+
+    with _t_hist:
+        _clv_section(port2, df)
+
+    with _t_open:
+        # ── Mock Two Pending Bets — pend-card-v2 style (parity with Main) ────
+        pending2_singles = [b for b in pending2 if b.get("type") != "acca"]
+        if pending2_singles:
+            st.markdown('<p class="section-label">⏳  MOCK TWO PENDING BETS</p>',
+                        unsafe_allow_html=True)
+            mkt_colors_p2 = {"H": "#3d6eff", "D": "#ffd600", "A": "#ff4081",
+                             "over25": "#7c4dff", "under25": "#00e5ff"}
+
+            def _render_p2_pending_card(bet: dict) -> None:
+                _pending_card(bet, port2, pf.save_portfolio_two, "mt")
+
+            # Two cards per row, latest 8
+            recent_p2 = pending2_singles[-8:]
+            for i in range(0, len(recent_p2), 2):
+                cols = st.columns(2)
+                with cols[0]:
+                    _render_p2_pending_card(recent_p2[i])
+                if i + 1 < len(recent_p2):
+                    with cols[1]:
+                        _render_p2_pending_card(recent_p2[i + 1])
+            st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
+
+    with _t_hist:
+        _mt_settled = [b for b in port2["bets"]
+                       if b["status"] in ("won", "lost") and b.get("type") != "acca"]
+        if _mt_settled:
+            _bet_history(port2, "mt", "MOCK TWO BET HISTORY · Singles")
+        elif not pending2:
+            st.markdown(
+                '<div style="padding:1rem 1.2rem;background:rgba(124,77,255,0.05);'
+                'border-left:3px solid #7c4dff;border-radius:6px;font-size:0.84rem;color:#c9d0dc">'
+                'Mock Two is fresh — no bets placed yet. Toggle <b>Auto-Bet</b> in settings '
+                'and ensure the Odds API key is set in the main portfolio. The research-track '
+                'stack will auto-place qualifying bets on the same fixtures the main portfolio '
+                'considers, but with K-N predictions and uncertainty-shrunk Kelly sizing.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="divider" style="margin:1.5rem 0"></div>', unsafe_allow_html=True)
+
+    with _t_set:
+        # ── Historical EV Backtest — Mock Two engine ─────────────────────────
+        with st.expander("📜  Historical EV Backtest · Mock Two engine (K-N + uncertainty-Kelly)",
+                         expanded=False):
+            st.markdown("""
+            <div style="font-size:0.82rem;color:#b8c0d0;margin-bottom:1rem;line-height:1.6">
+                Replays the same B365 historical odds as the Main backtest but routes them through
+                the <b style="color:#a78bfa">research-track stack</b>: Karlis-Ntzoufras γ-inflated
+                Dixon-Coles for probabilities, Baker-McHale uncertainty-shrunk Kelly for sizing,
+                and Busseti-Ryu-Boyd simultaneous-bet correction across same-day cards.
+                Side-by-side with the Main result, this answers: <i>does the research stack
+                actually beat the production stack on identical matches?</i>
+                Per-bin variance is fitted in-sample on the same window — directionally honest,
+                but not a true held-out estimator.
+            </div>""", unsafe_allow_html=True)
+
+            # ── Quick presets ─────────────────────────────────────────────
+            _render_backtest_presets("hbt2")
+
+            # 2025-26 representativeness note — current squads & ELO ratings
+            st.markdown(
+                '<div style="background:linear-gradient(135deg,rgba(0,229,255,0.07),rgba(124,77,255,0.04));'
+                'border-left:3px solid #00e5ff;border-radius:8px;padding:0.7rem 1rem;'
+                'margin-bottom:0.9rem;font-size:0.82rem;color:#cdd;line-height:1.5">'
+                '💡 <b style="color:#00e5ff">Multi-season backtests:</b> '
+                "test_weeks ≥ 80 spans more than one season. Recent seasons are "
+                "the most representative — older data includes teams that have "
+                "since been relegated/promoted, and ELO ratings stabilise as more "
+                "matches accumulate. <b>2025-26 is the most predictive of next "
+                "season's behaviour.</b>"
+                '</div>', unsafe_allow_html=True,
+            )
+
+            h2c1, h2c2, h2c3, h2c4, h2c5, h2c6 = st.columns(6)
+            with h2c1:
+                hbt2_weeks = st.slider("Test Window (weeks)", 8, 200, 52,
+                                        key="hbt2_weeks",
+                                        help="52 = one season. 80–104 covers 1–2 seasons. "
+                                             "150+ covers 3+ seasons but training window "
+                                             "shrinks (we only have ~5 seasons total).")
+            with h2c2:
+                hbt2_min_ev = st.slider("Min EV (%)", 1, 60,
+                                         int(float(settings.get("min_ev", 0.40)) * 100),
+                                         key="hbt2_minev")
+            with h2c3:
+                hbt2_min_prob = st.slider(
+                    "Min Prob Gate (%)", 0, 80,
+                    int(settings.get("min_prob", 0.30) * 100),
+                    key="hbt2_minprob",
+                )
+            with h2c4:
+                _kf = float(settings.get("kelly_fraction", 1.0))
+                _kf_options = [0.25, 0.5, 0.75, 1.0]
+                _kf_default = min(_kf_options, key=lambda x: abs(x - _kf))
+                hbt2_kelly = st.select_slider(
+                    "Base Kelly (pre-shrinkage)", _kf_options, _kf_default,
+                    key="hbt2_kelly", format_func=lambda x: f"{int(x*100)}%",
+                )
+            with h2c5:
+                hbt2_max_stake = st.slider(
+                    "Max Stake (% of bankroll)", 5, 50,
+                    int(settings.get("max_stake_pct", 0.33) * 100),
+                    key="hbt2_maxstake",
+                )
+            with h2c6:
+                hbt2_bankroll = st.number_input(
+                    "Bankroll (£)", 100.0, 100000.0, 10000.0, 1000.0,
+                    key="hbt2_bankroll", format="%.0f",
+                )
+
+            sc1, sc2, sc3, sc4 = st.columns([1.2, 1, 1.3, 1])
+            with sc1:
+                hbt2_sim = st.checkbox("Simultaneous-bet correction",
+                                       value=bool(settings.get("use_simultaneous_kelly", True)),
+                                       key="hbt2_sim")
+            with sc2:
+                hbt2_skip_late = st.checkbox(
+                    "Skip Mar-Apr",
+                    value=bool(settings.get("skip_late_season", True)),
+                    key="hbt2_skip_late",
+                    help="0/7 wins in March-April across 2024-25 + 2025-26. "
+                         "(May was previously bundled in but is now allowed.)",
+                )
+            with sc3:
+                hbt2_skip_title = st.checkbox(
+                    "Skip home_title_race",
+                    value=bool(settings.get("skip_home_title_race", False)),
+                    key="hbt2_skip_title",
+                    help="0/6 wins when home team chasing title (2025-26).",
+                )
+            with sc4:
+                # Default place-source to Max (multi-season grid winner used Max + PS)
+                _odds_options = ["B365", "Max", "Avg", "PS"]
+                hbt2_odds_src = st.selectbox(
+                    "Place at",
+                    options=_odds_options,
+                    index=_odds_options.index("Max"),
+                    key="hbt2_odds_src",
+                    help="The price you actually win at if your bet hits. "
+                         "Multi-season grid winner places at Max.",
+                )
+
+            # Default detect-source to PS (multi-season grid winner detects at PS)
+            _detect_options = ["(same as place)", "B365", "Max", "Avg", "PS"]
+            hbt2_detect_src = st.selectbox(
+                "Detect EV against (optional — leave 'same as place' for single-source)",
+                options=_detect_options,
+                index=_detect_options.index("PS"),
+                key="hbt2_detect_src",
+                help="Set to PS for sharp-edge detection (best CLV in WF: +2.68%). "
+                     "Multi-season grid winner detects at PS, places at Max.",
+            )
+
+            # Markets row — U2.5 toggle (same as Main expander)
+            m2c1, m2c2 = st.columns([1.5, 3])
+            with m2c1:
+                hbt2_u25_gates = st.checkbox(
+                    "Include Under 2.5 (separate gates)",
+                    value="under25" in (settings.get("market_gates") or {}),
+                    key="hbt2_u25_gates",
+                    help="Adds U2.5 to the simulated market set with mp=50%, mev=5%.",
+                )
+            with m2c2:
                 if hbt2_u25_gates:
-                    _bt_markets = _bt_markets | {"under25"}
-                    _market_gates_v2 = {"under25": {"min_prob": 0.50, "min_ev": 0.05}}
-                else:
-                    _market_gates_v2 = settings.get("market_gates")
-                log2_df, summary2 = pf.ev_backtest_simulate_v2(
-                    bt_v2, df,
-                    min_ev_pct=float(hbt2_min_ev),
-                    base_kelly_frac=float(hbt2_kelly),
-                    max_stake_pct=float(hbt2_max_stake) / 100.0,
-                    initial_bankroll=float(hbt2_bankroll),
-                    allowed_markets=_bt_markets,
-                    min_prob=float(hbt2_min_prob) / 100.0,
-                    enable_simultaneous_correction=bool(hbt2_sim),
-                    skip_late_season=bool(hbt2_skip_late),
-                    skip_home_title_race=bool(hbt2_skip_title),
-                    odds_source=str(hbt2_odds_src),
-                    detect_source=_detect,
-                    market_gates=_market_gates_v2,
-                    # Honest calibration + bin variances: fitted strictly BEFORE
-                    # the eval window so the backtest never sees its own outcomes
-                    calibrators=cached_honest_calibrators(len(df), int(hbt2_weeks)),
-                    bin_variances=cached_honest_bin_variances(len(df), int(hbt2_weeks)),
-                    # Phase 4 validated filters
-                    banned_dows=set(hbt2_banned_dows) if hbt2_banned_dows else None,
-                    banned_months=set(hbt2_banned_months) if hbt2_banned_months else None,
-                    max_ev_pct=(hbt2_max_ev / 100.0 if hbt2_max_ev is not None else None),
-                    # ELO-profile filters (multi-season grid winner)
-                    min_team_elo=float(hbt2_min_te) if hbt2_min_te is not None else None,
-                    max_team_elo=float(hbt2_max_te) if hbt2_max_te is not None else None,
-                    elo_gap_min=float(hbt2_gap_min) if hbt2_gap_min is not None else None,
-                    elo_gap_max=float(hbt2_gap_max) if hbt2_gap_max is not None else None,
-                    # No-history gate, mirroring live (see the Main backtest)
-                    min_team_matches=settings.get("min_team_matches"),
-                    df_features=df_features,
-                )
-                st.session_state["_hbt2_log"]     = log2_df
-                st.session_state["_hbt2_summary"] = summary2
-
-        if "_hbt2_summary" in st.session_state:
-            summary2 = st.session_state["_hbt2_summary"]
-            log2_df  = st.session_state["_hbt2_log"]
-
-            if "error" in summary2:
-                st.error(summary2["error"])
-            else:
-                sim_profit2 = summary2["profit"]
-                sim_roi2    = summary2["roi"]
-                sim_col2    = "#00e676" if sim_profit2 >= 0 else "#ff6fa1"
-
-                m2c1, m2c2, m2c3, m2c4, m2c5 = st.columns(5)
-                with m2c1: st.metric("Final Bankroll", f"£{summary2['final']:,.0f}",
-                                     f"{md.fmt_money(sim_profit2)}")
-                with m2c2: st.metric("ROI", f"{'+' if sim_roi2 >= 0 else ''}{sim_roi2:.1f}%")
-                with m2c3:
-                    _sk = summary2.get("skipped_min_prob", 0)
-                    st.metric("Total Bets", str(summary2["n_bets"]),
-                              f"−{_sk} below min-prob" if _sk else None,
-                              delta_color="off")
-                with m2c4: st.metric("Win Rate", f"{summary2['win_rate']:.0f}%")
-                with m2c5: st.metric("Avg Odds", f"{summary2['avg_odds']:.2f}")
-
-                # Research-stack diagnostics — what the v2 sizers actually did
-                st.markdown(
-                    f'<div style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
-                    f'Mean Baker-McHale shrinkage: <b style="color:#e8eaf0">'
-                    f'{summary2.get("mean_shrinkage", 0):.2f}</b> '
-                    f'(1.0 = no shrinkage, 0.0 = total) &nbsp;·&nbsp; '
-                    f'Mean simultaneous-bet factor: <b style="color:#e8eaf0">'
-                    f'{summary2.get("mean_sim_factor", 1):.2f}</b> '
-                    f'(1.0 = solo bet, &lt;1 = multi-bet day)</div>',
-                    unsafe_allow_html=True,
-                )
-
-                # Main-style bankroll chart (parity with the Main backtest):
-                # green-above / red-below baseline crossings, halo line, win/loss
-                # markers, peak/low/now badges, bigger axis fonts.
-                if not log2_df.empty:
-                    _init_br2 = summary2["initial"]
-                    x_h2 = list(range(len(log2_df) + 1))
-                    y_h2 = [float(_init_br2)] + [float(v) for v in log2_df["Bankroll"].tolist()]
-                    line_col2 = "#00e676" if y_h2[-1] >= _init_br2 else "#ff6fa1"
-
-                    fig2 = go.Figure()
-
-                    # Insert crossing points so fills don't bleed past the line
-                    x_exp2: list[float] = [x_h2[0]]
-                    y_exp2: list[float] = [y_h2[0]]
-                    for i in range(1, len(y_h2)):
-                        y_prev, y_cur = y_h2[i - 1], y_h2[i]
-                        if (y_prev - _init_br2) * (y_cur - _init_br2) < 0:
-                            t = (_init_br2 - y_prev) / (y_cur - y_prev)
-                            x_cross = x_h2[i - 1] + t * (x_h2[i] - x_h2[i - 1])
-                            x_exp2.append(x_cross); y_exp2.append(_init_br2)
-                        x_exp2.append(x_h2[i]); y_exp2.append(y_cur)
-
-                    y_up2 = [max(v, _init_br2) for v in y_exp2]
-                    y_dn2 = [min(v, _init_br2) for v in y_exp2]
-                    baseline2 = [_init_br2] * len(y_exp2)
-
-                    # Green fill above baseline
-                    fig2.add_trace(go.Scatter(x=x_exp2, y=baseline2, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        hoverinfo="skip", showlegend=False))
-                    fig2.add_trace(go.Scatter(x=x_exp2, y=y_up2, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
-                        hoverinfo="skip", showlegend=False))
-                    # Red fill below baseline
-                    fig2.add_trace(go.Scatter(x=x_exp2, y=baseline2, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        hoverinfo="skip", showlegend=False))
-                    fig2.add_trace(go.Scatter(x=x_exp2, y=y_dn2, mode="lines",
-                        line=dict(width=0, color="rgba(0,0,0,0)"),
-                        fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
-                        hoverinfo="skip", showlegend=False))
-
-                    # Baseline line + label
-                    fig2.add_hline(
-                        y=_init_br2, line_color="rgba(255,255,255,0.30)", line_dash="dot",
-                        annotation_text=f"Start £{_init_br2:,.0f}",
-                        annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
-                        annotation_position="top left",
+                    st.markdown(
+                        '<div style="font-size:0.86rem;color:#a78bfa;padding-top:0.55rem">'
+                        'Backtest will include <b>Draw + Under 2.5</b> with separate per-market gates '
+                        '(U2.5: mp ≥ 50%, ev ≥ 5%).</div>',
+                        unsafe_allow_html=True,
                     )
 
-                    # Halo + main line with win/loss markers
-                    deltas2 = [0.0] + [y_h2[i] - y_h2[i - 1] for i in range(1, len(y_h2))]
-                    marker_symbols2 = ["circle"] + [
-                        "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
-                        for d in deltas2[1:]
-                    ]
-                    marker_colors2 = ["#8892a4"] + [
-                        "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
-                        for d in deltas2[1:]
-                    ]
-                    marker_sizes2 = [0] + [11 if d != 0 else 5 for d in deltas2[1:]]
-                    hover_texts2 = ["Start"] + [
-                        ("▲ WON " + f"+£{d:,.2f}") if d > 0 else
-                        ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
-                        "No change"
-                        for d in deltas2[1:]
-                    ]
+            # ── Phase 4 validated filters — defaulted from saved settings ──────
+            st.markdown(
+                '<div style="margin:0.9rem 0 0.4rem;padding-top:0.6rem;'
+                'border-top:1px dashed rgba(124,77,255,0.25);'
+                'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
+                'text-transform:uppercase;color:#a78bfa">'
+                '🧠 Walk-forward filters · replay the live config or experiment'
+                '</div>', unsafe_allow_html=True,
+            )
+            _all_dows_bt = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            _all_months_bt = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            pfb1, pfb2, pfb3 = st.columns([1.2, 1.2, 1.6])
+            with pfb1:
+                hbt2_banned_dows = st.multiselect(
+                    "Banned days (DOW)",
+                    options=_all_dows_bt,
+                    default=list(settings.get("v2_banned_dows", [])),
+                    key="hbt2_banned_dows",
+                    help="Walk-forward winner: Mon+Fri.",
+                )
+            with pfb2:
+                hbt2_banned_months = st.multiselect(
+                    "Banned months",
+                    options=_all_months_bt,
+                    default=list(settings.get("v2_banned_months", [])),
+                    key="hbt2_banned_months",
+                    help="Walk-forward winner: Oct.",
+                )
+            with pfb3:
+                _max_ev_default = settings.get("v2_max_ev_pct")
+                hbt2_max_ev_on = st.checkbox(
+                    "Cap claimed EV (overconfidence guard)",
+                    value=_max_ev_default is not None,
+                    key="hbt2_max_ev_on",
+                    help="Phase 1 found high-EV bucket calibrates badly.",
+                )
+                if hbt2_max_ev_on:
+                    hbt2_max_ev = st.slider(
+                        "Max EV cap (%)",
+                        min_value=40, max_value=200, step=5,
+                        value=int((_max_ev_default if _max_ev_default is not None else 1.0) * 100),
+                        key="hbt2_max_ev_val",
+                    )
+                else:
+                    hbt2_max_ev = None
 
-                    fig2.add_trace(go.Scatter(x=x_h2, y=y_h2, mode="lines",
-                        line=dict(color=f"rgba({_hex_to_rgb(line_col2)},0.30)", width=10),
-                        hoverinfo="skip", showlegend=False))
-                    fig2.add_trace(go.Scatter(
-                        x=x_h2, y=y_h2, mode="lines+markers",
-                        line=dict(color=line_col2, width=3.2, shape="linear"),
-                        marker=dict(symbol=marker_symbols2, size=marker_sizes2,
-                                    color=marker_colors2,
-                                    line=dict(color="#0a0e1a", width=1.2)),
-                        text=hover_texts2,
-                        hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
-                                       "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b>"
-                                       "<extra></extra>"),
-                        hoverlabel=dict(bgcolor="#1a1d27", bordercolor=line_col2,
-                                        font=dict(size=14, family="Inter", color="#e8eaf0")),
-                        showlegend=False,
-                    ))
+            # ── ELO-profile filter controls — defaulted from saved settings ──
+            st.markdown(
+                '<div style="margin:0.7rem 0 0.4rem;padding-top:0.6rem;'
+                'border-top:1px dashed rgba(0,229,255,0.25);'
+                'font-size:0.78rem;font-weight:800;letter-spacing:1.4px;'
+                'text-transform:uppercase;color:#00e5ff">'
+                '🎯 ELO-profile filter — multi-season grid winner: min team ELO 1500'
+                '</div>', unsafe_allow_html=True,
+            )
+            be1, be2, be3, be4 = st.columns(4)
+            with be1:
+                _min_te = settings.get("v2_min_team_elo")
+                hbt2_min_te_on = st.checkbox(
+                    "Min team ELO floor",
+                    value=_min_te is not None, key="hbt2_min_te_on",
+                    help="Skip if either team's ELO is below this. Grid winner = 1500.",
+                )
+                hbt2_min_te = (st.slider("Min ELO", 1300, 1700, int(_min_te or 1500),
+                                          step=10, key="hbt2_min_te_val")
+                               if hbt2_min_te_on else None)
+            with be2:
+                _max_te = settings.get("v2_max_team_elo")
+                hbt2_max_te_on = st.checkbox(
+                    "Max team ELO ceiling",
+                    value=_max_te is not None, key="hbt2_max_te_on",
+                    help="Skip if either team's ELO is above this (rare).",
+                )
+                hbt2_max_te = (st.slider("Max ELO", 1700, 2100, int(_max_te or 1900),
+                                          step=10, key="hbt2_max_te_val")
+                               if hbt2_max_te_on else None)
+            with be3:
+                _gap_min = settings.get("v2_elo_gap_min")
+                hbt2_gap_min_on = st.checkbox(
+                    "Min |ΔELO|", value=_gap_min is not None,
+                    key="hbt2_gap_min_on",
+                    help="Skip too-close matches (small ELO gap).",
+                )
+                hbt2_gap_min = (st.slider("Min gap", 20, 200, int(_gap_min or 80),
+                                           step=10, key="hbt2_gap_min_val")
+                                if hbt2_gap_min_on else None)
+            with be4:
+                _gap_max = settings.get("v2_elo_gap_max")
+                hbt2_gap_max_on = st.checkbox(
+                    "Max |ΔELO|", value=_gap_max is not None,
+                    key="hbt2_gap_max_on",
+                    help="Skip lopsided matches (large ELO gap).",
+                )
+                hbt2_gap_max = (st.slider("Max gap", 100, 500, int(_gap_max or 300),
+                                           step=20, key="hbt2_gap_max_val")
+                                if hbt2_gap_max_on else None)
 
-                    # Optional Main overlay for direct comparison
-                    main_summary = st.session_state.get("_hbt_summary")
-                    main_log     = st.session_state.get("_hbt_log")
-                    if (main_summary and "error" not in main_summary
-                            and main_log is not None and not main_log.empty):
+            if st.button("🔄  Run Mock Two Simulation", key="run_hbt2", type="primary"):
+                with st.spinner("Running K-N + uncertainty-Kelly backtest…"):
+                    bt_v2 = backtest_models_v2(df, df_features, test_weeks=hbt2_weeks)
+                    _bt_markets = set(settings.get("auto_markets", list(pf.PROFITABLE_MARKETS)))
+                    _detect = None if hbt2_detect_src == "(same as place)" else str(hbt2_detect_src)
+                    # U2.5 toggle — force-add to allowed markets and apply its gates
+                    if hbt2_u25_gates:
+                        _bt_markets = _bt_markets | {"under25"}
+                        _market_gates_v2 = {"under25": {"min_prob": 0.50, "min_ev": 0.05}}
+                    else:
+                        _market_gates_v2 = settings.get("market_gates")
+                    log2_df, summary2 = pf.ev_backtest_simulate_v2(
+                        bt_v2, df,
+                        min_ev_pct=float(hbt2_min_ev),
+                        base_kelly_frac=float(hbt2_kelly),
+                        max_stake_pct=float(hbt2_max_stake) / 100.0,
+                        initial_bankroll=float(hbt2_bankroll),
+                        allowed_markets=_bt_markets,
+                        min_prob=float(hbt2_min_prob) / 100.0,
+                        enable_simultaneous_correction=bool(hbt2_sim),
+                        skip_late_season=bool(hbt2_skip_late),
+                        skip_home_title_race=bool(hbt2_skip_title),
+                        odds_source=str(hbt2_odds_src),
+                        detect_source=_detect,
+                        market_gates=_market_gates_v2,
+                        # Honest calibration + bin variances: fitted strictly BEFORE
+                        # the eval window so the backtest never sees its own outcomes
+                        calibrators=cached_honest_calibrators(len(df), int(hbt2_weeks)),
+                        bin_variances=cached_honest_bin_variances(len(df), int(hbt2_weeks)),
+                        # Phase 4 validated filters
+                        banned_dows=set(hbt2_banned_dows) if hbt2_banned_dows else None,
+                        banned_months=set(hbt2_banned_months) if hbt2_banned_months else None,
+                        max_ev_pct=(hbt2_max_ev / 100.0 if hbt2_max_ev is not None else None),
+                        # ELO-profile filters (multi-season grid winner)
+                        min_team_elo=float(hbt2_min_te) if hbt2_min_te is not None else None,
+                        max_team_elo=float(hbt2_max_te) if hbt2_max_te is not None else None,
+                        elo_gap_min=float(hbt2_gap_min) if hbt2_gap_min is not None else None,
+                        elo_gap_max=float(hbt2_gap_max) if hbt2_gap_max is not None else None,
+                        # No-history gate, mirroring live (see the Main backtest)
+                        min_team_matches=settings.get("min_team_matches"),
+                        df_features=df_features,
+                    )
+                    st.session_state["_hbt2_log"]     = log2_df
+                    st.session_state["_hbt2_summary"] = summary2
+
+            if "_hbt2_summary" in st.session_state:
+                summary2 = st.session_state["_hbt2_summary"]
+                log2_df  = st.session_state["_hbt2_log"]
+
+                if "error" in summary2:
+                    st.error(summary2["error"])
+                else:
+                    sim_profit2 = summary2["profit"]
+                    sim_roi2    = summary2["roi"]
+                    sim_col2    = "#00e676" if sim_profit2 >= 0 else "#ff6fa1"
+
+                    m2c1, m2c2, m2c3, m2c4, m2c5 = st.columns(5)
+                    with m2c1: st.metric("Final Bankroll", f"£{summary2['final']:,.0f}",
+                                         f"{md.fmt_money(sim_profit2)}")
+                    with m2c2: st.metric("ROI", f"{'+' if sim_roi2 >= 0 else ''}{sim_roi2:.1f}%")
+                    with m2c3:
+                        _sk = summary2.get("skipped_min_prob", 0)
+                        st.metric("Total Bets", str(summary2["n_bets"]),
+                                  f"−{_sk} below min-prob" if _sk else None,
+                                  delta_color="off")
+                    with m2c4: st.metric("Win Rate", f"{summary2['win_rate']:.0f}%")
+                    with m2c5: st.metric("Avg Odds", f"{summary2['avg_odds']:.2f}")
+
+                    # Research-stack diagnostics — what the v2 sizers actually did
+                    st.markdown(
+                        f'<div style="font-size:0.78rem;color:#c9d0dc;margin-top:0.6rem">'
+                        f'Mean Baker-McHale shrinkage: <b style="color:#e8eaf0">'
+                        f'{summary2.get("mean_shrinkage", 0):.2f}</b> '
+                        f'(1.0 = no shrinkage, 0.0 = total) &nbsp;·&nbsp; '
+                        f'Mean simultaneous-bet factor: <b style="color:#e8eaf0">'
+                        f'{summary2.get("mean_sim_factor", 1):.2f}</b> '
+                        f'(1.0 = solo bet, &lt;1 = multi-bet day)</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    # Main-style bankroll chart (parity with the Main backtest):
+                    # green-above / red-below baseline crossings, halo line, win/loss
+                    # markers, peak/low/now badges, bigger axis fonts.
+                    if not log2_df.empty:
+                        _init_br2 = summary2["initial"]
+                        x_h2 = list(range(len(log2_df) + 1))
+                        y_h2 = [float(_init_br2)] + [float(v) for v in log2_df["Bankroll"].tolist()]
+                        line_col2 = "#00e676" if y_h2[-1] >= _init_br2 else "#ff6fa1"
+
+                        fig2 = go.Figure()
+
+                        # Insert crossing points so fills don't bleed past the line
+                        x_exp2: list[float] = [x_h2[0]]
+                        y_exp2: list[float] = [y_h2[0]]
+                        for i in range(1, len(y_h2)):
+                            y_prev, y_cur = y_h2[i - 1], y_h2[i]
+                            if (y_prev - _init_br2) * (y_cur - _init_br2) < 0:
+                                t = (_init_br2 - y_prev) / (y_cur - y_prev)
+                                x_cross = x_h2[i - 1] + t * (x_h2[i] - x_h2[i - 1])
+                                x_exp2.append(x_cross); y_exp2.append(_init_br2)
+                            x_exp2.append(x_h2[i]); y_exp2.append(y_cur)
+
+                        y_up2 = [max(v, _init_br2) for v in y_exp2]
+                        y_dn2 = [min(v, _init_br2) for v in y_exp2]
+                        baseline2 = [_init_br2] * len(y_exp2)
+
+                        # Green fill above baseline
+                        fig2.add_trace(go.Scatter(x=x_exp2, y=baseline2, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            hoverinfo="skip", showlegend=False))
+                        fig2.add_trace(go.Scatter(x=x_exp2, y=y_up2, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            fill="tonexty", fillcolor="rgba(0,230,118,0.22)",
+                            hoverinfo="skip", showlegend=False))
+                        # Red fill below baseline
+                        fig2.add_trace(go.Scatter(x=x_exp2, y=baseline2, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            hoverinfo="skip", showlegend=False))
+                        fig2.add_trace(go.Scatter(x=x_exp2, y=y_dn2, mode="lines",
+                            line=dict(width=0, color="rgba(0,0,0,0)"),
+                            fill="tonexty", fillcolor="rgba(255,64,129,0.22)",
+                            hoverinfo="skip", showlegend=False))
+
+                        # Baseline line + label
+                        fig2.add_hline(
+                            y=_init_br2, line_color="rgba(255,255,255,0.30)", line_dash="dot",
+                            annotation_text=f"Start £{_init_br2:,.0f}",
+                            annotation_font=dict(color="#c9d0dc", size=14, family="Inter"),
+                            annotation_position="top left",
+                        )
+
+                        # Halo + main line with win/loss markers
+                        deltas2 = [0.0] + [y_h2[i] - y_h2[i - 1] for i in range(1, len(y_h2))]
+                        marker_symbols2 = ["circle"] + [
+                            "triangle-up" if d > 0 else ("triangle-down" if d < 0 else "circle-open")
+                            for d in deltas2[1:]
+                        ]
+                        marker_colors2 = ["#8892a4"] + [
+                            "#00e676" if d > 0 else ("#ff6fa1" if d < 0 else "#c9d0dc")
+                            for d in deltas2[1:]
+                        ]
+                        marker_sizes2 = [0] + [11 if d != 0 else 5 for d in deltas2[1:]]
+                        hover_texts2 = ["Start"] + [
+                            ("▲ WON " + f"+£{d:,.2f}") if d > 0 else
+                            ("▼ LOST " + f"−£{abs(d):,.2f}") if d < 0 else
+                            "No change"
+                            for d in deltas2[1:]
+                        ]
+
+                        fig2.add_trace(go.Scatter(x=x_h2, y=y_h2, mode="lines",
+                            line=dict(color=f"rgba({_hex_to_rgb(line_col2)},0.30)", width=10),
+                            hoverinfo="skip", showlegend=False))
                         fig2.add_trace(go.Scatter(
-                            x=list(range(len(main_log) + 1)),
-                            y=[main_summary["initial"]] + main_log["Bankroll"].tolist(),
-                            mode="lines",
-                            line=dict(color="#3d6eff", width=2.2, dash="dash"),
-                            name="Main (DC)",
-                            hovertemplate=("<b>Main bet %{x}</b><br>£%{y:,.2f}"
+                            x=x_h2, y=y_h2, mode="lines+markers",
+                            line=dict(color=line_col2, width=3.2, shape="linear"),
+                            marker=dict(symbol=marker_symbols2, size=marker_sizes2,
+                                        color=marker_colors2,
+                                        line=dict(color="#0a0e1a", width=1.2)),
+                            text=hover_texts2,
+                            hovertemplate=("<b>Bet %{x}</b><br>%{text}<br>"
+                                           "<b style='font-size:14px'>Bankroll £%{y:,.2f}</b>"
                                            "<extra></extra>"),
-                            hoverlabel=dict(bgcolor="#1a1d27", bordercolor="#3d6eff",
-                                            font=dict(size=13, family="Inter", color="#e8eaf0")),
-                            showlegend=True,
+                            hoverlabel=dict(bgcolor="#1a1d27", bordercolor=line_col2,
+                                            font=dict(size=14, family="Inter", color="#e8eaf0")),
+                            showlegend=False,
                         ))
 
-                    # Peak / Low / NOW badges
-                    peak_idx2   = int(np.argmax(y_h2))
-                    trough_idx2 = int(np.argmin(y_h2))
-                    if peak_idx2 > 0 and y_h2[peak_idx2] > _init_br2 * 1.05:
+                        # Optional Main overlay for direct comparison
+                        main_summary = st.session_state.get("_hbt_summary")
+                        main_log     = st.session_state.get("_hbt_log")
+                        if (main_summary and "error" not in main_summary
+                                and main_log is not None and not main_log.empty):
+                            fig2.add_trace(go.Scatter(
+                                x=list(range(len(main_log) + 1)),
+                                y=[main_summary["initial"]] + main_log["Bankroll"].tolist(),
+                                mode="lines",
+                                line=dict(color="#3d6eff", width=2.2, dash="dash"),
+                                name="Main (DC)",
+                                hovertemplate=("<b>Main bet %{x}</b><br>£%{y:,.2f}"
+                                               "<extra></extra>"),
+                                hoverlabel=dict(bgcolor="#1a1d27", bordercolor="#3d6eff",
+                                                font=dict(size=13, family="Inter", color="#e8eaf0")),
+                                showlegend=True,
+                            ))
+
+                        # Peak / Low / NOW badges
+                        peak_idx2   = int(np.argmax(y_h2))
+                        trough_idx2 = int(np.argmin(y_h2))
+                        if peak_idx2 > 0 and y_h2[peak_idx2] > _init_br2 * 1.05:
+                            fig2.add_annotation(
+                                x=x_h2[peak_idx2], y=y_h2[peak_idx2],
+                                text=f"<b>Peak</b><br>£{y_h2[peak_idx2]:,.0f}",
+                                showarrow=True, arrowhead=2, arrowcolor="#00e676",
+                                arrowsize=1.2, arrowwidth=1.5, ax=0, ay=-38,
+                                font=dict(size=12, color="#00e676", family="Inter"),
+                                bgcolor="rgba(0,230,118,0.10)",
+                                bordercolor="rgba(0,230,118,0.4)",
+                                borderpad=4, borderwidth=1,
+                            )
+                        if (trough_idx2 > 0 and y_h2[trough_idx2] < _init_br2 * 0.95
+                                and trough_idx2 != peak_idx2):
+                            fig2.add_annotation(
+                                x=x_h2[trough_idx2], y=y_h2[trough_idx2],
+                                text=f"<b>Low</b><br>£{y_h2[trough_idx2]:,.0f}",
+                                showarrow=True, arrowhead=2, arrowcolor="#ff4081",
+                                arrowsize=1.2, arrowwidth=1.5, ax=0, ay=38,
+                                font=dict(size=12, color="#ff4081", family="Inter"),
+                                bgcolor="rgba(255,64,129,0.10)",
+                                bordercolor="rgba(255,64,129,0.4)",
+                                borderpad=4, borderwidth=1,
+                            )
                         fig2.add_annotation(
-                            x=x_h2[peak_idx2], y=y_h2[peak_idx2],
-                            text=f"<b>Peak</b><br>£{y_h2[peak_idx2]:,.0f}",
-                            showarrow=True, arrowhead=2, arrowcolor="#00e676",
-                            arrowsize=1.2, arrowwidth=1.5, ax=0, ay=-38,
-                            font=dict(size=12, color="#00e676", family="Inter"),
-                            bgcolor="rgba(0,230,118,0.10)",
-                            bordercolor="rgba(0,230,118,0.4)",
-                            borderpad=4, borderwidth=1,
+                            x=x_h2[-1], y=y_h2[-1],
+                            text=f"<b>NOW · £{y_h2[-1]:,.0f}</b>",
+                            showarrow=False, xshift=15,
+                            font=dict(size=14, color="#fff", family="Inter"),
+                            bgcolor=line_col2, bordercolor=line_col2,
+                            borderpad=8, borderwidth=2, xanchor="left",
                         )
-                    if (trough_idx2 > 0 and y_h2[trough_idx2] < _init_br2 * 0.95
-                            and trough_idx2 != peak_idx2):
-                        fig2.add_annotation(
-                            x=x_h2[trough_idx2], y=y_h2[trough_idx2],
-                            text=f"<b>Low</b><br>£{y_h2[trough_idx2]:,.0f}",
-                            showarrow=True, arrowhead=2, arrowcolor="#ff4081",
-                            arrowsize=1.2, arrowwidth=1.5, ax=0, ay=38,
-                            font=dict(size=12, color="#ff4081", family="Inter"),
-                            bgcolor="rgba(255,64,129,0.10)",
-                            bordercolor="rgba(255,64,129,0.4)",
-                            borderpad=4, borderwidth=1,
+
+                        fig2.update_layout(
+                            **{k: v for k, v in DARK.items() if k != "margin"},
+                            height=460,
+                            margin=dict(t=40, b=40, l=20, r=140),
+                            xaxis=dict(
+                                title=dict(text="BET NUMBER",
+                                           font=dict(size=12, color="#7c4dff", family="Inter"),
+                                           standoff=18),
+                                showgrid=False, showticklabels=True,
+                                tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
+                                zeroline=False,
+                            ),
+                            yaxis=dict(
+                                title=dict(text="BANKROLL",
+                                           font=dict(size=12, color="#7c4dff", family="Inter"),
+                                           standoff=14),
+                                gridcolor="rgba(255,255,255,0.05)",
+                                tickprefix="£",
+                                tickfont=dict(size=14, color="#cdd", family="Inter"),
+                                zeroline=False, tickformat=",.0f",
+                            ),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                        xanchor="right", x=1,
+                                        font=dict(size=12, family="Inter", color="#cdd"),
+                                        bgcolor="rgba(0,0,0,0)"),
                         )
-                    fig2.add_annotation(
-                        x=x_h2[-1], y=y_h2[-1],
-                        text=f"<b>NOW · £{y_h2[-1]:,.0f}</b>",
-                        showarrow=False, xshift=15,
-                        font=dict(size=14, color="#fff", family="Inter"),
-                        bgcolor=line_col2, bordercolor=line_col2,
-                        borderpad=8, borderwidth=2, xanchor="left",
-                    )
+                        st.plotly_chart(fig2, use_container_width=True,
+                                        config={"displayModeBar": False})
 
-                    fig2.update_layout(
-                        **{k: v for k, v in DARK.items() if k != "margin"},
-                        height=460,
-                        margin=dict(t=40, b=40, l=20, r=140),
-                        xaxis=dict(
-                            title=dict(text="BET NUMBER",
-                                       font=dict(size=12, color="#7c4dff", family="Inter"),
-                                       standoff=18),
-                            showgrid=False, showticklabels=True,
-                            tickfont=dict(size=13, color="#c9d0dc", family="Inter"),
-                            zeroline=False,
-                        ),
-                        yaxis=dict(
-                            title=dict(text="BANKROLL",
-                                       font=dict(size=12, color="#7c4dff", family="Inter"),
-                                       standoff=14),
-                            gridcolor="rgba(255,255,255,0.05)",
-                            tickprefix="£",
-                            tickfont=dict(size=14, color="#cdd", family="Inter"),
-                            zeroline=False, tickformat=",.0f",
-                        ),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                                    xanchor="right", x=1,
-                                    font=dict(size=12, family="Inter", color="#cdd"),
-                                    bgcolor="rgba(0,0,0,0)"),
-                    )
-                    st.plotly_chart(fig2, use_container_width=True,
-                                    config={"displayModeBar": False})
+                    if not log2_df.empty:
+                        _render_backtest_clv_trend(log2_df, df, key_prefix="hbt2")
 
-                if not log2_df.empty:
-                    _render_backtest_clv_trend(log2_df, df, key_prefix="hbt2")
-
-                    # Checkbox-gated (can't nest expanders in Streamlit)
-                    if st.checkbox("📋  Show Mock Two bet log",
-                                   value=False, key="hbt2_show_log"):
-                        st.dataframe(log2_df, use_container_width=True, hide_index=True,
-                                     height=min(420, 60 + len(log2_df) * 35),
-                                     column_config={
-                                         "Stake":    st.column_config.NumberColumn("Stake", format="£%.2f"),
-                                         "Profit":   st.column_config.NumberColumn("Profit", format="£%.2f"),
-                                         "Bankroll": st.column_config.NumberColumn("Bankroll", format="£%.2f"),
-                                         "Shrink":   st.column_config.NumberColumn("Shrink", format="%.2f"),
-                                         "SimFactor": st.column_config.NumberColumn("Sim×",  format="%.2f"),
-                                     })
+                        # Checkbox-gated (can't nest expanders in Streamlit)
+                        if st.checkbox("📋  Show Mock Two bet log",
+                                       value=False, key="hbt2_show_log"):
+                            st.dataframe(log2_df, use_container_width=True, hide_index=True,
+                                         height=min(420, 60 + len(log2_df) * 35),
+                                         column_config={
+                                             "Stake":    st.column_config.NumberColumn("Stake", format="£%.2f"),
+                                             "Profit":   st.column_config.NumberColumn("Profit", format="£%.2f"),
+                                             "Bankroll": st.column_config.NumberColumn("Bankroll", format="£%.2f"),
+                                             "Shrink":   st.column_config.NumberColumn("Shrink", format="%.2f"),
+                                             "SimFactor": st.column_config.NumberColumn("Sim×",  format="%.2f"),
+                                         })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -9701,7 +9593,6 @@ _MKT_CHIP = {
 
 _MKT_LABEL_TO_CODE = {"Home Win": "H", "Draw": "D", "Away Win": "A",
                       "Over 2.5": "over25", "Under 2.5": "under25"}
-
 
 def _render_backtest_clv_trend(log_df, df, key_prefix: str) -> None:
     """Rolling CLV-vs-Pinnacle-close for a simulated bet log.
