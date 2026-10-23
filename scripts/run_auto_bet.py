@@ -268,6 +268,9 @@ def main() -> int:
 
                 ds = fix["date"].isoformat()
                 pinn = api_o.get("_pinnacle") if isinstance(api_o, dict) else None
+                sharp_1x2 = ({k: float(pinn[k]) for k in ("H", "D", "A")}
+                             if pinn and all((pinn.get(k) or 0) > 1 for k in ("H", "D", "A"))
+                             else None)
                 p_o25 = dc_p.get("over_25", 0.5)
 
                 for mkt, m_prob, mt_prob, lbl in [
@@ -287,7 +290,7 @@ def main() -> int:
                                 home_elo=elo_dict.get(h), away_elo=elo_dict.get(a))
                     main_cands.append({**base, "model_prob": m_prob,
                                         "ev": pf.compute_ev(m_prob, ev_ref) if ev_ref else -1})
-                    mt_cands.append({**base, "model_prob": mt_prob,
+                    mt_cands.append({**base, "model_prob": mt_prob, "sharp_1x2": sharp_1x2,
                                       "ev": pf.compute_ev(mt_prob, ev_ref) if ev_ref else -1})
 
             # Place via the existing portfolio paths, with the no-history gate

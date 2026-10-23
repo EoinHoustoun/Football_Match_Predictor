@@ -161,6 +161,53 @@ MIN_CALIBRATION_SAMPLES: int = 250
 # and the gameweek backtest showed the count never changed a result.
 MAX_PENDING_SINGLES: int | None = None
 
+# Share of the current bankroll (cash + pending) that may ride on unsettled
+# bets, per line via settings["max_exposure_pct"]. 0.50 until 11 Oct 2026, when
+# Eoin approved 0.35 with pro-rata allocation on both lines: with the raw draw
+# floor live it binds in 4 of 42 backtest gameweeks at full Kelly, lifts the
+# worst season -2,127 -> -1,991 for under 1% of compounded growth, and backstops
+# the volume spikes live has had twice (calibrator drift, duplicate loop).
+DEFAULT_MAX_EXPOSURE_PCT: float = 0.50
+
+
+def _exposure_settings(settings: dict) -> tuple[float, bool]:
+    """(cap as a share of cash + pending, pro-rata allocation on?)."""
+    pct = float(settings.get("max_exposure_pct", DEFAULT_MAX_EXPOSURE_PCT))
+    return pct, settings.get("exposure_cap_mode", "truncate") == "prorata"
+
+
+def _prorata_factor(cash: float, kelly_pcts: list[float], headroom: float) -> float:
+    """Shrink factor so a run's stakes fit the cap headroom together.
+
+    Truncation gives the last bet placed whatever room is left (Mock Two's
+    Brentford v Chelsea got £390 of a £2k ask on 19 Sep 2026); pro-rata scales
+    every stake in the run by the same factor instead. Stakes are sized off
+    falling cash, as the placers do, so a smaller factor leaves more cash for
+    the later bets; the factor that fills the headroom exactly is found by
+    bisection on that sequential total. Bets placed by earlier runs keep their
+    stakes: this shares out what is left.
+    """
+    ks = [k for k in kelly_pcts if k > 0]
+
+    def total(f: float) -> float:
+        left, out = cash, 0.0
+        for k in ks:
+            s = left * k * f
+            out += s
+            left -= s
+        return out
+
+    if not ks or headroom <= 0 or total(1.0) <= headroom:
+        return 1.0
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if total(mid) > headroom:
+            hi = mid
+        else:
+            lo = mid
+    return lo
+
 
 @contextmanager
 def autobet_lock():
@@ -586,11 +633,12 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
 
     pending_singles = [b for b in p["bets"] if b["status"] == "pending" and b.get("type") != "acca"]
     pending_stake = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
-    # Half the CURRENT bankroll may ride on unsettled bets: cash plus what is
-    # already staked, so the cap does not shrink as each bet is placed and holds
-    # through a gameweek. It was 50% of the season's opening bankroll until
-    # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
-    max_exposure  = (p["bankroll"] + pending_stake) * 0.50
+    # A share of the CURRENT bankroll may ride on unsettled bets: cash plus what
+    # is already staked, so the cap does not shrink as each bet is placed and
+    # holds through a gameweek. It was 50% of the season's opening bankroll
+    # until 16 Sep 2026; the share is a per-line setting since 11 Oct 2026.
+    cap_pct, cap_prorata = _exposure_settings(p["settings"])
+    max_exposure  = (p["bankroll"] + pending_stake) * cap_pct
 
     if MAX_PENDING_SINGLES is not None and len(pending_singles) >= MAX_PENDING_SINGLES:
         return []
@@ -706,6 +754,12 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
         for q in qualifying:
             q["_sim_factor"] = 1.0
 
+    # Share the cap headroom across this run's bets instead of truncating the
+    # last one placed (settings["exposure_cap_mode"] == "prorata").
+    prorata = (_prorata_factor(p["bankroll"], [q["_kelly_pct"] for q in qualifying],
+                               max_exposure - pending_stake)
+               if cap_prorata else 1.0)
+
     # Pass 4 — place bets
     for c in qualifying:
         # The limit binds on the running count, not just at the start of a
@@ -715,7 +769,7 @@ def auto_place_value_bets(p: dict, candidates: list[dict], threshold: float,
             break
         if pending_stake >= max_exposure:
             break
-        stake = round(p["bankroll"] * c["_kelly_pct"], 2)
+        stake = round(p["bankroll"] * c["_kelly_pct"] * prorata, 2)
         if stake <= 0 or stake > p["bankroll"]:
             continue
         # Round before the gate: place_bet records pennies, so a sub-penny
@@ -877,6 +931,10 @@ def ev_backtest_simulate(
     # Research: a calibrator per gameweek, fitted only on data before it.
     # Called with the gameweek's first match date; overrides `calibrators`.
     calibrator_fn=None,
+    # Research: probability used for Kelly SIZING only, called as
+    # fn(prob, mkt, row) after the gates. Selection is untouched, so a fn that
+    # pulls prob toward the market can only shrink stakes (a tightening).
+    sizing_prob_fn=None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Simulate EV-based Kelly betting using full-ensemble (DC + XGB + Draw Specialist)
@@ -1102,10 +1160,12 @@ def ev_backtest_simulate(
 
                     # Compute Kelly fraction (don't multiply by bankroll yet — sim
                     # correction may scale this down before placement)
-                    if place_odds > 1 and prob > 0:
+                    p_size = (sizing_prob_fn(prob, mkt, r) if sizing_prob_fn is not None
+                              else prob)
+                    if place_odds > 1 and p_size > 0:
                         b_ = place_odds - 1.0
-                        q_ = 1.0 - prob
-                        full_kelly = max(0.0, (prob * b_ - q_) / b_)
+                        q_ = 1.0 - p_size
+                        full_kelly = max(0.0, (p_size * b_ - q_) / b_)
                     else:
                         full_kelly = 0.0
                     kelly_pct_raw = min(full_kelly * kelly_frac, max_stake_pct)
@@ -2210,6 +2270,22 @@ def kelly_stake_uncertainty_adjusted(
     return round(bankroll * capped, 2), round(shrinkage, 4)
 
 
+def market_shrunk_prob(p_model: float, p_market: float, beta: float) -> float:
+    """Pull a model probability toward the margin-free market in logit space.
+
+    logit p = logit m + beta * (logit p_model - logit m). beta = 1 returns the
+    model, beta = 0 the market. Used for Kelly SIZING only on Mock Two
+    (`v2_market_shrink_beta`); selection still runs on the model's own EV.
+    Research: scripts/research_shrunk_sizing.py (17 Oct 2026).
+    """
+    eps = 1e-4
+    pm = min(max(float(p_model), eps), 1 - eps)
+    mm = min(max(float(p_market), eps), 1 - eps)
+    lm = np.log(mm / (1 - mm))
+    x = lm + float(beta) * (np.log(pm / (1 - pm)) - lm)
+    return float(1.0 / (1.0 + np.exp(-x)))
+
+
 def simultaneous_kelly_correction(kelly_pcts: list[float]) -> list[float]:
     """Adjust Kelly fractions for simultaneous (concurrently-settling) bets.
 
@@ -2666,6 +2742,8 @@ def auto_place_value_bets_v2(
     use_uncert    = bool(p["settings"].get("use_uncertainty_kelly", True))
     use_sim       = bool(p["settings"].get("use_simultaneous_kelly", True))
     min_raw_draw  = p["settings"].get("min_raw_draw_prob")   # None = off
+    # Draw stakes sized from the model pulled toward Pinnacle (None = off)
+    shrink_beta   = p["settings"].get("v2_market_shrink_beta")
 
     # ── Mock Two Phase 2 filters (defaults: all OFF until WF-validated) ──
     settings_v2 = p["settings"]
@@ -2697,11 +2775,9 @@ def auto_place_value_bets_v2(
     pending_singles = [b for b in p["bets"]
                        if b["status"] == "pending" and b.get("type") != "acca"]
     pending_stake = sum(b["stake"] for b in p["bets"] if b["status"] == "pending")
-    # Half the CURRENT bankroll may ride on unsettled bets: cash plus what is
-    # already staked, so the cap does not shrink as each bet is placed and holds
-    # through a gameweek. It was 50% of the season's opening bankroll until
-    # 16 Sep 2026; see scripts/validate_exposure_cap.py for the backtest.
-    max_exposure  = (p["bankroll"] + pending_stake) * 0.50
+    # Same cap as Main: a share of cash + pending, a setting since 11 Oct 2026.
+    cap_pct, cap_prorata = _exposure_settings(p["settings"])
+    max_exposure  = (p["bankroll"] + pending_stake) * cap_pct
 
     if MAX_PENDING_SINGLES is not None and len(pending_singles) >= MAX_PENDING_SINGLES:
         return []
@@ -2749,15 +2825,25 @@ def auto_place_value_bets_v2(
                 if p_var_max > 0:
                     shrink = max(0.0, 1.0 - max(0.0, var_p) / p_var_max)
 
-        if odds > 1 and eff_prob > 0:
+        size_prob, mkt_prob = eff_prob, None
+        sharp3 = c.get("sharp_1x2")
+        if (shrink_beta is not None and c.get("market") == "D" and sharp3
+                and all(float(sharp3.get(k) or 0) > 1 for k in ("H", "D", "A"))):
+            inv = {k: 1.0 / float(sharp3[k]) for k in ("H", "D", "A")}
+            mkt_prob = inv["D"] / sum(inv.values())
+            size_prob = market_shrunk_prob(eff_prob, mkt_prob, float(shrink_beta))
+
+        if odds > 1 and size_prob > 0:
             b_ = odds - 1.0
-            q_ = 1.0 - eff_prob
-            full_kelly = max(0.0, (eff_prob * b_ - q_) / b_)
+            q_ = 1.0 - size_prob
+            full_kelly = max(0.0, (size_prob * b_ - q_) / b_)
         else:
             full_kelly = 0.0
         kelly_pct = min(full_kelly * kelly_frac * shrink, max_stake_pct)
 
         enriched.append({**c,
+                         "_size_prob":  size_prob,
+                         "_mkt_prob":   mkt_prob,
                          "_eff_prob":   eff_prob,
                          "_eff_ev":     eff_ev,
                          "_raw_prob":   raw_prob,
@@ -2872,6 +2958,12 @@ def auto_place_value_bets_v2(
     else:
         dd_factor = 1.0
 
+    # Pro-rata cap allocation, as in Main.
+    prorata = (_prorata_factor(p["bankroll"],
+                               [q["_kelly_pct"] * dd_factor for q in qualifying],
+                               max_exposure - pending_stake)
+               if cap_prorata else 1.0)
+
     # Pass 4 — place bets in order
     for c in qualifying:
         # Running count, as in Main: the start-of-run check alone let a run
@@ -2879,7 +2971,7 @@ def auto_place_value_bets_v2(
         if (MAX_PENDING_SINGLES is not None
                 and len(pending_singles) + len(placed) >= MAX_PENDING_SINGLES):
             break
-        stake = round(p["bankroll"] * c["_kelly_pct"] * dd_factor, 2)
+        stake = round(p["bankroll"] * c["_kelly_pct"] * dd_factor * prorata, 2)
         if stake <= 0 or stake > p["bankroll"]:
             continue
         if pending_stake >= max_exposure:
@@ -2899,6 +2991,10 @@ def auto_place_value_bets_v2(
                                      if c.get("_var_p") is not None else None)
         bet["v2_sim_factor"]      = round(float(c.get("_sim_factor", 1.0)), 4)
         bet["v2_dd_factor"]       = round(float(dd_factor), 4)
+        if c.get("_mkt_prob") is not None:
+            bet["v2_market_prob"] = round(float(c["_mkt_prob"]), 4)
+            bet["v2_size_prob"]   = round(float(c["_size_prob"]), 4)
+            bet["v2_market_shrink_beta"] = float(shrink_beta)
         bet["model_variant"]      = p["settings"].get("model_variant", "dixon-coles-kn")
         if c.get("_detect_odds") and c["_detect_odds"] != c["odds"]:
             bet["detect_odds"] = c["_detect_odds"]

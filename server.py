@@ -23,7 +23,7 @@ def _icon(size: int):
 
 async def manifest(request):
     return JSONResponse({
-        "name": "F_PRED", "short_name": "F_PRED",
+        "name": "F Pred", "short_name": "F Pred",
         "description": "Premier League draw model, paper trading",
         "start_url": "/", "display": "standalone",
         "background_color": "#0a0e1a", "theme_color": "#0a0e1a",

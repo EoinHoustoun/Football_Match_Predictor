@@ -93,7 +93,7 @@ def format_event(e: dict) -> dict | None:
         msg = str(e.get("error") or e.get("message") or "")[:240]
         stage = e.get("stage") or t
         bucket = int(time.time() // ERROR_COOLDOWN_S)
-        return {"title": f"F_PRED {'crashed' if t == 'fatal' else 'error'}: {stage}", "body": msg,
+        return {"title": f"F Pred {'crashed' if t == 'fatal' else 'error'}: {stage}", "body": msg,
                 "tags": "warning", "priority": 5 if t == "fatal" else 4,
                 "key": f"err|{stage}|{msg[:80]}|{bucket}"}
     return None
@@ -150,7 +150,7 @@ def send_test(sender=None) -> bool:
     cfg = load_config(create=True)
     try:
         return bool((sender or _post)(cfg, {
-            "title": "F_PRED notifications are on",
+            "title": "F Pred notifications are on",
             "body": "You'll get a buzz when a bet is placed or settles, and if a run fails.",
             "tags": "soccer", "priority": 3, "key": f"test|{time.time()}"}))
     except Exception:

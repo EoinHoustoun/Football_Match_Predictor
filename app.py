@@ -137,7 +137,7 @@ def tb(team: str, size: int = 20) -> str:
 # Page config
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="F_PRED",
+    page_title="F Pred",
     page_icon="assets/icon-192.png",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -467,7 +467,8 @@ div.stButton > button[kind="tertiary"]:hover { color: #b6caff !important; transf
 .boot-card { max-width: 520px; margin: 12vh auto 0; text-align: center; background: #111627;
     border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 2rem 2rem 1.6rem; }
 .boot-card img { width: 64px !important; height: 64px !important; object-fit: cover; border-radius: 16px; margin-bottom: 0.8rem; }
-.boot-title { font-size: 1.5rem; font-weight: 900; color: #eef1f5; }
+.boot-title { font-size: 1.9rem; letter-spacing: -0.5px; font-weight: 900; color: #eef1f5; }
+.boot-tag { font-size: 0.9rem; font-weight: 700; color: #eef1f5; margin-top: 0.2rem; }
 .boot-sub { font-size: 0.9rem; color: #c9d0dc; margin: 0.4rem 0 1.2rem; line-height: 1.5; }
 .boot-step { display: flex; gap: 0.7rem; align-items: center; justify-content: flex-start;
     font-size: 0.95rem; font-weight: 700; padding: 0.35rem 0.4rem; text-align: left; }
@@ -2972,7 +2973,7 @@ def tab_predict(df, df_features, poisson_r, dc_r, dc_draw_r, xgb_m, feat_cols, d
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
     # ── Stacked probability bar — primary outcome view (full ensemble) ───
-    st.markdown('<p class="section-label" style="text-align:center">F_PRED model · Dixon-Coles + XGBoost + draw specialist</p>',
+    st.markdown('<p class="section-label" style="text-align:center">F Pred model · Dixon-Coles + XGBoost + draw specialist</p>',
                 unsafe_allow_html=True)
     st.markdown(win_prob_bar_html(final, home_team, away_team),
                 unsafe_allow_html=True)
@@ -10136,6 +10137,12 @@ NAV_GROUPS = [
         ("modelcheck", "📐", "Model Check",    "Calibration and past seasons"),
     ]),
 ]
+# Optional local-only page; the tile appears only when the module is present.
+try:
+    import model_guide as _model_guide
+    NAV_GROUPS[2][1].append(("modelguide", "🧠", "How It Works", "The model, step by step"))
+except ImportError:
+    _model_guide = None
 TAB_REGISTRY = [t for _, group in NAV_GROUPS for t in group]
 
 
@@ -10428,7 +10435,7 @@ def _render_home_screen(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_
     tone, health = _home_health()
     logo = f'<img src="{PL_SYMBOL_URI}" alt="" />' if PL_SYMBOL_URI else ""
     st.markdown(
-        f'<div class="ch-head"><div class="ch-brand">{logo}<div><div class="ch-title">F_PRED</div>'
+        f'<div class="ch-head"><div class="ch-brand">{logo}<div><div class="ch-title">F Pred</div>'
         f'<div class="ch-sub">Premier League draw model · paper trading</div></div></div>'
         f'{_preflight_chip(health, tone)}</div>', unsafe_allow_html=True)
 
@@ -10507,9 +10514,10 @@ def _render_home_screen(df, dc_r, dc_draw_r, xgb_m, feat_cols, draw_xgb_m, draw_
     # ── Pages ────────────────────────────────────────────────────────────
     for group, items in NAV_GROUPS:
         st.markdown(f'<div class="ch-group">{group}</div>', unsafe_allow_html=True)
-        cols = st.columns(3, gap="small")
         for i, (key, emoji, name, blurb) in enumerate(items):
-            with cols[i]:
+            if i % 3 == 0:
+                cols = st.columns(3, gap="small")
+            with cols[i % 3]:
                 if st.button(f"{emoji}  {name}", key=f"navtile_{key}", use_container_width=True):
                     st.session_state["_active_view"] = key
                     st.rerun()
@@ -11233,9 +11241,10 @@ def _boot_html(done: int) -> str:
         mark, cls = ("✓", "boot-done") if i < done else (("●", "boot-now") if i == done else ("○", "boot-todo"))
         rows.append(f'<div class="boot-step {cls}"><span>{mark}</span>{name}</div>')
     logo = f'<img src="{PL_SYMBOL_URI}" alt="" />' if PL_SYMBOL_URI else ""
-    return (f'<div class="boot-card">{logo}<div class="boot-title">Getting F_PRED ready</div>'
-            f'<div class="boot-sub">First load after a restart trains every model, so it takes '
-            f'a minute or two. Later pages open in seconds.</div>{"".join(rows)}</div>')
+    return (f'<div class="boot-card">{logo}<div class="boot-title">F Pred</div>'
+            f'<div class="boot-tag">Premier League draw model</div>'
+            f'<div class="boot-sub">Warming up the models for this week\'s fixtures. The first '
+            f'load after a restart takes a minute or two; after that pages open in seconds.</div>{"".join(rows)}</div>')
 
 
 def main():
@@ -11364,6 +11373,12 @@ def main():
             tab_model_check_calibration(df)
         else:
             tab_season_review(df)
+    elif active_view == "modelguide" and _model_guide is not None:
+        _model_guide.render(dict(
+            df=df, dc_r=dc_r, dc_draw_r=dc_draw_r, xgb_m=xgb_m, feat_cols=feat_cols,
+            draw_xgb_m=draw_xgb_m, draw_fc=draw_fc, teams=teams, elo_dict=elo_dict,
+            badge=badge, get_current_stats=get_current_stats,
+            calibrators=lambda: cached_calibrators(len(df))))
     elif active_view == "portfolio":
         if _view_switch("_pf_line", ["Main", "Mock Two"]) == "Main":
             tab_portfolio(df, df_features, dc_r, dc_draw_r, xgb_m, feat_cols,

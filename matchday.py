@@ -52,6 +52,9 @@ def build_candidates(preds: list[dict], live_odds_map: dict,
         if not api_o or "H" not in api_o:
             continue
         pinn = api_o.get("_pinnacle") if isinstance(api_o, dict) else None
+        sharp_1x2 = ({k: float(pinn[k]) for k in ("H", "D", "A")}
+                     if pinn and all((pinn.get(k) or 0) > 1 for k in ("H", "D", "A"))
+                     else None)
         main_res, mt_res, p_o25 = fx["main"], fx["mt"], fx["p_o25"]
         for mkt, m_prob, mt_prob, lbl in [
             ("H",       main_res["home_win"], mt_res["home_win"], f"Home Win ({h})"),
@@ -70,7 +73,7 @@ def build_candidates(preds: list[dict], live_odds_map: dict,
                         home_elo=elo_dict.get(h), away_elo=elo_dict.get(a))
             main_cands.append({**base, "model_prob": m_prob,
                                "ev": pf.compute_ev(m_prob, ev_ref) if ev_ref else -1})
-            mt_cands.append({**base, "model_prob": mt_prob,
+            mt_cands.append({**base, "model_prob": mt_prob, "sharp_1x2": sharp_1x2,
                              "ev": pf.compute_ev(mt_prob, ev_ref) if ev_ref else -1})
     return main_cands, mt_cands
 
