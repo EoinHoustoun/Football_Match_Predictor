@@ -439,6 +439,12 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important
 .fx-bar-model { height: 32px; }
 .fx-bar-mkt { height: 22px; opacity: 0.78; }
 .fx-bar-mkt div { font-size: 0.78rem !important; }
+/* Our model wears its own colours (cyan / lime / pink) so it never reads as the market */
+.fx-bar-model .bar-home { background: linear-gradient(135deg, #00b8d9 0%, #00e5ff 100%); }
+.fx-bar-model .bar-draw { background: linear-gradient(135deg, #9be22d 0%, #c6ff00 100%); }
+.fx-bar-model .bar-away { background: linear-gradient(135deg, #ff6fa1 0%, #ff8ab4 100%); }
+.fx-bar-model div { /* on: #ff6fa1 */ color: #0b0f1a !important; text-shadow: none !important; }
+.fx-bar-row:first-child .fx-bar-lbl { color: #c6ff00; }
 .fx-draw { margin-top: 0.7rem; font-size: 0.88rem; color: #eef1f5; line-height: 1.5; }
 .fx-draw b { color: #ffd600; }
 .fx-freq { display: block; font-size: 0.84rem; color: #c9d0dc; }
